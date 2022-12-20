@@ -23,7 +23,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Streams;
-import io.trino.connector.CatalogHandle;
 import io.trino.metadata.AnalyzeMetadata;
 import io.trino.metadata.QualifiedObjectName;
 import io.trino.metadata.ResolvedFunction;
@@ -33,6 +32,7 @@ import io.trino.metadata.TableLayout;
 import io.trino.security.AccessControl;
 import io.trino.security.SecurityContext;
 import io.trino.spi.QueryId;
+import io.trino.spi.connector.CatalogHandle;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnSchema;
 import io.trino.spi.connector.ConnectorTableMetadata;
@@ -2222,6 +2222,7 @@ public class Analysis
         private final String functionName;
         private final Map<String, Argument> arguments;
         private final List<TableArgumentAnalysis> tableArgumentAnalyses;
+        private final Map<String, List<Integer>> requiredColumns;
         private final List<List<String>> copartitioningLists;
         private final int properColumnsCount;
         private final ConnectorTableFunctionHandle connectorTableFunctionHandle;
@@ -2232,6 +2233,7 @@ public class Analysis
                 String functionName,
                 Map<String, Argument> arguments,
                 List<TableArgumentAnalysis> tableArgumentAnalyses,
+                Map<String, List<Integer>> requiredColumns,
                 List<List<String>> copartitioningLists,
                 int properColumnsCount,
                 ConnectorTableFunctionHandle connectorTableFunctionHandle,
@@ -2241,6 +2243,8 @@ public class Analysis
             this.functionName = requireNonNull(functionName, "functionName is null");
             this.arguments = ImmutableMap.copyOf(arguments);
             this.tableArgumentAnalyses = ImmutableList.copyOf(tableArgumentAnalyses);
+            this.requiredColumns = requiredColumns.entrySet().stream()
+                    .collect(toImmutableMap(Map.Entry::getKey, entry -> ImmutableList.copyOf(entry.getValue())));
             this.copartitioningLists = ImmutableList.copyOf(copartitioningLists);
             this.properColumnsCount = properColumnsCount;
             this.connectorTableFunctionHandle = requireNonNull(connectorTableFunctionHandle, "connectorTableFunctionHandle is null");
@@ -2265,6 +2269,11 @@ public class Analysis
         public List<TableArgumentAnalysis> getTableArgumentAnalyses()
         {
             return tableArgumentAnalyses;
+        }
+
+        public Map<String, List<Integer>> getRequiredColumns()
+        {
+            return requiredColumns;
         }
 
         public List<List<String>> getCopartitioningLists()

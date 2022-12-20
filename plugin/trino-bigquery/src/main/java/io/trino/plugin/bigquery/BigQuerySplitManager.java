@@ -47,6 +47,7 @@ import static com.google.cloud.bigquery.TableDefinition.Type.EXTERNAL;
 import static com.google.cloud.bigquery.TableDefinition.Type.MATERIALIZED_VIEW;
 import static com.google.cloud.bigquery.TableDefinition.Type.TABLE;
 import static com.google.cloud.bigquery.TableDefinition.Type.VIEW;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.plugin.bigquery.BigQueryErrorCode.BIGQUERY_FAILED_TO_EXECUTE_QUERY;
 import static io.trino.plugin.bigquery.BigQuerySessionProperties.createDisposition;
@@ -103,7 +104,7 @@ public class BigQuerySplitManager
         Optional<String> filter = BigQueryFilterQueryBuilder.buildFilter(tableConstraint);
 
         if (!bigQueryTableHandle.isNamedRelation()) {
-            List<ColumnHandle> columns = bigQueryTableHandle.getProjectedColumns().orElse(ImmutableList.of());
+            List<BigQueryColumnHandle> columns = bigQueryTableHandle.getProjectedColumns().orElse(ImmutableList.of());
             return new FixedSplitSource(ImmutableList.of(BigQuerySplit.forViewStream(columns, filter)));
         }
 
@@ -114,17 +115,19 @@ public class BigQuerySplitManager
         return new FixedSplitSource(splits);
     }
 
-    private static boolean emptyProjectionIsRequired(Optional<List<ColumnHandle>> projectedColumns)
+    private static boolean emptyProjectionIsRequired(Optional<List<BigQueryColumnHandle>> projectedColumns)
     {
         return projectedColumns.isPresent() && projectedColumns.get().isEmpty();
     }
 
-    private List<BigQuerySplit> readFromBigQuery(ConnectorSession session, TableDefinition.Type type, TableId remoteTableId, Optional<List<ColumnHandle>> projectedColumns, int actualParallelism, Optional<String> filter)
+    private List<BigQuerySplit> readFromBigQuery(ConnectorSession session, TableDefinition.Type type, TableId remoteTableId, Optional<List<BigQueryColumnHandle>> projectedColumns, int actualParallelism, Optional<String> filter)
     {
+        checkArgument(projectedColumns.isPresent() && projectedColumns.get().size() > 0, "Projected column is empty");
+
         log.debug("readFromBigQuery(tableId=%s, projectedColumns=%s, actualParallelism=%s, filter=[%s])", remoteTableId, projectedColumns, actualParallelism, filter);
-        List<ColumnHandle> columns = projectedColumns.orElse(ImmutableList.of());
+        List<BigQueryColumnHandle> columns = projectedColumns.get();
         List<String> projectedColumnsNames = columns.stream()
-                .map(column -> ((BigQueryColumnHandle) column).getName())
+                .map(BigQueryColumnHandle::getName)
                 .collect(toImmutableList());
 
         if (isWildcardTable(type, remoteTableId.getTable())) {

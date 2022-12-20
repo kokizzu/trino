@@ -57,7 +57,7 @@
         <dep.jsonwebtoken.version>0.11.2</dep.jsonwebtoken.version>
         <dep.oracle.version>19.3.0.0</dep.oracle.version>
         <dep.drift.version>1.14</dep.drift.version>
-        <dep.tempto.version>189</dep.tempto.version>
+        <dep.tempto.version>190</dep.tempto.version>
         <dep.gcs.version>2.2.8</dep.gcs.version>
         <dep.errorprone.version>2.15.0</dep.errorprone.version>
         <dep.testcontainers.version>1.17.3</dep.testcontainers.version>
@@ -66,7 +66,7 @@
         <dep.confluent.version>5.5.2</dep.confluent.version>
         <dep.casandra.version>4.14.0</dep.casandra.version>
         <dep.minio.version>7.1.4</dep.minio.version>
-        <dep.iceberg.version>1.0.0</dep.iceberg.version>
+        <dep.iceberg.version>1.1.0</dep.iceberg.version>
         <dep.spotbugs-annotations.version>4.7.2</dep.spotbugs-annotations.version>
         <dep.protobuf.version>3.21.6</dep.protobuf.version>
         <dep.wire.version>3.2.2</dep.wire.version>
@@ -1536,7 +1536,7 @@
             <dependency>
                 <groupId>mysql</groupId>
                 <artifactId>mysql-connector-java</artifactId>
-                <version>8.0.22</version>
+                <version>8.0.29</version>
             </dependency>
 
             <dependency>
