@@ -19,6 +19,8 @@ import com.google.common.collect.ListMultimap;
 import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
 import io.airlift.units.DataSize;
+import io.trino.memory.context.AggregatedMemoryContext;
+import io.trino.memory.context.LocalMemoryContext;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -26,6 +28,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
+import static com.google.common.base.MoreObjects.toStringHelper;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Verify.verify;
 import static java.lang.Math.toIntExact;
@@ -116,7 +120,7 @@ public abstract class AbstractParquetDataSource
     }
 
     @Override
-    public final <K> ListMultimap<K, ChunkReader> planRead(ListMultimap<K, DiskRange> diskRanges)
+    public final <K> ListMultimap<K, ChunkReader> planRead(ListMultimap<K, DiskRange> diskRanges, AggregatedMemoryContext memoryContext)
     {
         requireNonNull(diskRanges, "diskRanges is null");
 
@@ -136,7 +140,7 @@ public abstract class AbstractParquetDataSource
                 smallRangesBuilder.put(entry);
             }
             else {
-                largeRangesBuilder.put(entry);
+                largeRangesBuilder.putAll(entry.getKey(), splitLargeRange(entry.getValue()));
             }
         }
         ListMultimap<K, DiskRange> smallRanges = smallRangesBuilder.build();
@@ -144,16 +148,36 @@ public abstract class AbstractParquetDataSource
 
         // read ranges
         ImmutableListMultimap.Builder<K, ChunkReader> slices = ImmutableListMultimap.builder();
-        slices.putAll(readSmallDiskRanges(smallRanges));
-        slices.putAll(readLargeDiskRanges(largeRanges));
-        // Re-order ChunkReaders by their DiskRange offsets as ParquetColumnChunk expects
+        slices.putAll(readSmallDiskRanges(smallRanges, memoryContext));
+        slices.putAll(readLargeDiskRanges(largeRanges, memoryContext));
+        // Re-order ChunkReaders by their DiskRange offsets as ParquetColumnChunkIterator expects
         // the input slices to be in the order that they're present in the file
         slices.orderValuesBy(comparingLong(ChunkReader::getDiskOffset));
 
         return slices.build();
     }
 
-    private <K> ListMultimap<K, ChunkReader> readSmallDiskRanges(ListMultimap<K, DiskRange> diskRanges)
+    private List<DiskRange> splitLargeRange(DiskRange range)
+    {
+        int maxBufferSizeBytes = toIntExact(options.getMaxBufferSize().toBytes());
+        checkArgument(maxBufferSizeBytes > 0, "maxBufferSize must by larger than zero but is %s bytes", maxBufferSizeBytes);
+        ImmutableList.Builder<DiskRange> ranges = ImmutableList.builder();
+        long endOffset = range.getOffset() + range.getLength();
+        long offset = range.getOffset();
+        while (offset + maxBufferSizeBytes < endOffset) {
+            ranges.add(new DiskRange(offset, maxBufferSizeBytes));
+            offset += maxBufferSizeBytes;
+        }
+
+        long lengthLeft = endOffset - offset;
+        if (lengthLeft > 0) {
+            ranges.add(new DiskRange(offset, toIntExact(lengthLeft)));
+        }
+
+        return ranges.build();
+    }
+
+    private <K> ListMultimap<K, ChunkReader> readSmallDiskRanges(ListMultimap<K, DiskRange> diskRanges, AggregatedMemoryContext memoryContext)
     {
         if (diskRanges.isEmpty()) {
             return ImmutableListMultimap.of();
@@ -163,7 +187,7 @@ public abstract class AbstractParquetDataSource
 
         ImmutableListMultimap.Builder<K, ChunkReader> slices = ImmutableListMultimap.builder();
         for (DiskRange mergedRange : mergedRanges) {
-            ReferenceCountedReader mergedRangeLoader = new ReferenceCountedReader(mergedRange);
+            ReferenceCountedReader mergedRangeLoader = new ReferenceCountedReader(mergedRange, memoryContext);
 
             for (Map.Entry<K, DiskRange> diskRangeEntry : diskRanges.entries()) {
                 DiskRange diskRange = diskRangeEntry.getValue();
@@ -183,7 +207,7 @@ public abstract class AbstractParquetDataSource
                                 throws IOException
                         {
                             int offset = toIntExact(diskRange.getOffset() - mergedRange.getOffset());
-                            return mergedRangeLoader.read().slice(offset, diskRange.getLength());
+                            return mergedRangeLoader.read().slice(offset, toIntExact(diskRange.getLength()));
                         }
 
                         @Override
@@ -203,7 +227,7 @@ public abstract class AbstractParquetDataSource
         return sliceStreams;
     }
 
-    private <K> ListMultimap<K, ChunkReader> readLargeDiskRanges(ListMultimap<K, DiskRange> diskRanges)
+    private <K> ListMultimap<K, ChunkReader> readLargeDiskRanges(ListMultimap<K, DiskRange> diskRanges, AggregatedMemoryContext memoryContext)
     {
         if (diskRanges.isEmpty()) {
             return ImmutableListMultimap.of();
@@ -211,7 +235,7 @@ public abstract class AbstractParquetDataSource
 
         ImmutableListMultimap.Builder<K, ChunkReader> slices = ImmutableListMultimap.builder();
         for (Map.Entry<K, DiskRange> entry : diskRanges.entries()) {
-            slices.put(entry.getKey(), new ReferenceCountedReader(entry.getValue()));
+            slices.put(entry.getKey(), new ReferenceCountedReader(entry.getValue(), memoryContext));
         }
         return slices.build();
     }
@@ -254,13 +278,18 @@ public abstract class AbstractParquetDataSource
     private class ReferenceCountedReader
             implements ChunkReader
     {
+        // See jdk.internal.util.ArraysSupport.SOFT_MAX_ARRAY_LENGTH for an explanation
+        private static final int MAX_ARRAY_SIZE = Integer.MAX_VALUE - 8;
         private final DiskRange range;
+        private final LocalMemoryContext readerMemoryUsage;
         private Slice data;
         private int referenceCount = 1;
 
-        public ReferenceCountedReader(DiskRange range)
+        public ReferenceCountedReader(DiskRange range, AggregatedMemoryContext memoryContext)
         {
             this.range = range;
+            checkArgument(range.getLength() <= MAX_ARRAY_SIZE, "Cannot read range bigger than %s but got %s", MAX_ARRAY_SIZE, range);
+            this.readerMemoryUsage = memoryContext.newLocalMemoryContext(ReferenceCountedReader.class.getSimpleName());
         }
 
         public void addReference()
@@ -282,9 +311,10 @@ public abstract class AbstractParquetDataSource
             checkState(referenceCount > 0, "Chunk reader is already closed");
 
             if (data == null) {
-                byte[] buffer = new byte[range.getLength()];
+                byte[] buffer = new byte[toIntExact(range.getLength())];
                 readFully(range.getOffset(), buffer, 0, buffer.length);
                 data = Slices.wrappedBuffer(buffer);
+                readerMemoryUsage.setBytes(data.length());
             }
 
             return data;
@@ -298,7 +328,17 @@ public abstract class AbstractParquetDataSource
             referenceCount--;
             if (referenceCount == 0) {
                 data = null;
+                readerMemoryUsage.setBytes(0);
             }
+        }
+
+        @Override
+        public String toString()
+        {
+            return toStringHelper(this)
+                    .add("range", range)
+                    .add("referenceCount", referenceCount)
+                    .toString();
         }
     }
 }

@@ -13,9 +13,13 @@
  */
 package io.trino.parquet.reader.decoders;
 
+import io.trino.parquet.DictionaryPage;
 import io.trino.parquet.ParquetEncoding;
 import io.trino.parquet.PrimitiveField;
+import io.trino.parquet.reader.SimpleSliceInputStream;
 import io.trino.parquet.reader.flat.BinaryBuffer;
+import io.trino.parquet.reader.flat.ColumnAdapter;
+import io.trino.parquet.reader.flat.DictionaryDecoder;
 import io.trino.spi.type.CharType;
 import io.trino.spi.type.DecimalType;
 import io.trino.spi.type.Type;
@@ -30,8 +34,6 @@ import static io.trino.parquet.reader.decoders.ApacheParquetValueDecoders.Boolea
 import static io.trino.parquet.reader.decoders.ApacheParquetValueDecoders.BoundedVarcharApacheParquetValueDecoder;
 import static io.trino.parquet.reader.decoders.ApacheParquetValueDecoders.ByteApacheParquetValueDecoder;
 import static io.trino.parquet.reader.decoders.ApacheParquetValueDecoders.CharApacheParquetValueDecoder;
-import static io.trino.parquet.reader.decoders.ApacheParquetValueDecoders.DoubleApacheParquetValueDecoder;
-import static io.trino.parquet.reader.decoders.ApacheParquetValueDecoders.FloatApacheParquetValueDecoder;
 import static io.trino.parquet.reader.decoders.ApacheParquetValueDecoders.Int96ApacheParquetValueDecoder;
 import static io.trino.parquet.reader.decoders.ApacheParquetValueDecoders.IntApacheParquetValueDecoder;
 import static io.trino.parquet.reader.decoders.ApacheParquetValueDecoders.IntToLongApacheParquetValueDecoder;
@@ -40,6 +42,18 @@ import static io.trino.parquet.reader.decoders.ApacheParquetValueDecoders.LongDe
 import static io.trino.parquet.reader.decoders.ApacheParquetValueDecoders.ShortApacheParquetValueDecoder;
 import static io.trino.parquet.reader.decoders.ApacheParquetValueDecoders.ShortDecimalApacheParquetValueDecoder;
 import static io.trino.parquet.reader.decoders.ApacheParquetValueDecoders.UuidApacheParquetValueDecoder;
+import static io.trino.parquet.reader.decoders.PlainByteArrayDecoders.BinaryPlainValueDecoder;
+import static io.trino.parquet.reader.decoders.PlainByteArrayDecoders.BoundedVarcharPlainValueDecoder;
+import static io.trino.parquet.reader.decoders.PlainByteArrayDecoders.CharPlainValueDecoder;
+import static io.trino.parquet.reader.decoders.PlainValueDecoders.BooleanPlainValueDecoder;
+import static io.trino.parquet.reader.decoders.PlainValueDecoders.IntPlainValueDecoder;
+import static io.trino.parquet.reader.decoders.PlainValueDecoders.IntToBytePlainValueDecoder;
+import static io.trino.parquet.reader.decoders.PlainValueDecoders.IntToLongPlainValueDecoder;
+import static io.trino.parquet.reader.decoders.PlainValueDecoders.IntToShortPlainValueDecoder;
+import static io.trino.parquet.reader.decoders.PlainValueDecoders.LongDecimalPlainValueDecoder;
+import static io.trino.parquet.reader.decoders.PlainValueDecoders.LongPlainValueDecoder;
+import static io.trino.parquet.reader.decoders.PlainValueDecoders.ShortDecimalFixedLengthByteArrayDecoder;
+import static io.trino.parquet.reader.decoders.PlainValueDecoders.UuidPlainValueDecoder;
 import static io.trino.parquet.reader.flat.Int96ColumnAdapter.Int96Buffer;
 
 /**
@@ -56,7 +70,7 @@ public final class ValueDecoders
     public static ValueDecoder<long[]> getDoubleDecoder(ParquetEncoding encoding, PrimitiveField field)
     {
         if (PLAIN.equals(encoding)) {
-            return new DoubleApacheParquetValueDecoder(getApacheParquetReader(encoding, field));
+            return new LongPlainValueDecoder();
         }
         throw wrongEncoding(encoding, field);
     }
@@ -64,7 +78,7 @@ public final class ValueDecoders
     public static ValueDecoder<int[]> getRealDecoder(ParquetEncoding encoding, PrimitiveField field)
     {
         if (PLAIN.equals(encoding)) {
-            return new FloatApacheParquetValueDecoder(getApacheParquetReader(encoding, field));
+            return new IntPlainValueDecoder();
         }
         throw wrongEncoding(encoding, field);
     }
@@ -92,7 +106,8 @@ public final class ValueDecoders
     public static ValueDecoder<long[]> getUuidDecoder(ParquetEncoding encoding, PrimitiveField field)
     {
         return switch (encoding) {
-            case PLAIN, DELTA_BYTE_ARRAY ->
+            case PLAIN -> new UuidPlainValueDecoder();
+            case DELTA_BYTE_ARRAY ->
                     new UuidApacheParquetValueDecoder(getApacheParquetReader(encoding, field));
             default -> throw wrongEncoding(encoding, field);
         };
@@ -101,7 +116,8 @@ public final class ValueDecoders
     public static ValueDecoder<long[]> getLongDecoder(ParquetEncoding encoding, PrimitiveField field)
     {
         return switch (encoding) {
-            case PLAIN, DELTA_BINARY_PACKED, RLE, BIT_PACKED ->
+            case PLAIN -> new LongPlainValueDecoder();
+            case DELTA_BINARY_PACKED, RLE, BIT_PACKED ->
                     new LongApacheParquetValueDecoder(getApacheParquetReader(encoding, field));
             default -> throw wrongEncoding(encoding, field);
         };
@@ -111,7 +127,8 @@ public final class ValueDecoders
     {
         // We need to produce LongArrayBlock from the decoded integers for INT32 backed decimals and bigints
         return switch (encoding) {
-            case PLAIN, DELTA_BINARY_PACKED, RLE, BIT_PACKED ->
+            case PLAIN -> new IntToLongPlainValueDecoder();
+            case DELTA_BINARY_PACKED, RLE, BIT_PACKED ->
                     new IntToLongApacheParquetValueDecoder(getApacheParquetReader(encoding, field));
             default -> throw wrongEncoding(encoding, field);
         };
@@ -120,7 +137,8 @@ public final class ValueDecoders
     public static ValueDecoder<int[]> getIntDecoder(ParquetEncoding encoding, PrimitiveField field)
     {
         return switch (encoding) {
-            case PLAIN, DELTA_BINARY_PACKED, RLE, BIT_PACKED ->
+            case PLAIN -> new IntPlainValueDecoder();
+            case DELTA_BINARY_PACKED, RLE, BIT_PACKED ->
                     new IntApacheParquetValueDecoder(getApacheParquetReader(encoding, field));
             default -> throw wrongEncoding(encoding, field);
         };
@@ -129,7 +147,8 @@ public final class ValueDecoders
     public static ValueDecoder<byte[]> getByteDecoder(ParquetEncoding encoding, PrimitiveField field)
     {
         return switch (encoding) {
-            case PLAIN, DELTA_BINARY_PACKED, RLE, BIT_PACKED ->
+            case PLAIN -> new IntToBytePlainValueDecoder();
+            case DELTA_BINARY_PACKED, RLE, BIT_PACKED ->
                     new ByteApacheParquetValueDecoder(getApacheParquetReader(encoding, field));
             default -> throw wrongEncoding(encoding, field);
         };
@@ -138,7 +157,8 @@ public final class ValueDecoders
     public static ValueDecoder<short[]> getShortDecoder(ParquetEncoding encoding, PrimitiveField field)
     {
         return switch (encoding) {
-            case PLAIN, DELTA_BINARY_PACKED, RLE, BIT_PACKED ->
+            case PLAIN -> new IntToShortPlainValueDecoder();
+            case DELTA_BINARY_PACKED, RLE, BIT_PACKED ->
                     new ShortApacheParquetValueDecoder(getApacheParquetReader(encoding, field));
             default -> throw wrongEncoding(encoding, field);
         };
@@ -147,7 +167,8 @@ public final class ValueDecoders
     public static ValueDecoder<byte[]> getBooleanDecoder(ParquetEncoding encoding, PrimitiveField field)
     {
         return switch (encoding) {
-            case PLAIN, RLE, BIT_PACKED -> new BooleanApacheParquetValueDecoder(getApacheParquetReader(encoding, field));
+            case PLAIN -> new BooleanPlainValueDecoder();
+            case RLE, BIT_PACKED -> new BooleanApacheParquetValueDecoder(getApacheParquetReader(encoding, field));
             default -> throw wrongEncoding(encoding, field);
         };
     }
@@ -160,10 +181,11 @@ public final class ValueDecoders
         throw wrongEncoding(encoding, field);
     }
 
-    private static ValueDecoder<long[]> getFixedWidthShortDecimalDecoder(ParquetEncoding encoding, PrimitiveField field, DecimalType decimalType)
+    public static ValueDecoder<long[]> getFixedWidthShortDecimalDecoder(ParquetEncoding encoding, PrimitiveField field, DecimalType decimalType)
     {
         return switch (encoding) {
-            case PLAIN, DELTA_BYTE_ARRAY -> new ShortDecimalApacheParquetValueDecoder(
+            case PLAIN -> new ShortDecimalFixedLengthByteArrayDecoder(decimalType, field.getDescriptor());
+            case DELTA_BYTE_ARRAY -> new ShortDecimalApacheParquetValueDecoder(
                     getApacheParquetReader(encoding, field),
                     decimalType,
                     field.getDescriptor());
@@ -171,10 +193,11 @@ public final class ValueDecoders
         };
     }
 
-    private static ValueDecoder<long[]> getFixedWidthLongDecimalDecoder(ParquetEncoding encoding, PrimitiveField field)
+    public static ValueDecoder<long[]> getFixedWidthLongDecimalDecoder(ParquetEncoding encoding, PrimitiveField field)
     {
         return switch (encoding) {
-            case PLAIN, DELTA_BYTE_ARRAY ->
+            case PLAIN -> new LongDecimalPlainValueDecoder(field.getDescriptor().getPrimitiveType().getTypeLength());
+            case DELTA_BYTE_ARRAY ->
                     new LongDecimalApacheParquetValueDecoder(getApacheParquetReader(encoding, field));
             default -> throw wrongEncoding(encoding, field);
         };
@@ -197,7 +220,8 @@ public final class ValueDecoders
                 "Trino type %s is not a bounded varchar",
                 trinoType);
         return switch (encoding) {
-            case PLAIN, DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY ->
+            case PLAIN -> new BoundedVarcharPlainValueDecoder((VarcharType) trinoType);
+            case DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY ->
                     new BoundedVarcharApacheParquetValueDecoder(getApacheParquetReader(encoding, field), (VarcharType) trinoType);
             default -> throw wrongEncoding(encoding, field);
         };
@@ -211,7 +235,8 @@ public final class ValueDecoders
                 "Trino type %s is not a char",
                 trinoType);
         return switch (encoding) {
-            case PLAIN, DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY ->
+            case PLAIN -> new CharPlainValueDecoder((CharType) trinoType);
+            case DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY ->
                     new CharApacheParquetValueDecoder(getApacheParquetReader(encoding, field), (CharType) trinoType);
             default -> throw wrongEncoding(encoding, field);
         };
@@ -220,10 +245,23 @@ public final class ValueDecoders
     public static ValueDecoder<BinaryBuffer> getBinaryDecoder(ParquetEncoding encoding, PrimitiveField field)
     {
         return switch (encoding) {
-            case PLAIN, DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY ->
+            case PLAIN -> new BinaryPlainValueDecoder();
+            case DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY ->
                     new BinaryApacheParquetValueDecoder(getApacheParquetReader(encoding, field));
             default -> throw wrongEncoding(encoding, field);
         };
+    }
+
+    public static <T> DictionaryDecoder<T> getDictionaryDecoder(
+            DictionaryPage dictionaryPage,
+            ColumnAdapter<T> columnAdapter,
+            ValueDecoder<T> plainValuesDecoder)
+    {
+        int size = dictionaryPage.getDictionarySize();
+        T dictionary = columnAdapter.createBuffer(size);
+        plainValuesDecoder.init(new SimpleSliceInputStream(dictionaryPage.getSlice()));
+        plainValuesDecoder.read(dictionary, 0, size);
+        return new DictionaryDecoder<>(dictionary, columnAdapter);
     }
 
     private static ValuesReader getApacheParquetReader(ParquetEncoding encoding, PrimitiveField field)

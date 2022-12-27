@@ -2535,7 +2535,7 @@ public abstract class BaseConnectorTest
     public void testCreateTableAsSelect()
     {
         String tableName = "test_ctas" + randomNameSuffix();
-        if (!hasBehavior(SUPPORTS_CREATE_TABLE)) {
+        if (!hasBehavior(SUPPORTS_CREATE_TABLE_WITH_DATA)) {
             assertQueryFails("CREATE TABLE IF NOT EXISTS " + tableName + " AS SELECT name, regionkey FROM nation", "This connector does not support creating tables with data");
             return;
         }
@@ -2673,12 +2673,11 @@ public abstract class BaseConnectorTest
     @Test
     public void testCreateTableAsSelectNegativeDate()
     {
+        // Covered by testCreateTableAsSelect
+        skipTestUnless(hasBehavior(SUPPORTS_CREATE_TABLE_WITH_DATA));
+
         String tableName = "negative_date_" + randomNameSuffix();
 
-        if (!hasBehavior(SUPPORTS_CREATE_TABLE_WITH_DATA)) {
-            assertQueryFails(format("CREATE TABLE %s AS SELECT DATE '-0001-01-01' AS dt", tableName), "This connector does not support creating tables with data");
-            return;
-        }
         if (!hasBehavior(SUPPORTS_NEGATIVE_DATE)) {
             assertQueryFails(format("CREATE TABLE %s AS SELECT DATE '-0001-01-01' AS dt", tableName), errorMessageForCreateTableAsSelectNegativeDate("-0001-01-01"));
             return;
@@ -3836,6 +3835,7 @@ public abstract class BaseConnectorTest
             assertUpdate("INSERT INTO " + table.getName() + " VALUES (2, row('first', 1)), (20, row('second', 10)), (200, row('third', 100))", 3);
             assertQuery("SELECT int_t FROM " + table.getName() + " WHERE row_t.int_t = 1", "VALUES 2");
             assertQuery("SELECT int_t FROM " + table.getName() + " WHERE row_t.int_t > 1", "VALUES 20, 200");
+            assertQuery("SELECT int_t FROM " + table.getName() + " WHERE int_t = 2 AND row_t.int_t = 1", "VALUES 2");
         }
     }
 

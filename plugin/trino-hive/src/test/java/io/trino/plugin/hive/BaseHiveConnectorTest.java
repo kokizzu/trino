@@ -2872,6 +2872,24 @@ public abstract class BaseHiveConnectorTest
     }
 
     @Test
+    public void testUnregisterPartitionWithNullArgument()
+    {
+        assertQueryFails("CALL system.unregister_partition(NULL, 'page_views', ARRAY['country'], ARRAY['US'])", ".*schema_name cannot be null.*");
+        assertQueryFails("CALL system.unregister_partition('web', NULL, ARRAY['country'], ARRAY['US'])", ".*table_name cannot be null.*");
+        assertQueryFails("CALL system.unregister_partition('web', 'page_views', NULL, ARRAY['US'])", ".*partition_columns cannot be null.*");
+        assertQueryFails("CALL system.unregister_partition('web', 'page_views', ARRAY['country'], NULL)", ".*partition_values cannot be null.*");
+    }
+
+    @Test
+    public void testRegisterPartitionWithNullArgument()
+    {
+        assertQueryFails("CALL system.register_partition(NULL, 'page_views', ARRAY['country'], ARRAY['US'])", ".*schema_name cannot be null.*");
+        assertQueryFails("CALL system.register_partition('web', NULL, ARRAY['country'], ARRAY['US'])", ".*table_name cannot be null.*");
+        assertQueryFails("CALL system.register_partition('web', 'page_views', NULL, ARRAY['US'])", ".*partition_columns cannot be null.*");
+        assertQueryFails("CALL system.register_partition('web', 'page_views', ARRAY['country'], NULL)", ".*partition_values cannot be null.*");
+    }
+
+    @Test
     public void testCreateEmptyBucketedPartition()
     {
         for (TestingHiveStorageFormat storageFormat : getAllTestingHiveStorageFormat()) {
@@ -2905,6 +2923,15 @@ public abstract class BaseHiveConnectorTest
         assertQueryFails(
                 format("CALL system.create_empty_partition('%s', '%s', ARRAY['part'], ARRAY['%s'])", TPCH_SCHEMA, "non_existing_table", "empty"),
                 format("Table '%s.%s' does not exist", TPCH_SCHEMA, "non_existing_table"));
+    }
+
+    @Test
+    public void testCreateEmptyPartitionWithNullArgument()
+    {
+        assertQueryFails("CALL system.create_empty_partition(NULL, 'page_views', ARRAY['country'], ARRAY['US'])", "schema_name cannot be null");
+        assertQueryFails("CALL system.create_empty_partition('web', NULL, ARRAY['country'], ARRAY['US'])", "table_name cannot be null");
+        assertQueryFails("CALL system.create_empty_partition('web', 'page_views', NULL, ARRAY['US'])", "partition_columns cannot be null");
+        assertQueryFails("CALL system.create_empty_partition('web', 'page_views', ARRAY['country'], NULL)", "partition_values cannot be null");
     }
 
     @Test
@@ -7275,6 +7302,13 @@ public abstract class BaseHiveConnectorTest
     }
 
     @Test
+    public void testDropStatsPartitionedTableWithNullArgument()
+    {
+        assertQueryFails("CALL system.drop_stats(NULL, 'page_views')", "schema_name cannot be null");
+        assertQueryFails("CALL system.drop_stats('web', NULL)", "table_name cannot be null");
+    }
+
+    @Test
     public void testDropStatsUnpartitionedTable()
     {
         String tableName = "test_drop_all_stats_unpartitioned_table";
@@ -7866,19 +7900,19 @@ public abstract class BaseHiveConnectorTest
         assertQueryFails(
                 session,
                 "CREATE TABLE test_invalid_precision_timestamp(ts) AS SELECT TIMESTAMP '2001-02-03 11:22:33.123456789'",
-                "\\QIncorrect timestamp precision for timestamp(9); the configured precision is " + HiveTimestampPrecision.MICROSECONDS);
+                "\\QIncorrect timestamp precision for timestamp(9); the configured precision is " + HiveTimestampPrecision.MICROSECONDS + "; column name: ts");
         assertQueryFails(
                 session,
                 "CREATE TABLE test_invalid_precision_timestamp (ts TIMESTAMP(9))",
-                "\\QIncorrect timestamp precision for timestamp(9); the configured precision is " + HiveTimestampPrecision.MICROSECONDS);
+                "\\QIncorrect timestamp precision for timestamp(9); the configured precision is " + HiveTimestampPrecision.MICROSECONDS + "; column name: ts");
         assertQueryFails(
                 session,
                 "CREATE TABLE test_invalid_precision_timestamp(ts) AS SELECT TIMESTAMP '2001-02-03 11:22:33.123'",
-                "\\QIncorrect timestamp precision for timestamp(3); the configured precision is " + HiveTimestampPrecision.MICROSECONDS);
+                "\\QIncorrect timestamp precision for timestamp(3); the configured precision is " + HiveTimestampPrecision.MICROSECONDS + "; column name: ts");
         assertQueryFails(
                 session,
                 "CREATE TABLE test_invalid_precision_timestamp (ts TIMESTAMP(3))",
-                "\\QIncorrect timestamp precision for timestamp(3); the configured precision is " + HiveTimestampPrecision.MICROSECONDS);
+                "\\QIncorrect timestamp precision for timestamp(3); the configured precision is " + HiveTimestampPrecision.MICROSECONDS + "; column name: ts");
     }
 
     @Test
