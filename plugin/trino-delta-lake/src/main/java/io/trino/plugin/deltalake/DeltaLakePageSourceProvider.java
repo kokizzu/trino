@@ -103,7 +103,7 @@ public class DeltaLakePageSourceProvider
         this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
         this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
         this.fileFormatDataSourceStats = requireNonNull(fileFormatDataSourceStats, "fileFormatDataSourceStats is null");
-        this.parquetReaderOptions = parquetReaderConfig.toParquetReaderOptions();
+        this.parquetReaderOptions = parquetReaderConfig.toParquetReaderOptions().withBloomFilter(false);
         this.domainCompactionThreshold = deltaLakeConfig.getDomainCompactionThreshold();
         this.parquetDateTimeZone = deltaLakeConfig.getParquetDateTimeZone();
         this.executorService = requireNonNull(executorService, "executorService is null");
@@ -197,7 +197,8 @@ public class DeltaLakePageSourceProvider
                     parquetReaderOptions,
                     parquetPredicate,
                     typeManager,
-                    updateResultJsonCodec);
+                    updateResultJsonCodec,
+                    domainCompactionThreshold);
         }
 
         ReaderPageSource pageSource = ParquetPageSourceFactory.createPageSource(
@@ -210,7 +211,8 @@ public class DeltaLakePageSourceProvider
                 parquetDateTimeZone,
                 fileFormatDataSourceStats,
                 options,
-                Optional.empty());
+                Optional.empty(),
+                domainCompactionThreshold);
 
         verify(pageSource.getReaderColumns().isEmpty(), "All columns expected to be base columns");
 

@@ -61,7 +61,7 @@
         <dep.tempto.version>190</dep.tempto.version>
         <dep.gcs.version>2.2.8</dep.gcs.version>
         <dep.errorprone.version>2.15.0</dep.errorprone.version>
-        <dep.testcontainers.version>1.17.3</dep.testcontainers.version>
+        <dep.testcontainers.version>1.17.6</dep.testcontainers.version>
         <dep.duct-tape.version>1.0.8</dep.duct-tape.version>
         <dep.coral.version>2.0.77</dep.coral.version>
         <dep.confluent.version>5.5.2</dep.confluent.version>
@@ -92,6 +92,10 @@
              Force bigger region size in attempt to help G1 utilize heap fully. -->
         <air.test.jvm.additional-arguments>
             -XX:G1HeapRegionSize=32M
+            -XX:+UnlockDiagnosticVMOptions
+            <!-- bump from default of 2 -->
+            -XX:GCLockerRetryAllocationCount=10
+            -XX:-G1UsePreventiveGC
         </air.test.jvm.additional-arguments>
 
         <air.javadoc.lint>-missing</air.javadoc.lint>
@@ -136,6 +140,7 @@
         <module>plugin/trino-elasticsearch</module>
         <module>plugin/trino-example-http</module>
         <module>plugin/trino-exchange-filesystem</module>
+        <module>plugin/trino-exchange-hdfs</module>
         <module>plugin/trino-geospatial</module>
         <module>plugin/trino-google-sheets</module>
         <module>plugin/trino-hive</module>
@@ -1622,7 +1627,7 @@
             <dependency>
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-compress</artifactId>
-                <version>1.21</version>
+                <version>1.22</version>
             </dependency>
 
             <dependency>
@@ -2188,6 +2193,7 @@
                                     -Xep:ClassCanBeStatic:ERROR \
                                     -Xep:CompareToZero:ERROR \
                                     -Xep:DefaultCharset:ERROR \
+                                    -Xep:DistinctVarargsChecker:ERROR \
                                     -Xep:EqualsGetClass:OFF <!-- we would rather want the opposite check --> \
                                     -Xep:EqualsIncompatibleType:ERROR \
                                     -Xep:FallThrough:ERROR \
@@ -2203,7 +2209,9 @@
                                     -Xep:MutablePublicArray:ERROR \
                                     -Xep:NullOptional:ERROR \
                                     -Xep:ObjectToString:ERROR \
+                                    -Xep:Overrides:ERROR \
                                     -Xep:PreferredInterfaceType:OFF <!-- flags List fields even if initialized with ImmutableList --> \
+                                    -Xep:PrimitiveArrayPassedToVarargsMethod:ERROR \
                                     -Xep:StreamResourceLeak:ERROR \
                                     -Xep:UnnecessaryLambda:OFF <!-- we deliberately use it in a couple of places --> \
                                     -Xep:UnnecessaryMethodReference:ERROR \

@@ -13,12 +13,22 @@
  */
 package io.trino.parquet;
 
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 import io.airlift.slice.Slice;
 import io.trino.parquet.reader.SimpleSliceInputStream;
 import org.apache.parquet.bytes.ByteBufferInputStream;
+import org.apache.parquet.column.Encoding;
+import org.apache.parquet.column.EncodingStats;
+import org.apache.parquet.hadoop.metadata.ColumnChunkMetaData;
+
+import java.util.Set;
 
 import static com.google.common.base.Verify.verify;
 import static java.lang.String.format;
+import static org.apache.parquet.column.Encoding.BIT_PACKED;
+import static org.apache.parquet.column.Encoding.PLAIN_DICTIONARY;
+import static org.apache.parquet.column.Encoding.RLE;
 
 public final class ParquetReaderUtils
 {
@@ -71,6 +81,21 @@ public final class ParquetReaderUtils
         verify((inputByte & 0x80) == 0, "ULEB128 variable-width integer should not be longer than 5 bytes");
         input.skip(5);
         return value | inputByte << 28;
+    }
+
+    public static int readFixedWidthInt(SimpleSliceInputStream input, int bytesWidth)
+    {
+        return switch (bytesWidth) {
+            case 0 -> 0;
+            case 1 -> input.readByte() & 0xFF;
+            case 2 -> input.readShort() & 0xFFFF;
+            case 3 -> {
+                int value = input.readShort() & 0xFFFF;
+                yield ((input.readByte() & 0xFF) << 16) | value;
+            }
+            case 4 -> input.readInt();
+            default -> throw new IllegalArgumentException(format("Encountered bytesWidth (%d) that requires more than 4 bytes", bytesWidth));
+        };
     }
 
     /**
@@ -141,5 +166,26 @@ public final class ParquetReaderUtils
             throw new ArithmeticException(format("Value %d exceeds byte range", value));
         }
         return (byte) value;
+    }
+
+    @SuppressWarnings("deprecation")
+    public static boolean isOnlyDictionaryEncodingPages(ColumnChunkMetaData columnMetaData)
+    {
+        // Files written with newer versions of Parquet libraries (e.g. parquet-mr 1.9.0) will have EncodingStats available
+        // Otherwise, fallback to v1 logic
+        EncodingStats stats = columnMetaData.getEncodingStats();
+        if (stats != null) {
+            return stats.hasDictionaryPages() && !stats.hasNonDictionaryEncodedPages();
+        }
+
+        Set<Encoding> encodings = columnMetaData.getEncodings();
+        if (encodings.contains(PLAIN_DICTIONARY)) {
+            // PLAIN_DICTIONARY was present, which means at least one page was
+            // dictionary-encoded and 1.0 encodings are used
+            // The only other allowed encodings are RLE and BIT_PACKED which are used for repetition or definition levels
+            return Sets.difference(encodings, ImmutableSet.of(PLAIN_DICTIONARY, RLE, BIT_PACKED)).isEmpty();
+        }
+
+        return false;
     }
 }

@@ -234,6 +234,9 @@ public abstract class BaseHiveConnectorTest
             case SUPPORTS_COMMENT_ON_VIEW_COLUMN:
                 return true;
 
+            case SUPPORTS_SET_COLUMN_TYPE:
+                return false;
+
             case SUPPORTS_CREATE_VIEW:
                 return true;
 
@@ -1147,15 +1150,6 @@ public abstract class BaseHiveConnectorTest
                                         new IoPlanPrinter.Constraint(
                                                 false,
                                                 ImmutableSet.of(
-                                                        new ColumnConstraint(
-                                                                "orderkey",
-                                                                BIGINT,
-                                                                new FormattedDomain(
-                                                                        false,
-                                                                        ImmutableSet.of(
-                                                                                new FormattedRange(
-                                                                                        new FormattedMarker(Optional.of("100"), EXACTLY),
-                                                                                        new FormattedMarker(Optional.of("100"), EXACTLY))))),
                                                         new ColumnConstraint(
                                                                 "orderkey",
                                                                 BIGINT,

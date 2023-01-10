@@ -69,7 +69,6 @@ import java.util.Set;
 import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.trino.parquet.ParquetValidationUtils.validateParquet;
 import static io.trino.parquet.ParquetWriteValidation.StatisticsValidation;
@@ -121,6 +120,7 @@ public class ParquetReader
     private final ParquetReaderOptions options;
     private int maxBatchSize;
 
+    private AggregatedMemoryContext currentRowGroupMemoryContext;
     private final Map<ChunkKey, ChunkedInputStream> chunkReaders;
     private final List<Optional<ColumnIndexStore>> columnIndexStore;
     private final Optional<ParquetWriteValidation> writeValidation;
@@ -171,6 +171,7 @@ public class ParquetReader
         this.dataSource = requireNonNull(dataSource, "dataSource is null");
         this.timeZone = requireNonNull(timeZone, "timeZone is null");
         this.memoryContext = requireNonNull(memoryContext, "memoryContext is null");
+        this.currentRowGroupMemoryContext = memoryContext.newAggregatedMemoryContext();
         this.options = requireNonNull(options, "options is null");
         this.maxBatchSize = options.getMaxReadBlockRowCount();
         this.columnReaders = new HashMap<>();
@@ -236,14 +237,17 @@ public class ParquetReader
             }
         }
         this.codecMetrics = ImmutableMap.copyOf(codecMetrics);
-        this.chunkReaders = dataSource.planRead(ranges, memoryContext).asMap().entrySet().stream()
-                .collect(toImmutableMap(Map.Entry::getKey, entry -> new ChunkedInputStream(entry.getValue())));
+        this.chunkReaders = dataSource.planRead(ranges, memoryContext);
     }
 
     @Override
     public void close()
             throws IOException
     {
+        // Release memory usage from column readers
+        columnReaders.clear();
+        currentRowGroupMemoryContext.close();
+
         for (ChunkedInputStream chunkedInputStream : chunkReaders.values()) {
             chunkedInputStream.close();
         }
@@ -301,6 +305,8 @@ public class ParquetReader
     private boolean advanceToNextRowGroup()
             throws IOException
     {
+        currentRowGroupMemoryContext.close();
+        currentRowGroupMemoryContext = memoryContext.newAggregatedMemoryContext();
         freeCurrentRowGroupBuffers();
 
         if (currentRowGroup >= 0 && rowGroupStatisticsValidation.isPresent()) {
@@ -438,7 +444,7 @@ public class ParquetReader
         ColumnChunk columnChunk = columnReader.readPrimitive();
 
         // update max size per primitive column chunk
-        double bytesPerCell = ((double) columnChunk.getBlock().getSizeInBytes()) / batchSize;
+        double bytesPerCell = ((double) columnChunk.getMaxBlockSize()) / batchSize;
         double bytesPerCellDelta = bytesPerCell - maxBytesPerCell.getOrDefault(fieldId, 0.0);
         if (bytesPerCellDelta > 0) {
             // update batch size
@@ -474,7 +480,9 @@ public class ParquetReader
     private void initializeColumnReaders()
     {
         for (PrimitiveField field : primitiveFields) {
-            columnReaders.put(field.getId(), ColumnReaderFactory.create(field, timeZone, options.useBatchColumnReaders()));
+            columnReaders.put(
+                    field.getId(),
+                    ColumnReaderFactory.create(field, timeZone, currentRowGroupMemoryContext, options.useBatchColumnReaders()));
         }
     }
 

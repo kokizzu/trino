@@ -180,6 +180,9 @@ public abstract class BaseIcebergConnectorTest
             case SUPPORTS_COMMENT_ON_VIEW_COLUMN:
                 return true;
 
+            case SUPPORTS_SET_COLUMN_TYPE:
+                return false;
+
             case SUPPORTS_CREATE_VIEW:
                 return true;
 
@@ -5606,6 +5609,22 @@ public abstract class BaseIcebergConnectorTest
         assertUpdate("DROP TABLE " + sourceTableName);
         assertUpdate("DROP TABLE " + snapshotVersionedSinkTableName);
         assertUpdate("DROP TABLE " + timestampVersionedSinkTableName);
+    }
+
+    @Test
+    public void testSubqueryContainVersionedTable()
+    {
+        String tableName = "test_subquery_versioned" + randomNameSuffix();
+
+        assertUpdate("CREATE TABLE " + tableName + " AS SELECT 1 id", 1);
+        long snapshotId = getCurrentSnapshotId(tableName);
+        String timestamp = timestampLiteral(getCommittedAtInEpochMilliseconds(tableName, snapshotId), 9);
+        assertUpdate("INSERT INTO " + tableName + " VALUES 2", 1);
+
+        assertQuery("SELECT * FROM " + tableName + " WHERE id = (SELECT id FROM " + tableName + " FOR VERSION AS OF " + snapshotId + ")", "VALUES 1");
+        assertQuery("SELECT * FROM " + tableName + " WHERE id = (SELECT id FROM " + tableName + " FOR TIMESTAMP AS OF " + timestamp + ")", "VALUES 1");
+
+        assertUpdate("DROP TABLE " + tableName);
     }
 
     @Test

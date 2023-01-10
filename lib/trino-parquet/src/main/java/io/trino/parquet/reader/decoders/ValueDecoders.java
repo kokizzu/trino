@@ -255,13 +255,16 @@ public final class ValueDecoders
     public static <T> DictionaryDecoder<T> getDictionaryDecoder(
             DictionaryPage dictionaryPage,
             ColumnAdapter<T> columnAdapter,
-            ValueDecoder<T> plainValuesDecoder)
+            ValueDecoder<T> plainValuesDecoder,
+            boolean isNonNull)
     {
         int size = dictionaryPage.getDictionarySize();
-        T dictionary = columnAdapter.createBuffer(size);
+        // Extra value is added to the end of the dictionary for nullable columns because
+        // parquet dictionary page does not include null but Trino DictionaryBlock's dictionary does
+        T dictionary = columnAdapter.createBuffer(size + (isNonNull ? 0 : 1));
         plainValuesDecoder.init(new SimpleSliceInputStream(dictionaryPage.getSlice()));
         plainValuesDecoder.read(dictionary, 0, size);
-        return new DictionaryDecoder<>(dictionary, columnAdapter);
+        return new DictionaryDecoder<>(dictionary, columnAdapter, size, isNonNull);
     }
 
     private static ValuesReader getApacheParquetReader(ParquetEncoding encoding, PrimitiveField field)
