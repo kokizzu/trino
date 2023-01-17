@@ -142,11 +142,6 @@ public class AllowAllSystemAccessControl
     }
 
     @Override
-    public void checkCanCreateSchema(SystemSecurityContext context, CatalogSchemaName schema)
-    {
-    }
-
-    @Override
     public void checkCanDropSchema(SystemSecurityContext context, CatalogSchemaName schema)
     {
     }
@@ -464,6 +459,12 @@ public class AllowAllSystemAccessControl
     public List<ViewExpression> getRowFilters(SystemSecurityContext context, CatalogSchemaTableName tableName)
     {
         return emptyList();
+    }
+
+    @Override
+    public Optional<ViewExpression> getColumnMask(SystemSecurityContext context, CatalogSchemaTableName tableName, String columnName, Type type)
+    {
+        return Optional.empty();
     }
 
     @Override

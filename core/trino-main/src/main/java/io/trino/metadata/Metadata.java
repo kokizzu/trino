@@ -202,7 +202,7 @@ public interface Metadata
     /**
      * Rename the specified table.
      */
-    void renameTable(Session session, TableHandle tableHandle, QualifiedObjectName newTableName);
+    void renameTable(Session session, TableHandle tableHandle, CatalogSchemaTableName currentTableName, QualifiedObjectName newTableName);
 
     /**
      * Set properties to the specified table.
@@ -259,7 +259,7 @@ public interface Metadata
      *
      * @throws RuntimeException if the table cannot be dropped or table handle is no longer valid
      */
-    void dropTable(Session session, TableHandle tableHandle);
+    void dropTable(Session session, TableHandle tableHandle, CatalogSchemaTableName tableName);
 
     /**
      * Truncates the specified table

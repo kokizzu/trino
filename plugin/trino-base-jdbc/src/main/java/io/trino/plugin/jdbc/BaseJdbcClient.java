@@ -104,8 +104,8 @@ public abstract class BaseJdbcClient
     protected final QueryBuilder queryBuilder;
     protected final String identifierQuote;
     protected final Set<String> jdbcTypesMappedToVarchar;
+    protected final RemoteQueryModifier queryModifier;
     private final IdentifierMapping identifierMapping;
-    private final RemoteQueryModifier queryModifier;
 
     private final boolean supportsRetries;
 
@@ -713,7 +713,7 @@ public abstract class BaseJdbcClient
                     columnTypes.build(),
                     Optional.of(jdbcColumnTypes.build()),
                     Optional.of(remoteTemporaryTableName),
-                    pageSinkIdColumn.map(ColumnMetadata::getName));
+                    pageSinkIdColumn.map(column -> identifierMapping.toRemoteColumnName(connection, column.getName())));
         }
         catch (SQLException e) {
             throw new TrinoException(JDBC_ERROR, e);

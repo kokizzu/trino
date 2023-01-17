@@ -49,7 +49,7 @@
         <dep.accumulo.version>1.7.4</dep.accumulo.version>
         <dep.accumulo-hadoop.version>2.7.7-1</dep.accumulo-hadoop.version>
         <dep.antlr.version>4.11.1</dep.antlr.version>
-        <dep.airlift.version>219</dep.airlift.version>
+        <dep.airlift.version>221</dep.airlift.version>
         <dep.arrow.version>9.0.0</dep.arrow.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
         <dep.aws-sdk.version>1.12.261</dep.aws-sdk.version>
@@ -58,9 +58,9 @@
         <dep.jsonwebtoken.version>0.11.2</dep.jsonwebtoken.version>
         <dep.oracle.version>19.3.0.0</dep.oracle.version>
         <dep.drift.version>1.14</dep.drift.version>
-        <dep.tempto.version>190</dep.tempto.version>
+        <dep.tempto.version>191</dep.tempto.version>
         <dep.gcs.version>2.2.8</dep.gcs.version>
-        <dep.errorprone.version>2.15.0</dep.errorprone.version>
+        <dep.errorprone.version>2.18.0</dep.errorprone.version>
         <dep.testcontainers.version>1.17.6</dep.testcontainers.version>
         <dep.duct-tape.version>1.0.8</dep.duct-tape.version>
         <dep.coral.version>2.0.77</dep.coral.version>
@@ -1834,12 +1834,6 @@
                 <groupId>org.jetbrains.kotlin</groupId>
                 <artifactId>kotlin-stdlib-common</artifactId>
                 <version>${dep.kotlin.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>org.jgrapht</groupId>
-                <artifactId>jgrapht-core</artifactId>
-                <version>0.9.0</version>
             </dependency>
 
             <dependency>

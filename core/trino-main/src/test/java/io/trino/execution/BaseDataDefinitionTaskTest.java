@@ -36,6 +36,7 @@ import io.trino.security.AllowAllAccessControl;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.CatalogHandle;
 import io.trino.spi.connector.CatalogSchemaName;
+import io.trino.spi.connector.CatalogSchemaTableName;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.ConnectorTableMetadata;
@@ -302,15 +303,15 @@ public abstract class BaseDataDefinitionTaskTest
         }
 
         @Override
-        public void dropTable(Session session, TableHandle tableHandle)
+        public void dropTable(Session session, TableHandle tableHandle, CatalogSchemaTableName tableName)
         {
-            tables.remove(getTableName(tableHandle));
+            tables.remove(tableName.getSchemaTableName());
         }
 
         @Override
-        public void renameTable(Session session, TableHandle tableHandle, QualifiedObjectName newTableName)
+        public void renameTable(Session session, TableHandle tableHandle, CatalogSchemaTableName currentTableName, QualifiedObjectName newTableName)
         {
-            SchemaTableName oldTableName = getTableName(tableHandle);
+            SchemaTableName oldTableName = currentTableName.getSchemaTableName();
             tables.put(newTableName.asSchemaTableName(), verifyNotNull(tables.get(oldTableName), "Table not found %s", oldTableName));
             tables.remove(oldTableName);
         }

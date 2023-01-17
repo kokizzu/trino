@@ -262,9 +262,9 @@ public class CountingAccessMetadata
     }
 
     @Override
-    public void renameTable(Session session, TableHandle tableHandle, QualifiedObjectName newTableName)
+    public void renameTable(Session session, TableHandle tableHandle, CatalogSchemaTableName currentTableName, QualifiedObjectName newTableName)
     {
-        delegate.renameTable(session, tableHandle, newTableName);
+        delegate.renameTable(session, tableHandle, currentTableName, newTableName);
     }
 
     @Override
@@ -328,9 +328,9 @@ public class CountingAccessMetadata
     }
 
     @Override
-    public void dropTable(Session session, TableHandle tableHandle)
+    public void dropTable(Session session, TableHandle tableHandle, CatalogSchemaTableName tableName)
     {
-        delegate.dropTable(session, tableHandle);
+        delegate.dropTable(session, tableHandle, tableName);
     }
 
     @Override

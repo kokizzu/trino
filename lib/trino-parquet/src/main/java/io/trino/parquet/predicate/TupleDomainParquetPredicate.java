@@ -67,7 +67,6 @@ import static io.trino.parquet.ParquetTimestampUtils.decodeInt96Timestamp;
 import static io.trino.parquet.ParquetTypeUtils.getShortDecimalValue;
 import static io.trino.parquet.predicate.PredicateUtils.isStatisticsOverflow;
 import static io.trino.plugin.base.type.TrinoTimestampEncoderFactory.createTimestampEncoder;
-import static io.trino.spi.predicate.TupleDomain.extractDiscreteValues;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.DateType.DATE;
@@ -502,7 +501,8 @@ public class TupleDomainParquetPredicate
 
         List<ByteBuffer> maxValues = columnIndex.getMaxValues();
         List<ByteBuffer> minValues = columnIndex.getMinValues();
-        List<Long> nullCounts = columnIndex.getNullCounts();
+        // Null counts is optional in the format, see org.apache.parquet.internal.column.columnindex.ColumnIndexBuilder for reference
+        Optional<List<Long>> nullCounts = Optional.ofNullable(columnIndex.getNullCounts());
         List<Boolean> nullPages = columnIndex.getNullPages();
 
         String columnName = descriptor.getPrimitiveType().getName();
@@ -513,13 +513,15 @@ public class TupleDomainParquetPredicate
             return Domain.all(type);
         }
 
-        long totalNullCount = nullCounts.stream()
-                .mapToLong(value -> value)
-                .sum();
-        boolean hasNullValue = totalNullCount > 0;
-
-        if (hasNullValue && totalNullCount == columnValuesCount) {
-            return Domain.onlyNull(type);
+        boolean hasNullValue = true;
+        if (nullCounts.isPresent()) {
+            long totalNullCount = nullCounts.orElseThrow().stream()
+                    .mapToLong(value -> value)
+                    .sum();
+            if (totalNullCount == columnValuesCount) {
+                return Domain.onlyNull(type);
+            }
+            hasNullValue = totalNullCount > 0;
         }
 
         try {
@@ -604,16 +606,17 @@ public class TupleDomainParquetPredicate
     private static boolean isCorruptedColumnIndex(
             List<ByteBuffer> minValues,
             List<ByteBuffer> maxValues,
-            List<Long> nullCounts,
+            Optional<List<Long>> nullCounts,
             List<Boolean> nullPages)
     {
-        if (maxValues == null || minValues == null || nullCounts == null || nullPages == null) {
+        if (maxValues == null || minValues == null || nullPages == null) {
             return true;
         }
 
-        return maxValues.size() != minValues.size()
-                || maxValues.size() != nullPages.size()
-                || maxValues.size() != nullCounts.size();
+        int pageCount = nullPages.size();
+        return (nullCounts.isPresent() && nullCounts.get().size() != pageCount)
+                || minValues.size() != pageCount
+                || maxValues.size() != pageCount;
     }
 
     public static long asLong(Object value)

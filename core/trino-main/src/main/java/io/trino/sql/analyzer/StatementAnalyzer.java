@@ -544,7 +544,7 @@ class StatementAnalyzer
                     .collect(toImmutableList());
 
             for (ColumnSchema column : columns) {
-                if (!accessControl.getColumnMasks(session.toSecurityContext(), targetTable, column.getName(), column.getType()).isEmpty()) {
+                if (accessControl.getColumnMask(session.toSecurityContext(), targetTable, column.getName(), column.getType()).isPresent()) {
                     throw semanticException(NOT_SUPPORTED, insert, "Insert into table with column masks is not supported");
                 }
             }
@@ -785,7 +785,7 @@ class StatementAnalyzer
 
             TableSchema tableSchema = metadata.getTableSchema(session, handle);
             for (ColumnSchema tableColumn : tableSchema.getColumns()) {
-                if (!accessControl.getColumnMasks(session.toSecurityContext(), tableName, tableColumn.getName(), tableColumn.getType()).isEmpty()) {
+                if (accessControl.getColumnMask(session.toSecurityContext(), tableName, tableColumn.getName(), tableColumn.getType()).isPresent()) {
                     throw semanticException(NOT_SUPPORTED, node, "Delete from table with column mask");
                 }
             }
@@ -1149,7 +1149,7 @@ class StatementAnalyzer
 
             TableMetadata tableMetadata = metadata.getTableMetadata(session, tableHandle);
             for (ColumnMetadata tableColumn : tableMetadata.getColumns()) {
-                if (!accessControl.getColumnMasks(session.toSecurityContext(), tableName, tableColumn.getName(), tableColumn.getType()).isEmpty()) {
+                if (accessControl.getColumnMask(session.toSecurityContext(), tableName, tableColumn.getName(), tableColumn.getType()).isPresent()) {
                     throw semanticException(NOT_SUPPORTED, node, "ALTER TABLE EXECUTE is not supported for table with column masks");
                 }
             }
@@ -1604,7 +1604,7 @@ class StatementAnalyzer
                 // the scope is recorded, because table arguments are already analyzed
                 Scope inputScope = analysis.getScope(tableArgumentsByName.get(name).getRelation());
                 columns.stream()
-                        .filter(column -> column < 0 || column >= inputScope.getRelationType().getAllFieldCount()) // hidden columns can be required as well as visible columns
+                        .filter(column -> column < 0 || column >= inputScope.getRelationType().getVisibleFieldCount())
                         .findFirst()
                         .ifPresent(column -> {
                             throw new TrinoException(FUNCTION_IMPLEMENTATION_ERROR, format("Invalid index: %s of required column from table argument %s", column, name));
@@ -2222,10 +2222,10 @@ class StatementAnalyzer
             for (int index = 0; index < relationType.getAllFieldCount(); index++) {
                 Field field = relationType.getFieldByIndex(index);
                 if (field.getName().isPresent()) {
-                    List<ViewExpression> masks = accessControl.getColumnMasks(session.toSecurityContext(), name, field.getName().get(), field.getType());
+                    Optional<ViewExpression> mask = accessControl.getColumnMask(session.toSecurityContext(), name, field.getName().get(), field.getType());
 
-                    if (!masks.isEmpty() && checkCanSelectFromColumn(name, field.getName().orElseThrow())) {
-                        masks.forEach(mask -> analyzeColumnMask(session.getIdentity().getUser(), table, name, field, accessControlScope, mask));
+                    if (mask.isPresent() && checkCanSelectFromColumn(name, field.getName().orElseThrow())) {
+                        analyzeColumnMask(session.getIdentity().getUser(), table, name, field, accessControlScope, mask.get());
                     }
                 }
             }
@@ -3178,7 +3178,7 @@ class StatementAnalyzer
             // TODO: how to deal with connectors that need to see the pre-image of rows to perform the update without
             //       flowing that data through the masking logic
             for (ColumnSchema tableColumn : allColumns) {
-                if (!accessControl.getColumnMasks(session.toSecurityContext(), tableName, tableColumn.getName(), tableColumn.getType()).isEmpty()) {
+                if (accessControl.getColumnMask(session.toSecurityContext(), tableName, tableColumn.getName(), tableColumn.getType()).isPresent()) {
                     throw semanticException(NOT_SUPPORTED, update, "Updating a table with column masks is not supported");
                 }
             }
@@ -3307,7 +3307,7 @@ class StatementAnalyzer
             Scope joinScope = createAndAssignScope(merge, scope, targetTableScope.getRelationType().joinWith(sourceTableScope.getRelationType()));
 
             for (ColumnSchema column : dataColumnSchemas) {
-                if (!accessControl.getColumnMasks(session.toSecurityContext(), tableName, column.getName(), column.getType()).isEmpty()) {
+                if (accessControl.getColumnMask(session.toSecurityContext(), tableName, column.getName(), column.getType()).isPresent()) {
                     throw semanticException(NOT_SUPPORTED, merge, "Cannot merge into a table with column masks");
                 }
             }
@@ -4609,8 +4609,11 @@ class StatementAnalyzer
 
             ExpressionAnalysis expressionAnalysis;
             try {
+                Identity filterIdentity = Identity.forUser(filter.getIdentity())
+                        .withGroups(groupProvider.getGroups(filter.getIdentity()))
+                        .build();
                 expressionAnalysis = ExpressionAnalyzer.analyzeExpression(
-                        createViewSession(filter.getCatalog(), filter.getSchema(), Identity.ofUser(filter.getIdentity()), session.getPath()), // TODO: path should be included in row filter
+                        createViewSession(filter.getCatalog(), filter.getSchema(), filterIdentity, session.getPath()), // TODO: path should be included in row filter
                         plannerContext,
                         statementAnalyzerFactory,
                         accessControl,
@@ -4664,8 +4667,11 @@ class StatementAnalyzer
             verifyNoAggregateWindowOrGroupingFunctions(session, metadata, expression, format("Column mask for '%s.%s'", table.getName(), column));
 
             try {
+                Identity maskIdentity = Identity.forUser(mask.getIdentity())
+                        .withGroups(groupProvider.getGroups(mask.getIdentity()))
+                        .build();
                 expressionAnalysis = ExpressionAnalyzer.analyzeExpression(
-                        createViewSession(mask.getCatalog(), mask.getSchema(), Identity.ofUser(mask.getIdentity()), session.getPath()), // TODO: path should be included in row filter
+                        createViewSession(mask.getCatalog(), mask.getSchema(), maskIdentity, session.getPath()), // TODO: path should be included in row filter
                         plannerContext,
                         statementAnalyzerFactory,
                         accessControl,

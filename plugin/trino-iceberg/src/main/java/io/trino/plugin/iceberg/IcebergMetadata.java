@@ -131,6 +131,7 @@ import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.transforms.Transforms;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.IntegerType;
@@ -205,6 +206,7 @@ import static io.trino.plugin.iceberg.IcebergTableProperties.FORMAT_VERSION_PROP
 import static io.trino.plugin.iceberg.IcebergTableProperties.PARTITIONING_PROPERTY;
 import static io.trino.plugin.iceberg.IcebergTableProperties.getPartitioning;
 import static io.trino.plugin.iceberg.IcebergUtil.canEnforceColumnConstraintInSpecs;
+import static io.trino.plugin.iceberg.IcebergUtil.commit;
 import static io.trino.plugin.iceberg.IcebergUtil.deserializePartitionValue;
 import static io.trino.plugin.iceberg.IcebergUtil.fileName;
 import static io.trino.plugin.iceberg.IcebergUtil.getColumnHandle;
@@ -719,7 +721,8 @@ public class IcebergMetadata
     {
         if (fragments.isEmpty()) {
             // Commit the transaction if the table is being created without data
-            transaction.newFastAppend().commit();
+            AppendFiles appendFiles = transaction.newFastAppend();
+            commit(appendFiles, session);
             transaction.commitTransaction();
             transaction = null;
             return Optional.empty();
@@ -837,7 +840,7 @@ public class IcebergMetadata
             cleanExtraOutputFiles(session, writtenFiles.build());
         }
 
-        appendFiles.commit();
+        commit(appendFiles, session);
         transaction.commitTransaction();
         transaction = null;
 
@@ -1164,7 +1167,7 @@ public class IcebergMetadata
         // Table.snapshot method returns null if there is no matching snapshot
         Snapshot snapshot = requireNonNull(icebergTable.snapshot(optimizeHandle.getSnapshotId().get()), "snapshot is null");
         rewriteFiles.validateFromSnapshot(snapshot.snapshotId());
-        rewriteFiles.commit();
+        commit(rewriteFiles, session);
         transaction.commitTransaction();
         transaction = null;
     }
@@ -1529,6 +1532,11 @@ public class IcebergMetadata
     {
         IcebergColumnHandle handle = (IcebergColumnHandle) column;
         Table icebergTable = catalog.loadTable(session, ((IcebergTableHandle) tableHandle).getSchemaTableName());
+        boolean isPartitionColumn = icebergTable.spec().fields().stream()
+                .anyMatch(field -> field.sourceId() == handle.getId() && !isVoidTransform(field));
+        if (isPartitionColumn) {
+            throw new TrinoException(NOT_SUPPORTED, "Cannot drop partition field: " + handle.getName());
+        }
         try {
             icebergTable.updateSchema()
                     .deleteColumn(handle.getName())
@@ -1537,6 +1545,11 @@ public class IcebergMetadata
         catch (RuntimeException e) {
             throw new TrinoException(ICEBERG_COMMIT_ERROR, "Failed to drop column: " + firstNonNull(e.getMessage(), e), e);
         }
+    }
+
+    private static boolean isVoidTransform(PartitionField field)
+    {
+        return field.transform().equals(Transforms.alwaysNull());
     }
 
     @Override
@@ -1968,7 +1981,7 @@ public class IcebergMetadata
 
             rowDelta.validateDataFilesExist(referencedDataFiles.build());
             try {
-                rowDelta.commit();
+                commit(rowDelta, session);
             }
             catch (ValidationException e) {
                 throw new TrinoException(ICEBERG_COMMIT_ERROR, "Failed to commit Iceberg update to table: " + table.getSchemaTableName(), e);
@@ -1992,7 +2005,7 @@ public class IcebergMetadata
             if (!fullyDeletedFiles.isEmpty()) {
                 DeleteFiles deleteFiles = transaction.newDelete();
                 fullyDeletedFiles.keySet().forEach(deleteFiles::deleteFile);
-                deleteFiles.commit();
+                commit(deleteFiles, session);
             }
             transaction.commitTransaction();
         }
@@ -2068,9 +2081,9 @@ public class IcebergMetadata
 
         Table icebergTable = catalog.loadTable(session, handle.getSchemaTableName());
 
-        icebergTable.newDelete()
-                .deleteFromRowFilter(toIcebergExpression(handle.getEnforcedPredicate()))
-                .commit();
+        DeleteFiles deleteFiles = icebergTable.newDelete()
+                .deleteFromRowFilter(toIcebergExpression(handle.getEnforcedPredicate()));
+        commit(deleteFiles, session);
 
         Map<String, String> summary = icebergTable.currentSnapshot().summary();
         String deletedRowsStr = summary.get(DELETED_RECORDS_PROP);
@@ -2435,7 +2448,7 @@ public class IcebergMetadata
 
         // Update the 'dependsOnTables' property that tracks tables on which the materialized view depends and the corresponding snapshot ids of the tables
         appendFiles.set(DEPENDS_ON_TABLES, dependencies);
-        appendFiles.commit();
+        commit(appendFiles, session);
 
         transaction.commitTransaction();
         transaction = null;

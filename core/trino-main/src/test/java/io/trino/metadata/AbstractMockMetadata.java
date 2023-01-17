@@ -258,7 +258,7 @@ public abstract class AbstractMockMetadata
     }
 
     @Override
-    public void renameTable(Session session, TableHandle tableHandle, QualifiedObjectName newTableName)
+    public void renameTable(Session session, TableHandle tableHandle, CatalogSchemaTableName currentTableName, QualifiedObjectName newTableName)
     {
         throw new UnsupportedOperationException();
     }
@@ -324,7 +324,7 @@ public abstract class AbstractMockMetadata
     }
 
     @Override
-    public void dropTable(Session session, TableHandle tableHandle)
+    public void dropTable(Session session, TableHandle tableHandle, CatalogSchemaTableName tableName)
     {
         throw new UnsupportedOperationException();
     }
