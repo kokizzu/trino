@@ -2019,6 +2019,73 @@ public class TestHiveTransactionalTable
         });
     }
 
+    @Test(groups = HIVE_TRANSACTIONAL)
+    public void testLargePartitionedDelete()
+    {
+        if (getHiveVersionMajor() < 3) {
+            throw new SkipException("Hive transactional tables are supported with Hive version 3 or above");
+        }
+        withTemporaryTable("large_delete_" + "stage1", false, false, NONE, tableStage1 -> {
+            onTrino().executeQuery("CREATE TABLE %s AS SELECT a, b, 20220101 AS d FROM UNNEST(SEQUENCE(1, 9001), SEQUENCE(1, 9001)) AS t(a, b)".formatted(tableStage1));
+            withTemporaryTable("large_delete_" + "stage2", false, false, NONE, tableStage2 -> {
+                onTrino().executeQuery("CREATE TABLE %s AS SELECT a, b, 20220101 AS d FROM UNNEST(SEQUENCE(1, 100), SEQUENCE(1, 100)) AS t(a, b)".formatted(tableStage2));
+                withTemporaryTable("large_delete_" + "new", true, true, NONE, tableNew -> {
+                    onTrino().executeQuery("""
+                            CREATE TABLE %s WITH (transactional=true, partitioned_by=ARRAY['d'])
+                            AS (SELECT stage1.a as a, stage1.b as b, stage1.d AS d FROM %s stage1, %s stage2 WHERE stage1.d = stage2.d)
+                            """.formatted(tableNew, tableStage1, tableStage2));
+                    verifySelectForTrinoAndHive("SELECT count(1) FROM %s WHERE d IS NOT NULL".formatted(tableNew), row(900100));
+                    onTrino().executeQuery("DELETE FROM %s WHERE d = 20220101".formatted(tableNew));
+
+                    // Verify no rows
+                    verifySelectForTrinoAndHive("SELECT count(1) FROM %s WHERE d IS NOT NULL".formatted(tableNew), row(0));
+
+                    onTrino().executeQuery("INSERT INTO %s SELECT stage1.a AS a, stage1.b AS b, stage1.d AS d FROM %s stage1, %s stage2 WHERE stage1.d = stage2.d".formatted(tableNew, tableStage1, tableStage2));
+
+                    verifySelectForTrinoAndHive("SELECT count(1) FROM %s WHERE d IS NOT NULL".formatted(tableNew), row(900100));
+                    onTrino().executeQuery("DELETE FROM %s WHERE d = 20220101".formatted(tableNew));
+
+                    // Verify no rows
+                    verifySelectForTrinoAndHive("SELECT count(1) FROM %s WHERE d IS NOT NULL".formatted(tableNew), row(0));
+                });
+            });
+        });
+    }
+
+    @Test(groups = HIVE_TRANSACTIONAL)
+    public void testLargePartitionedUpdate()
+    {
+        if (getHiveVersionMajor() < 3) {
+            throw new SkipException("Hive transactional tables are supported with Hive version 3 or above");
+        }
+        withTemporaryTable("large_update_" + "stage1", false, false, NONE, tableStage1 -> {
+            onTrino().executeQuery("CREATE TABLE %s AS SELECT a, b, 20220101 AS d FROM UNNEST(SEQUENCE(1, 9001), SEQUENCE(1, 9001)) AS t(a, b)".formatted(tableStage1));
+            withTemporaryTable("large_update_" + "stage2", false, false, NONE, tableStage2 -> {
+                onTrino().executeQuery("CREATE TABLE %s AS SELECT a, b, 20220101 AS d FROM UNNEST(SEQUENCE(1, 100), SEQUENCE(1, 100)) AS t(a, b)".formatted(tableStage2));
+                withTemporaryTable("large_update_" + "new", true, true, NONE, tableNew -> {
+                    onTrino().executeQuery("""
+                            CREATE TABLE %s WITH (transactional=true, partitioned_by=ARRAY['d'])
+                            AS (SELECT stage1.a as a, stage1.b as b, stage1.d AS d FROM %s stage1, %s stage2 WHERE stage1.d = stage2.d)
+                            """.formatted(tableNew, tableStage1, tableStage2));
+                    verifySelectForTrinoAndHive("SELECT count(1) FROM %s WHERE d IS NOT NULL".formatted(tableNew), row(900100));
+                    onTrino().executeQuery("UPDATE %s SET a = 0 WHERE d = 20220101".formatted(tableNew));
+
+                    // Verify all rows updated
+                    verifySelectForTrinoAndHive("SELECT count(1) FROM %s WHERE a = 0".formatted(tableNew), row(900100));
+                    verifySelectForTrinoAndHive("SELECT count(1) FROM %s WHERE d IS NOT NULL".formatted(tableNew), row(900100));
+
+                    onTrino().executeQuery("INSERT INTO %s SELECT stage1.a AS a, stage1.b AS b, stage1.d AS d FROM %s stage1, %s stage2 WHERE stage1.d = stage2.d".formatted(tableNew, tableStage1, tableStage2));
+
+                    verifySelectForTrinoAndHive("SELECT count(1) FROM %s WHERE d IS NOT NULL".formatted(tableNew), row(1800200));
+                    onTrino().executeQuery("UPDATE %s SET a = 0 WHERE d = 20220101".formatted(tableNew));
+
+                    // Verify all matching rows updated
+                    verifySelectForTrinoAndHive("SELECT count(1) FROM %s WHERE a = 0".formatted(tableNew), row(1800200));
+                });
+            });
+        });
+    }
+
     private void hdfsDeleteAll(String directory)
     {
         if (!hdfsClient.exist(directory)) {

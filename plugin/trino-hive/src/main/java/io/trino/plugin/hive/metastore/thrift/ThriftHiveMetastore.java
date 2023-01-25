@@ -112,6 +112,7 @@ import static com.google.common.collect.Iterables.getOnlyElement;
 import static com.google.common.collect.Sets.difference;
 import static io.trino.plugin.hive.HiveErrorCode.HIVE_METASTORE_ERROR;
 import static io.trino.plugin.hive.HiveErrorCode.HIVE_TABLE_LOCK_NOT_ACQUIRED;
+import static io.trino.plugin.hive.TableType.MANAGED_TABLE;
 import static io.trino.plugin.hive.ViewReaderUtil.PRESTO_VIEW_FLAG;
 import static io.trino.plugin.hive.metastore.HivePrivilegeInfo.HivePrivilege.OWNERSHIP;
 import static io.trino.plugin.hive.metastore.MetastoreUtil.adjustRowCount;
@@ -126,14 +127,13 @@ import static io.trino.plugin.hive.metastore.thrift.ThriftMetastoreUtil.isAvroTa
 import static io.trino.plugin.hive.metastore.thrift.ThriftMetastoreUtil.parsePrivilege;
 import static io.trino.plugin.hive.metastore.thrift.ThriftMetastoreUtil.toMetastoreApiPartition;
 import static io.trino.plugin.hive.metastore.thrift.ThriftMetastoreUtil.updateStatisticsParameters;
+import static io.trino.plugin.hive.util.HiveUtil.makePartName;
 import static io.trino.spi.StandardErrorCode.ALREADY_EXISTS;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.security.PrincipalType.USER;
 import static java.lang.String.format;
 import static java.lang.System.nanoTime;
 import static java.util.Objects.requireNonNull;
-import static org.apache.hadoop.hive.common.FileUtils.makePartName;
-import static org.apache.hadoop.hive.metastore.TableType.MANAGED_TABLE;
 import static org.apache.hadoop.hive.metastore.api.HiveObjectType.TABLE;
 
 @ThreadSafe

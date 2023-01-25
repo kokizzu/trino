@@ -130,6 +130,7 @@ jobs:
     needs: check-commits
     if: github.event_name == 'pull_request' && needs.check-commits.outputs.matrix != ''
     strategy:
+      fail-fast: false
       matrix: ${{ fromJson(needs.check-commits.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v3
@@ -513,8 +514,10 @@ jobs:
           include:
             - { modules: [ client/trino-jdbc, plugin/trino-base-jdbc, plugin/trino-thrift, plugin/trino-memory ] }
             - { modules: core/trino-main }
+            - { modules: core/trino-main, jdk: 19 }
             - { modules: plugin/trino-accumulo }
             - { modules: plugin/trino-bigquery }
+            - { modules: plugin/trino-bigquery, profile: cloud-tests-arrow }
             - { modules: plugin/trino-cassandra }
             - { modules: plugin/trino-clickhouse }
             - { modules: plugin/trino-delta-lake }
@@ -576,6 +579,8 @@ jobs:
                 github.event.client_payload.pull_request.head.sha == github.event.client_payload.slash_command.args.named.sha &&
                 format('refs/pull/{0}/head', github.event.client_payload.pull_request.number) || '' }}
       - uses: ./.github/actions/setup
+        with:
+          java-version: ${{ matrix.jdk != '' && matrix.jdk || '17' }}
       - name: Cleanup node
         # This is required as a virtual environment update 20210219.1 left too little space for MemSQL to work
         if: matrix.modules == 'plugin/trino-singlestore'
@@ -587,7 +592,7 @@ jobs:
       - name: Maven Tests
         if: >-
           matrix.modules != 'plugin/trino-singlestore' &&
-          !((contains(matrix.modules, 'trino-delta-lake') && (contains(matrix.profile, 'cloud-tests') || contains(matrix.profile, 'gcs-tests'))) || (contains(matrix.modules, 'trino-iceberg') && contains(matrix.profile, 'cloud-tests')))
+          !((contains(matrix.modules, 'trino-delta-lake') && (contains(matrix.profile, 'cloud-tests') || contains(matrix.profile, 'gcs-tests'))) || (contains(matrix.modules, 'trino-iceberg') && contains(matrix.profile, 'cloud-tests')) || (contains(matrix.modules, 'trino-bigquery') && contains(matrix.profile, 'cloud-tests-arrow')))
         run: $MAVEN test ${MAVEN_TEST} -pl ${{ matrix.modules }} ${{ matrix.profile != '' && format('-P {0}', matrix.profile) || '' }}
       # Additional tests for selected modules
       - name: Cloud Delta Lake Tests
@@ -628,7 +633,7 @@ jobs:
       - name: Cloud BigQuery Tests
         env:
           BIGQUERY_CREDENTIALS_KEY: ${{ secrets.BIGQUERY_CREDENTIALS_KEY }}
-        if: matrix.modules == 'plugin/trino-bigquery' && env.BIGQUERY_CREDENTIALS_KEY != ''
+        if: matrix.modules == 'plugin/trino-bigquery' && !contains(matrix.profile, 'cloud-tests-arrow') && env.BIGQUERY_CREDENTIALS_KEY != ''
         run: |
           $MAVEN test ${MAVEN_TEST} -pl :trino-bigquery -Pcloud-tests \
             -Dbigquery.credentials-key="${BIGQUERY_CREDENTIALS_KEY}" \
@@ -637,7 +642,7 @@ jobs:
       - name: Cloud BigQuery Arrow Serialization Tests
         env:
           BIGQUERY_CREDENTIALS_KEY: ${{ secrets.BIGQUERY_CREDENTIALS_KEY }}
-        if: matrix.modules == 'plugin/trino-bigquery' && env.BIGQUERY_CREDENTIALS_KEY != ''
+        if: matrix.modules == 'plugin/trino-bigquery' && contains(matrix.profile, 'cloud-tests-arrow') && env.BIGQUERY_CREDENTIALS_KEY != ''
         run: |
           $MAVEN test ${MAVEN_TEST} -pl :trino-bigquery -Pcloud-tests-arrow \
             -Dbigquery.credentials-key="${BIGQUERY_CREDENTIALS_KEY}" \
@@ -645,7 +650,7 @@ jobs:
       - name: Cloud BigQuery Case Insensitive Mapping Tests
         env:
           BIGQUERY_CASE_INSENSITIVE_CREDENTIALS_KEY: ${{ secrets.BIGQUERY_CASE_INSENSITIVE_CREDENTIALS_KEY }}
-        if: matrix.modules == 'plugin/trino-bigquery' && env.BIGQUERY_CASE_INSENSITIVE_CREDENTIALS_KEY != ''
+        if: matrix.modules == 'plugin/trino-bigquery' && !contains(matrix.profile, 'cloud-tests-arrow') && env.BIGQUERY_CASE_INSENSITIVE_CREDENTIALS_KEY != ''
         run: |
           $MAVEN test ${MAVEN_TEST} -pl :trino-bigquery -Pcloud-tests-case-insensitive-mapping -Dbigquery.credentials-key="${BIGQUERY_CASE_INSENSITIVE_CREDENTIALS_KEY}"
       - name: Iceberg Cloud Tests

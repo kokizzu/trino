@@ -21,6 +21,7 @@ import io.trino.spi.Page;
 import io.trino.spi.PageBuilder;
 import io.trino.spi.block.Block;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import org.openjdk.jol.info.ClassLayout;
 
 import java.util.Arrays;
@@ -28,6 +29,8 @@ import java.util.List;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.airlift.slice.SizeOf.sizeOf;
+import static io.airlift.slice.SizeOf.sizeOfIntArray;
+import static io.airlift.slice.SizeOf.sizeOfLongArray;
 import static io.airlift.units.DataSize.Unit.KILOBYTE;
 import static io.trino.operator.SyntheticAddress.decodePosition;
 import static io.trino.operator.SyntheticAddress.decodeSliceIndex;
@@ -54,6 +57,20 @@ public final class BigintPagesHash
     private final int[] keys;
     private final long[] values;
     private final long size;
+
+    public static long getEstimatedRetainedSizeInBytes(
+            int positionCount,
+            HashArraySizeSupplier hashArraySizeSupplier,
+            LongArrayList addresses,
+            List<ObjectArrayList<Block>> channels,
+            long blocksSizeInBytes)
+    {
+        return sizeOf(addresses.elements()) +
+                (channels.size() > 0 ? sizeOf(channels.get(0).elements()) * channels.size() : 0) +
+                blocksSizeInBytes +
+                sizeOfIntArray(hashArraySizeSupplier.getHashArraySize(positionCount)) +
+                sizeOfLongArray(positionCount);
+    }
 
     public BigintPagesHash(
             LongArrayList addresses,

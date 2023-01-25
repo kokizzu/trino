@@ -1036,10 +1036,16 @@ public class TestPostgreSqlConnectorTest
     @Override
     protected Optional<SetColumnTypeSetup> filterSetColumnTypesDataProvider(SetColumnTypeSetup setup)
     {
-        // The connector returns UTC instead of the given time zone
         if (setup.sourceColumnType().equals("timestamp(3) with time zone")) {
-            return Optional.of(new SetColumnTypeSetup(setup.sourceColumnType(), setup.sourceValueLiteral(), setup.newColumnType(), "timestamp '2020-02-12 14:03:00.123000 +00:00'"));
+            // The connector returns UTC instead of the given time zone
+            return Optional.of(setup.withNewValueLiteral("TIMESTAMP '2020-02-12 14:03:00.123000 +00:00'"));
         }
+
+        if (setup.sourceColumnType().equals("char(20)") && setup.newColumnType().equals("varchar")) {
+            // PostgreSQL trims trailing spaces when converting
+            return Optional.of(setup.withNewValueLiteral("rtrim(%s)".formatted(setup.newValueLiteral())));
+        }
+
         return Optional.of(setup);
     }
 }

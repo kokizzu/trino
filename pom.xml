@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.airlift</groupId>
         <artifactId>airbase</artifactId>
-        <version>130</version>
+        <version>132</version>
     </parent>
 
     <groupId>io.trino</groupId>
@@ -49,12 +49,12 @@
         <dep.accumulo.version>1.7.4</dep.accumulo.version>
         <dep.accumulo-hadoop.version>2.7.7-1</dep.accumulo-hadoop.version>
         <dep.antlr.version>4.11.1</dep.antlr.version>
-        <dep.airlift.version>221</dep.airlift.version>
+        <dep.airlift.version>222</dep.airlift.version>
         <dep.arrow.version>9.0.0</dep.arrow.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
         <dep.aws-sdk.version>1.12.261</dep.aws-sdk.version>
         <dep.okhttp.version>3.14.9</dep.okhttp.version>
-        <dep.joda.version>2.12.0</dep.joda.version>
+        <dep.joda.version>2.12.2</dep.joda.version>
         <dep.jsonwebtoken.version>0.11.2</dep.jsonwebtoken.version>
         <dep.oracle.version>19.3.0.0</dep.oracle.version>
         <dep.drift.version>1.14</dep.drift.version>
@@ -956,6 +956,13 @@
                 <groupId>io.airlift.discovery</groupId>
                 <artifactId>discovery-server</artifactId>
                 <version>1.30</version>
+                <!-- TODO: remove when discovery-server is updated -->
+                <exclusions>
+                    <exclusion>
+                        <groupId>javax.servlet</groupId>
+                        <artifactId>javax.servlet-api</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
 
             <dependency>
@@ -1932,7 +1939,7 @@
             <dependency>
                 <groupId>org.yaml</groupId>
                 <artifactId>snakeyaml</artifactId>
-                <version>1.31</version>
+                <version>1.33</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -2188,6 +2195,7 @@
                                     -Xep:CompareToZero:ERROR \
                                     -Xep:DefaultCharset:ERROR \
                                     -Xep:DistinctVarargsChecker:ERROR \
+                                    -Xep:EmptyBlockTag:ERROR \
                                     -Xep:EqualsGetClass:OFF <!-- we would rather want the opposite check --> \
                                     -Xep:EqualsIncompatibleType:ERROR \
                                     -Xep:FallThrough:ERROR \
@@ -2203,6 +2211,7 @@
                                     -Xep:MutablePublicArray:ERROR \
                                     -Xep:NullOptional:ERROR \
                                     -Xep:ObjectToString:ERROR \
+                                    -Xep:OptionalNotPresent:ERROR \
                                     -Xep:Overrides:ERROR \
                                     -Xep:PreferredInterfaceType:OFF <!-- flags List fields even if initialized with ImmutableList --> \
                                     -Xep:PrimitiveArrayPassedToVarargsMethod:ERROR \
