@@ -74,14 +74,12 @@ public class ShortDecimalColumnReader
             }
             else {
                 int startOffset = bytes.length - Long.BYTES;
-                checkBytesFitInShortDecimal(bytes, 0, startOffset, trinoType, field.getDescriptor());
+                checkBytesFitInShortDecimal(bytes, 0, startOffset, field.getDescriptor());
                 value = getShortDecimalValue(bytes, startOffset, Long.BYTES);
             }
         }
 
-        if (trinoType instanceof DecimalType) {
-            DecimalType trinoDecimalType = (DecimalType) trinoType;
-
+        if (trinoType instanceof DecimalType trinoDecimalType) {
             if (isShortDecimal(trinoDecimalType)) {
                 long rescale = longTenToNth(Math.abs(trinoDecimalType.getScale() - parquetDecimalType.getScale()));
                 long convertedValue = shortToShortCast(

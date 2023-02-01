@@ -106,6 +106,7 @@ import static com.google.common.collect.Lists.newArrayList;
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.trino.hdfs.ConfigurationUtils.copy;
 import static io.trino.hdfs.ConfigurationUtils.toJobConf;
+import static io.trino.hive.thrift.metastore.hive_metastoreConstants.FILE_INPUT_FORMAT;
 import static io.trino.plugin.hive.HiveColumnHandle.ColumnType.PARTITION_KEY;
 import static io.trino.plugin.hive.HiveColumnHandle.ColumnType.REGULAR;
 import static io.trino.plugin.hive.HiveColumnHandle.bucketColumnHandle;
@@ -171,7 +172,6 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
-import static org.apache.hadoop.hive.metastore.api.hive_metastoreConstants.FILE_INPUT_FORMAT;
 import static org.apache.hadoop.hive.serde2.ColumnProjectionUtils.READ_ALL_COLUMNS;
 import static org.apache.hadoop.hive.serde2.ColumnProjectionUtils.READ_COLUMN_IDS_CONF_STR;
 import static org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector.Category;
@@ -555,8 +555,7 @@ public final class HiveUtil
 
         boolean isNull = HIVE_DEFAULT_DYNAMIC_PARTITION.equals(value);
 
-        if (type instanceof DecimalType) {
-            DecimalType decimalType = (DecimalType) type;
+        if (type instanceof DecimalType decimalType) {
             if (isNull) {
                 return NullableValue.asNull(decimalType);
             }
@@ -680,16 +679,28 @@ public final class HiveUtil
         throw new VerifyException(format("Unhandled type [%s] for partition: %s", type, partitionName));
     }
 
+    /**
+     * @deprecated Use {@code instanceof} directly, as that allows variable assignment.
+     */
+    @Deprecated
     public static boolean isArrayType(Type type)
     {
         return type instanceof ArrayType;
     }
 
+    /**
+     * @deprecated Use {@code instanceof} directly, as that allows variable assignment.
+     */
+    @Deprecated
     public static boolean isMapType(Type type)
     {
         return type instanceof MapType;
     }
 
+    /**
+     * @deprecated Use {@code instanceof} directly, as that allows variable assignment.
+     */
+    @Deprecated
     public static boolean isRowType(Type type)
     {
         return type instanceof RowType;

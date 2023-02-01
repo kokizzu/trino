@@ -11,20 +11,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.execution.scheduler;
+package io.trino.plugin.hive.metastore.thrift;
 
-import com.google.common.util.concurrent.ListenableFuture;
+import org.apache.thrift.transport.TTransport;
+import org.testng.annotations.Test;
 
-import java.io.Closeable;
-import java.util.List;
+import static io.trino.spi.testing.InterfaceTestUtils.assertAllMethodsOverridden;
 
-public interface TaskSource
-        extends Closeable
+public class TestTFilterTransport
 {
-    ListenableFuture<List<TaskDescriptor>> getMoreTasks();
-
-    boolean isFinished();
-
-    @Override
-    void close();
+    @Test
+    public void testEverythingImplemented()
+    {
+        assertAllMethodsOverridden(TTransport.class, TFilterTransport.class);
+    }
 }

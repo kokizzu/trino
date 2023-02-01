@@ -61,6 +61,7 @@ import io.trino.sql.planner.iterative.rule.ImplementIntersectAll;
 import io.trino.sql.planner.iterative.rule.ImplementIntersectDistinctAsUnion;
 import io.trino.sql.planner.iterative.rule.ImplementLimitWithTies;
 import io.trino.sql.planner.iterative.rule.ImplementOffset;
+import io.trino.sql.planner.iterative.rule.ImplementTableFunctionSource;
 import io.trino.sql.planner.iterative.rule.InlineProjectIntoFilter;
 import io.trino.sql.planner.iterative.rule.InlineProjections;
 import io.trino.sql.planner.iterative.rule.MergeExcept;
@@ -629,7 +630,11 @@ public class PlanOptimizers
                         costCalculator,
                         // Temporary hack: separate optimizer step to avoid the sample node being replaced by filter before pushing
                         // it to table scan node
-                        ImmutableSet.of(new ImplementBernoulliSampleAsFilter(metadata))),
+                        ImmutableSet.of(
+                                new ImplementBernoulliSampleAsFilter(metadata),
+                                // Must run after RewriteTableFunctionToTableScan because that rule applies to TableFunctionNode.
+                                // While the node gets rewritten to TableFunctionProcessorNode, we can no longer pushdown the function to the connector.
+                                new ImplementTableFunctionSource(metadata))),
                 columnPruningOptimizer,
                 new IterativeOptimizer(
                         plannerContext,
@@ -859,7 +864,6 @@ public class PlanOptimizers
                                 .build()));
 
         // Run predicate push down one more time in case we can leverage new information from layouts' effective predicate
-        // and to pushdown dynamic filters
         builder.add(new StatsRecordingPlanOptimizer(
                 optimizerStats,
                 new PredicatePushDown(plannerContext, typeAnalyzer, true, false)));
@@ -881,7 +885,7 @@ public class PlanOptimizers
                 ImmutableSet.copyOf(new PushInequalityFilterExpressionBelowJoinRuleSet(metadata, typeAnalyzer).rules())));
         // Projection pushdown rules may push reducing projections (e.g. dereferences) below filters for potential
         // pushdown into the connectors. Invoke PredicatePushdown and PushPredicateIntoTableScan after this
-        // to leverage predicate pushdown on projected columns.
+        // to leverage predicate pushdown on projected columns and to pushdown dynamic filters.
         builder.add(new StatsRecordingPlanOptimizer(optimizerStats, new PredicatePushDown(plannerContext, typeAnalyzer, true, true)));
         builder.add(new RemoveUnsupportedDynamicFilters(plannerContext)); // Remove unsupported dynamic filters introduced by PredicatePushdown
         builder.add(new IterativeOptimizer(

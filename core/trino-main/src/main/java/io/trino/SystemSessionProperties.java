@@ -152,7 +152,6 @@ public final class SystemSessionProperties
     public static final String MAX_PARTIAL_TOP_N_MEMORY = "max_partial_top_n_memory";
     public static final String RETRY_POLICY = "retry_policy";
     public static final String QUERY_RETRY_ATTEMPTS = "query_retry_attempts";
-    public static final String TASK_RETRY_ATTEMPTS_OVERALL = "task_retry_attempts_overall";
     public static final String TASK_RETRY_ATTEMPTS_PER_TASK = "task_retry_attempts_per_task";
     public static final String MAX_TASKS_WAITING_FOR_EXECUTION_PER_QUERY = "max_tasks_waiting_for_execution_per_query";
     public static final String MAX_TASKS_WAITING_FOR_NODE_PER_STAGE = "max_tasks_waiting_for_node_per_stage";
@@ -161,7 +160,6 @@ public final class SystemSessionProperties
     public static final String RETRY_DELAY_SCALE_FACTOR = "retry_delay_scale_factor";
     public static final String HIDE_INACCESSIBLE_COLUMNS = "hide_inaccessible_columns";
     public static final String FAULT_TOLERANT_EXECUTION_TARGET_TASK_INPUT_SIZE = "fault_tolerant_execution_target_task_input_size";
-    public static final String FAULT_TOLERANT_EXECUTION_MIN_TASK_SPLIT_COUNT = "fault_tolerant_execution_min_task_split_count";
     public static final String FAULT_TOLERANT_EXECUTION_TARGET_TASK_SPLIT_COUNT = "fault_tolerant_execution_target_task_split_count";
     public static final String FAULT_TOLERANT_EXECUTION_MAX_TASK_SPLIT_COUNT = "fault_tolerant_execution_max_task_split_count";
     public static final String FAULT_TOLERANT_EXECUTION_COORDINATOR_TASK_MEMORY = "fault_tolerant_execution_coordinator_task_memory";
@@ -172,11 +170,15 @@ public final class SystemSessionProperties
     public static final String ADAPTIVE_PARTIAL_AGGREGATION_ENABLED = "adaptive_partial_aggregation_enabled";
     public static final String ADAPTIVE_PARTIAL_AGGREGATION_MIN_ROWS = "adaptive_partial_aggregation_min_rows";
     public static final String ADAPTIVE_PARTIAL_AGGREGATION_UNIQUE_ROWS_RATIO_THRESHOLD = "adaptive_partial_aggregation_unique_rows_ratio_threshold";
+    public static final String REMOTE_TASK_ADAPTIVE_UPDATE_REQUEST_SIZE_ENABLED = "remote_task_adaptive_update_request_size_enabled";
+    public static final String REMOTE_TASK_MAX_REQUEST_SIZE = "remote_task_max_request_size";
+    public static final String REMOTE_TASK_REQUEST_SIZE_HEADROOM = "remote_task_request_size_headroom";
+    public static final String REMOTE_TASK_GUARANTEED_SPLITS_PER_REQUEST = "remote_task_guaranteed_splits_per_request";
     public static final String JOIN_PARTITIONED_BUILD_MIN_ROW_COUNT = "join_partitioned_build_min_row_count";
     public static final String USE_EXACT_PARTITIONING = "use_exact_partitioning";
     public static final String FORCE_SPILLING_JOIN = "force_spilling_join";
-    public static final String FAULT_TOLERANT_EXECUTION_EVENT_DRIVEN_SCHEDULER_ENABLED = "fault_tolerant_execution_event_driven_scheduler_enabled";
     public static final String FAULT_TOLERANT_EXECUTION_FORCE_PREFERRED_WRITE_PARTITIONING_ENABLED = "fault_tolerant_execution_force_preferred_write_partitioning_enabled";
+    public static final String PAGE_PARTITIONING_BUFFER_POOL_SIZE = "page_partitioning_buffer_pool_size";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -739,11 +741,6 @@ public final class SystemSessionProperties
                         queryManagerConfig.getQueryRetryAttempts(),
                         false),
                 integerProperty(
-                        TASK_RETRY_ATTEMPTS_OVERALL,
-                        "Maximum number of task retry attempts overall",
-                        queryManagerConfig.getTaskRetryAttemptsOverall(),
-                        false),
-                integerProperty(
                         TASK_RETRY_ATTEMPTS_PER_TASK,
                         "Maximum number of task retry attempts per single task",
                         queryManagerConfig.getTaskRetryAttemptsPerTask(),
@@ -799,11 +796,6 @@ public final class SystemSessionProperties
                         queryManagerConfig.getFaultTolerantExecutionTargetTaskInputSize(),
                         false),
                 integerProperty(
-                        FAULT_TOLERANT_EXECUTION_MIN_TASK_SPLIT_COUNT,
-                        "Minimal number of splits for a single fault tolerant task (count based)",
-                        queryManagerConfig.getFaultTolerantExecutionMinTaskSplitCount(),
-                        false),
-                integerProperty(
                         FAULT_TOLERANT_EXECUTION_TARGET_TASK_SPLIT_COUNT,
                         "Target number of splits for a single fault tolerant task (split weight aware)",
                         queryManagerConfig.getFaultTolerantExecutionTargetTaskSplitCount(),
@@ -854,6 +846,26 @@ public final class SystemSessionProperties
                         "Ratio between aggregation output and input rows above which partial aggregation might be adaptively turned off",
                         optimizerConfig.getAdaptivePartialAggregationUniqueRowsRatioThreshold(),
                         false),
+                booleanProperty(
+                        REMOTE_TASK_ADAPTIVE_UPDATE_REQUEST_SIZE_ENABLED,
+                        "Experimental: Enable adaptive adjustment for size of remote task update request",
+                        queryManagerConfig.isEnabledAdaptiveTaskRequestSize(),
+                        false),
+                dataSizeProperty(
+                        REMOTE_TASK_MAX_REQUEST_SIZE,
+                        "Experimental: Max size of remote task update request",
+                        queryManagerConfig.getMaxRemoteTaskRequestSize(),
+                        false),
+                dataSizeProperty(
+                        REMOTE_TASK_REQUEST_SIZE_HEADROOM,
+                        "Experimental: Headroom for size of remote task update request",
+                        queryManagerConfig.getRemoteTaskRequestSizeHeadroom(),
+                        false),
+                integerProperty(
+                        REMOTE_TASK_GUARANTEED_SPLITS_PER_REQUEST,
+                        "Guaranteed splits per remote task request",
+                        queryManagerConfig.getRemoteTaskGuaranteedSplitPerTask(),
+                        false),
                 longProperty(
                         JOIN_PARTITIONED_BUILD_MIN_ROW_COUNT,
                         "Minimum number of join build side rows required to use partitioned join lookup",
@@ -871,14 +883,13 @@ public final class SystemSessionProperties
                         featuresConfig.isForceSpillingJoin(),
                         false),
                 booleanProperty(
-                        FAULT_TOLERANT_EXECUTION_EVENT_DRIVEN_SCHEDULER_ENABLED,
-                        "Enable event driven scheduler for fault tolerant execution",
-                        queryManagerConfig.isFaultTolerantExecutionEventDrivenSchedulerEnabled(),
-                        true),
-                booleanProperty(
                         FAULT_TOLERANT_EXECUTION_FORCE_PREFERRED_WRITE_PARTITIONING_ENABLED,
                         "Force preferred write partitioning for fault tolerant execution",
                         queryManagerConfig.isFaultTolerantExecutionForcePreferredWritePartitioningEnabled(),
+                        true),
+                integerProperty(PAGE_PARTITIONING_BUFFER_POOL_SIZE,
+                        "Maximum number of free buffers in the per task partitioned page buffer pool. Setting this to zero effectively disables the pool",
+                        taskManagerConfig.getPagePartitioningBufferPoolSize(),
                         true));
     }
 
@@ -1443,11 +1454,6 @@ public final class SystemSessionProperties
         return session.getSystemProperty(QUERY_RETRY_ATTEMPTS, Integer.class);
     }
 
-    public static int getTaskRetryAttemptsOverall(Session session)
-    {
-        return session.getSystemProperty(TASK_RETRY_ATTEMPTS_OVERALL, Integer.class);
-    }
-
     public static int getTaskRetryAttemptsPerTask(Session session)
     {
         return session.getSystemProperty(TASK_RETRY_ATTEMPTS_PER_TASK, Integer.class);
@@ -1486,11 +1492,6 @@ public final class SystemSessionProperties
     public static DataSize getFaultTolerantExecutionTargetTaskInputSize(Session session)
     {
         return session.getSystemProperty(FAULT_TOLERANT_EXECUTION_TARGET_TASK_INPUT_SIZE, DataSize.class);
-    }
-
-    public static int getFaultTolerantExecutionMinTaskSplitCount(Session session)
-    {
-        return session.getSystemProperty(FAULT_TOLERANT_EXECUTION_MIN_TASK_SPLIT_COUNT, Integer.class);
     }
 
     public static int getFaultTolerantExecutionTargetTaskSplitCount(Session session)
@@ -1543,6 +1544,26 @@ public final class SystemSessionProperties
         return session.getSystemProperty(ADAPTIVE_PARTIAL_AGGREGATION_UNIQUE_ROWS_RATIO_THRESHOLD, Double.class);
     }
 
+    public static boolean isRemoteTaskAdaptiveUpdateRequestSizeEnabled(Session session)
+    {
+        return session.getSystemProperty(REMOTE_TASK_ADAPTIVE_UPDATE_REQUEST_SIZE_ENABLED, Boolean.class);
+    }
+
+    public static DataSize getMaxRemoteTaskRequestSize(Session session)
+    {
+        return session.getSystemProperty(REMOTE_TASK_MAX_REQUEST_SIZE, DataSize.class);
+    }
+
+    public static DataSize getRemoteTaskRequestSizeHeadroom(Session session)
+    {
+        return session.getSystemProperty(REMOTE_TASK_REQUEST_SIZE_HEADROOM, DataSize.class);
+    }
+
+    public static int getRemoteTaskGuaranteedSplitsPerRequest(Session session)
+    {
+        return session.getSystemProperty(REMOTE_TASK_GUARANTEED_SPLITS_PER_REQUEST, Integer.class);
+    }
+
     public static long getJoinPartitionedBuildMinRowCount(Session session)
     {
         return session.getSystemProperty(JOIN_PARTITIONED_BUILD_MIN_ROW_COUNT, Long.class);
@@ -1558,17 +1579,13 @@ public final class SystemSessionProperties
         return session.getSystemProperty(FORCE_SPILLING_JOIN, Boolean.class);
     }
 
-    public static boolean isFaultTolerantExecutionEventDriverSchedulerEnabled(Session session)
-    {
-        return session.getSystemProperty(FAULT_TOLERANT_EXECUTION_EVENT_DRIVEN_SCHEDULER_ENABLED, Boolean.class);
-    }
-
     public static boolean isFaultTolerantExecutionForcePreferredWritePartitioningEnabled(Session session)
     {
-        if (!isFaultTolerantExecutionEventDriverSchedulerEnabled(session)) {
-            // supported only in event driven scheduler
-            return false;
-        }
         return session.getSystemProperty(FAULT_TOLERANT_EXECUTION_FORCE_PREFERRED_WRITE_PARTITIONING_ENABLED, Boolean.class);
+    }
+
+    public static int getPagePartitioningBufferPoolSize(Session session)
+    {
+        return session.getSystemProperty(PAGE_PARTITIONING_BUFFER_POOL_SIZE, Integer.class);
     }
 }

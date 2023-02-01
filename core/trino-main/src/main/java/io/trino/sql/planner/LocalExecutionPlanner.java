@@ -221,6 +221,7 @@ import io.trino.sql.planner.plan.TableDeleteNode;
 import io.trino.sql.planner.plan.TableExecuteNode;
 import io.trino.sql.planner.plan.TableFinishNode;
 import io.trino.sql.planner.plan.TableFunctionNode;
+import io.trino.sql.planner.plan.TableFunctionProcessorNode;
 import io.trino.sql.planner.plan.TableScanNode;
 import io.trino.sql.planner.plan.TableWriterNode;
 import io.trino.sql.planner.plan.TableWriterNode.MergeTarget;
@@ -292,6 +293,7 @@ import static io.trino.SystemSessionProperties.getAdaptivePartialAggregationUniq
 import static io.trino.SystemSessionProperties.getAggregationOperatorUnspillMemoryLimit;
 import static io.trino.SystemSessionProperties.getFilterAndProjectMinOutputPageRowCount;
 import static io.trino.SystemSessionProperties.getFilterAndProjectMinOutputPageSize;
+import static io.trino.SystemSessionProperties.getPagePartitioningBufferPoolSize;
 import static io.trino.SystemSessionProperties.getTaskConcurrency;
 import static io.trino.SystemSessionProperties.getTaskPartitionedWriterCount;
 import static io.trino.SystemSessionProperties.getTaskScaleWritersMaxWriterCount;
@@ -580,7 +582,10 @@ public class LocalExecutionPlanner
                         nullChannel,
                         outputBuffer,
                         maxPagePartitioningBufferSize,
-                        positionsAppenderFactory));
+                        positionsAppenderFactory,
+                        taskContext.getSession().getExchangeEncryptionKey(),
+                        taskContext.newAggregateMemoryContext(),
+                        getPagePartitioningBufferPoolSize(taskContext.getSession())));
     }
 
     public LocalExecutionPlan plan(
@@ -692,11 +697,10 @@ public class LocalExecutionPlanner
             // driver to output the unused rows in the lookup source
             for (int i = 0; i < operatorFactories.size(); i++) {
                 OperatorFactory operatorFactory = operatorFactories.get(i);
-                if (!(operatorFactory instanceof JoinOperatorFactory)) {
+                if (!(operatorFactory instanceof JoinOperatorFactory lookupJoin)) {
                     continue;
                 }
 
-                JoinOperatorFactory lookupJoin = (JoinOperatorFactory) operatorFactory;
                 Optional<OperatorFactory> outerOperatorFactoryResult = lookupJoin.createOuterOperatorFactory();
                 if (outerOperatorFactoryResult.isPresent()) {
                     // Add a new driver to output the unmatched rows in an outer join.
@@ -1468,8 +1472,7 @@ public class LocalExecutionPlanner
                 }
                 else {
                     ValuePointer pointer = valuePointers.get(i);
-                    if (pointer instanceof ScalarValuePointer) {
-                        ScalarValuePointer scalar = (ScalarValuePointer) pointer;
+                    if (pointer instanceof ScalarValuePointer scalar) {
                         inputTypes.put(inputSymbols.get(i), context.getTypes().get(scalar.getInputSymbol()));
                     }
                     else {
@@ -1510,8 +1513,7 @@ public class LocalExecutionPlanner
 
             ImmutableList.Builder<PhysicalValueAccessor> valueAccessors = ImmutableList.builder();
             for (ValuePointer valuePointer : valuePointers) {
-                if (valuePointer instanceof ScalarValuePointer) {
-                    ScalarValuePointer pointer = (ScalarValuePointer) valuePointer;
+                if (valuePointer instanceof ScalarValuePointer pointer) {
                     if (classifierSymbols.contains(pointer.getInputSymbol())) {
                         valueAccessors.add(new PhysicalValuePointer(
                                 CLASSIFIER,
@@ -1653,6 +1655,12 @@ public class LocalExecutionPlanner
 
         @Override
         public PhysicalOperation visitTableFunction(TableFunctionNode node, LocalExecutionPlanContext context)
+        {
+            throw new UnsupportedOperationException("execution by operator is not yet implemented for table function " + node.getName());
+        }
+
+        @Override
+        public PhysicalOperation visitTableFunctionProcessor(TableFunctionProcessorNode node, LocalExecutionPlanContext context)
         {
             throw new UnsupportedOperationException("execution by operator is not yet implemented for table function " + node.getName());
         }
@@ -1860,8 +1868,7 @@ public class LocalExecutionPlanner
         {
             PlanNode sourceNode;
             Optional<Expression> filterExpression = Optional.empty();
-            if (node.getSource() instanceof FilterNode) {
-                FilterNode filterNode = (FilterNode) node.getSource();
+            if (node.getSource() instanceof FilterNode filterNode) {
                 sourceNode = filterNode.getSource();
                 filterExpression = Optional.of(filterNode.getPredicate());
             }
@@ -1889,8 +1896,7 @@ public class LocalExecutionPlanner
             TableHandle table = null;
             List<ColumnHandle> columns = null;
             PhysicalOperation source = null;
-            if (sourceNode instanceof TableScanNode) {
-                TableScanNode tableScanNode = (TableScanNode) sourceNode;
+            if (sourceNode instanceof TableScanNode tableScanNode) {
                 table = tableScanNode.getTable();
 
                 // extract the column handles and channel to type mapping
@@ -1908,8 +1914,7 @@ public class LocalExecutionPlanner
             }
             //TODO: This is a simple hack, it will be replaced when we add ability to push down sampling into connectors.
             // SYSTEM sampling is performed in the coordinator by dropping some random splits so the SamplingNode can be skipped here.
-            else if (sourceNode instanceof SampleNode) {
-                SampleNode sampleNode = (SampleNode) sourceNode;
+            else if (sourceNode instanceof SampleNode sampleNode) {
                 checkArgument(sampleNode.getSampleType() == SampleNode.Type.SYSTEM, "%s sampling is not supported", sampleNode.getSampleType());
                 return visitScanFilterAndProject(context,
                         planNodeId,
@@ -2432,12 +2437,9 @@ public class LocalExecutionPlanner
             List<Expression> arguments = spatialFunction.getArguments();
             verify(arguments.size() == 2);
 
-            if (!(arguments.get(0) instanceof SymbolReference) || !(arguments.get(1) instanceof SymbolReference)) {
+            if (!(arguments.get(0) instanceof SymbolReference firstSymbol) || !(arguments.get(1) instanceof SymbolReference secondSymbol)) {
                 return Optional.empty();
             }
-
-            SymbolReference firstSymbol = (SymbolReference) arguments.get(0);
-            SymbolReference secondSymbol = (SymbolReference) arguments.get(1);
 
             PlanNode probeNode = node.getLeft();
             Set<SymbolReference> probeSymbols = getSymbolReferences(probeNode.getOutputSymbols());
@@ -4036,8 +4038,7 @@ public class LocalExecutionPlanner
             if (target instanceof InsertTarget) {
                 return metadata.finishInsert(session, ((InsertTarget) target).getHandle(), fragments, statistics);
             }
-            if (target instanceof TableWriterNode.RefreshMaterializedViewTarget) {
-                TableWriterNode.RefreshMaterializedViewTarget refreshTarget = (TableWriterNode.RefreshMaterializedViewTarget) target;
+            if (target instanceof TableWriterNode.RefreshMaterializedViewTarget refreshTarget) {
                 return metadata.finishRefreshMaterializedView(
                         session,
                         refreshTarget.getTableHandle(),

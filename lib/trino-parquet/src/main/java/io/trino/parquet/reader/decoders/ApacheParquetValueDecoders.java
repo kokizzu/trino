@@ -20,13 +20,14 @@ import io.trino.parquet.reader.flat.BinaryBuffer;
 import io.trino.plugin.base.type.DecodedTimestamp;
 import io.trino.spi.type.CharType;
 import io.trino.spi.type.Chars;
-import io.trino.spi.type.DecimalType;
+import io.trino.spi.type.Decimals;
 import io.trino.spi.type.Int128;
 import io.trino.spi.type.VarcharType;
 import io.trino.spi.type.Varchars;
 import org.apache.parquet.bytes.ByteBufferInputStream;
 import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.column.values.ValuesReader;
+import org.apache.parquet.schema.LogicalTypeAnnotation;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -37,14 +38,13 @@ import java.nio.ByteOrder;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.trino.parquet.ParquetReaderUtils.castToByte;
-import static io.trino.parquet.ParquetReaderUtils.toByteExact;
-import static io.trino.parquet.ParquetReaderUtils.toShortExact;
 import static io.trino.parquet.ParquetTimestampUtils.decodeInt96Timestamp;
 import static io.trino.parquet.ParquetTypeUtils.checkBytesFitInShortDecimal;
 import static io.trino.parquet.ParquetTypeUtils.getShortDecimalValue;
 import static io.trino.parquet.reader.flat.Int96ColumnAdapter.Int96Buffer;
 import static io.trino.spi.type.Varchars.truncateToLength;
 import static java.util.Objects.requireNonNull;
+import static org.apache.parquet.schema.LogicalTypeAnnotation.DecimalLogicalTypeAnnotation;
 
 /**
  * This is a set of proxy value decoders that use a delegated value reader from apache lib.
@@ -52,161 +52,6 @@ import static java.util.Objects.requireNonNull;
 public class ApacheParquetValueDecoders
 {
     private ApacheParquetValueDecoders() {}
-
-    public static final class IntApacheParquetValueDecoder
-            implements ValueDecoder<int[]>
-    {
-        private final ValuesReader delegate;
-
-        public IntApacheParquetValueDecoder(ValuesReader delegate)
-        {
-            this.delegate = requireNonNull(delegate, "delegate is null");
-        }
-
-        @Override
-        public void init(SimpleSliceInputStream input)
-        {
-            initialize(input, delegate);
-        }
-
-        @Override
-        public void read(int[] values, int offset, int length)
-        {
-            for (int i = offset; i < offset + length; i++) {
-                values[i] = delegate.readInteger();
-            }
-        }
-
-        @Override
-        public void skip(int n)
-        {
-            delegate.skip(n);
-        }
-    }
-
-    public static final class ShortApacheParquetValueDecoder
-            implements ValueDecoder<short[]>
-    {
-        private final ValuesReader delegate;
-
-        public ShortApacheParquetValueDecoder(ValuesReader delegate)
-        {
-            this.delegate = requireNonNull(delegate, "delegate is null");
-        }
-
-        @Override
-        public void init(SimpleSliceInputStream input)
-        {
-            initialize(input, delegate);
-        }
-
-        @Override
-        public void read(short[] values, int offset, int length)
-        {
-            for (int i = offset; i < offset + length; i++) {
-                values[i] = toShortExact(delegate.readInteger());
-            }
-        }
-
-        @Override
-        public void skip(int n)
-        {
-            delegate.skip(n);
-        }
-    }
-
-    public static final class ByteApacheParquetValueDecoder
-            implements ValueDecoder<byte[]>
-    {
-        private final ValuesReader delegate;
-
-        public ByteApacheParquetValueDecoder(ValuesReader delegate)
-        {
-            this.delegate = requireNonNull(delegate, "delegate is null");
-        }
-
-        @Override
-        public void init(SimpleSliceInputStream input)
-        {
-            initialize(input, delegate);
-        }
-
-        @Override
-        public void read(byte[] values, int offset, int length)
-        {
-            for (int i = offset; i < offset + length; i++) {
-                values[i] = toByteExact(delegate.readInteger());
-            }
-        }
-
-        @Override
-        public void skip(int n)
-        {
-            delegate.skip(n);
-        }
-    }
-
-    public static final class IntToLongApacheParquetValueDecoder
-            implements ValueDecoder<long[]>
-    {
-        private final ValuesReader delegate;
-
-        public IntToLongApacheParquetValueDecoder(ValuesReader delegate)
-        {
-            this.delegate = requireNonNull(delegate, "delegate is null");
-        }
-
-        @Override
-        public void init(SimpleSliceInputStream input)
-        {
-            initialize(input, delegate);
-        }
-
-        @Override
-        public void read(long[] values, int offset, int length)
-        {
-            for (int i = offset; i < offset + length; i++) {
-                values[i] = delegate.readInteger();
-            }
-        }
-
-        @Override
-        public void skip(int n)
-        {
-            delegate.skip(n);
-        }
-    }
-
-    public static final class LongApacheParquetValueDecoder
-            implements ValueDecoder<long[]>
-    {
-        private final ValuesReader delegate;
-
-        public LongApacheParquetValueDecoder(ValuesReader delegate)
-        {
-            this.delegate = requireNonNull(delegate, "delegate is null");
-        }
-
-        @Override
-        public void init(SimpleSliceInputStream input)
-        {
-            initialize(input, delegate);
-        }
-
-        @Override
-        public void read(long[] values, int offset, int length)
-        {
-            for (int i = offset; i < offset + length; i++) {
-                values[i] = delegate.readLong();
-            }
-        }
-
-        @Override
-        public void skip(int n)
-        {
-            delegate.skip(n);
-        }
-    }
 
     public static final class BooleanApacheParquetValueDecoder
             implements ValueDecoder<byte[]>
@@ -252,18 +97,21 @@ public class ApacheParquetValueDecoders
             implements ValueDecoder<long[]>
     {
         private final ValuesReader delegate;
-        private final DecimalType decimalType;
         private final ColumnDescriptor descriptor;
         private final int typeLength;
 
-        public ShortDecimalApacheParquetValueDecoder(ValuesReader delegate, DecimalType decimalType, ColumnDescriptor descriptor)
+        public ShortDecimalApacheParquetValueDecoder(ValuesReader delegate, ColumnDescriptor descriptor)
         {
             this.delegate = requireNonNull(delegate, "delegate is null");
-            checkArgument(decimalType.isShort(), "Decimal type %s is not a short decimal", decimalType);
-            this.decimalType = decimalType;
-            this.descriptor = requireNonNull(descriptor, "descriptor is null");
+            LogicalTypeAnnotation logicalTypeAnnotation = descriptor.getPrimitiveType().getLogicalTypeAnnotation();
+            checkArgument(
+                    logicalTypeAnnotation instanceof DecimalLogicalTypeAnnotation decimalAnnotation
+                            && decimalAnnotation.getPrecision() <= Decimals.MAX_SHORT_PRECISION,
+                    "Column %s is not a short decimal",
+                    descriptor);
             this.typeLength = descriptor.getPrimitiveType().getTypeLength();
             checkArgument(typeLength > 0 && typeLength <= 16, "Expected column %s to have type length in range (1-16)", descriptor);
+            this.descriptor = descriptor;
         }
 
         @Override
@@ -283,7 +131,7 @@ public class ApacheParquetValueDecoders
             }
             for (int i = offset; i < offset + length; i++) {
                 byte[] bytes = delegate.readBytes().getBytes();
-                checkBytesFitInShortDecimal(bytes, 0, bytesOffset, decimalType, descriptor);
+                checkBytesFitInShortDecimal(bytes, 0, bytesOffset, descriptor);
                 values[i] = getShortDecimalValue(bytes, bytesOffset, bytesLength);
             }
         }

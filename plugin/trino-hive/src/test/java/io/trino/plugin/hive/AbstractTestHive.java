@@ -796,6 +796,8 @@ public abstract class AbstractTestHive
                         .hdfsEnvironment(hdfsEnvironment)
                         .build()))
                 .executor(executor)
+                .metadataCacheEnabled(true)
+                .statsCacheEnabled(true)
                 .cacheTtl(new Duration(1, MINUTES))
                 .refreshInterval(new Duration(15, SECONDS))
                 .maximumSize(10000)
@@ -4728,9 +4730,8 @@ public abstract class AbstractTestHive
                     .orElse(ImmutableList.of());
             List<Partition> partitions = metastoreClient
                     .getPartitionsByNames(table, partitionNames)
-                    .entrySet()
+                    .values()
                     .stream()
-                    .map(Map.Entry::getValue)
                     .filter(Optional::isPresent)
                     .map(Optional::get)
                     .collect(toImmutableList());

@@ -54,6 +54,7 @@ public class TestIcebergJdbcCatalogConnectorSmokeTest
                                 .put("iceberg.catalog.type", "jdbc")
                                 .put("iceberg.jdbc-catalog.connection-url", server.getJdbcUrl())
                                 .put("iceberg.jdbc-catalog.catalog-name", "tpch")
+                                .put("iceberg.register-table-procedure.enabled", "true")
                                 .buildOrThrow())
                 .setInitialTables(REQUIRED_TPCH_TABLES)
                 .build();
@@ -97,42 +98,35 @@ public class TestIcebergJdbcCatalogConnectorSmokeTest
     public void testRegisterTableWithTableLocation()
     {
         assertThatThrownBy(super::testRegisterTableWithTableLocation)
-                .hasMessageContaining("register_table procedure is disabled");
+                .hasMessageContaining("registerTable is not supported for Iceberg JDBC catalogs");
     }
 
     @Override
     public void testRegisterTableWithComments()
     {
         assertThatThrownBy(super::testRegisterTableWithComments)
-                .hasMessageContaining("register_table procedure is disabled");
+                .hasMessageContaining("registerTable is not supported for Iceberg JDBC catalogs");
     }
 
     @Override
     public void testRegisterTableWithShowCreateTable()
     {
         assertThatThrownBy(super::testRegisterTableWithShowCreateTable)
-                .hasMessageContaining("register_table procedure is disabled");
+                .hasMessageContaining("registerTable is not supported for Iceberg JDBC catalogs");
     }
 
     @Override
     public void testRegisterTableWithReInsert()
     {
         assertThatThrownBy(super::testRegisterTableWithReInsert)
-                .hasMessageContaining("register_table procedure is disabled");
-    }
-
-    @Override
-    public void testRegisterTableWithDroppedTable()
-    {
-        assertThatThrownBy(super::testRegisterTableWithDroppedTable)
-                .hasMessageContaining("register_table procedure is disabled");
+                .hasMessageContaining("registerTable is not supported for Iceberg JDBC catalogs");
     }
 
     @Override
     public void testRegisterTableWithDifferentTableName()
     {
         assertThatThrownBy(super::testRegisterTableWithDifferentTableName)
-                .hasMessageContaining("register_table procedure is disabled");
+                .hasMessageContaining("registerTable is not supported for Iceberg JDBC catalogs");
     }
 
     @Override
@@ -140,5 +134,39 @@ public class TestIcebergJdbcCatalogConnectorSmokeTest
     {
         assertThatThrownBy(super::testRegisterTableWithMetadataFile)
                 .hasMessageContaining("metadata location for register_table is not supported");
+    }
+
+    @Override
+    public void testUnregisterTable()
+    {
+        assertThatThrownBy(super::testUnregisterTable)
+                .hasMessageContaining("unregisterTable is not supported for Iceberg JDBC catalogs");
+    }
+
+    @Override
+    public void testUnregisterBrokenTable()
+    {
+        assertThatThrownBy(super::testUnregisterBrokenTable)
+                .hasMessageContaining("unregisterTable is not supported for Iceberg JDBC catalogs");
+    }
+
+    @Override
+    public void testUnregisterTableNotExistingTable()
+    {
+        assertThatThrownBy(super::testUnregisterTableNotExistingTable)
+                .hasMessageContaining("unregisterTable is not supported for Iceberg JDBC catalogs");
+    }
+
+    @Override
+    public void testRepeatUnregisterTable()
+    {
+        assertThatThrownBy(super::testRepeatUnregisterTable)
+                .hasMessageContaining("unregisterTable is not supported for Iceberg JDBC catalogs");
+    }
+
+    @Override
+    protected void deleteDirectory(String location)
+    {
+        // used when unregistering a table, which is not supported by the JDBC catalog
     }
 }

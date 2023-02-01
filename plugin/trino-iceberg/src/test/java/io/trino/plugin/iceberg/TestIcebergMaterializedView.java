@@ -17,7 +17,7 @@ import io.trino.testing.DistributedQueryRunner;
 
 import static io.trino.plugin.iceberg.IcebergQueryRunner.createIcebergQueryRunner;
 
-public class TestIcebergMaterializedViewTest
+public class TestIcebergMaterializedView
         extends BaseIcebergMaterializedViewTest
 {
     @Override
@@ -25,12 +25,6 @@ public class TestIcebergMaterializedViewTest
             throws Exception
     {
         return createIcebergQueryRunner();
-    }
-
-    @Override
-    protected String getSchemaName()
-    {
-        return "tpch";
     }
 
     @Override
