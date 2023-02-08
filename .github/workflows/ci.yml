@@ -110,7 +110,7 @@ jobs:
         id: set-matrix
         run: |
           # The output from rev-list ends with a newline, so we have to filter out index -1 in jq since it's an empty string
-          JQ_PIPELINE='split("\n") | .[0:-1] | map({base_ref: "${{ github.event.pull_request.base.ref }}", commit: .}) | select(length > 0) | {include: .}'
+          JQ_PIPELINE='split("\n") | .[0:-1] | map({commit: .}) | select(length > 0) | {include: .}'
 
           # Make sure the PR branch contains the compile-commit composite job
           if git merge-base --is-ancestor $( git rev-list HEAD -- .github/actions/compile-commit/action.yml | tail -n 1 ) ${{ github.event.pull_request.head.sha }}
@@ -143,7 +143,7 @@ jobs:
       # in the middle of a PR branch.
       - uses: ./.github/actions/compile-commit
         with:
-          base_ref: ${{ matrix.base_ref }}
+          base_ref: ${{ github.event.pull_request.base.ref }}
 
   error-prone-checks:
     runs-on: ubuntu-latest
@@ -596,8 +596,11 @@ jobs:
           $RETRY $MAVEN clean install ${MAVEN_FAST_INSTALL} ${MAVEN_GIB} -am -pl "${{ matrix.modules }}"
       - name: Maven Tests
         if: >-
-          matrix.modules != 'plugin/trino-singlestore' &&
-          !((contains(matrix.modules, 'trino-delta-lake') && (contains(matrix.profile, 'cloud-tests') || contains(matrix.profile, 'gcs-tests'))) || (contains(matrix.modules, 'trino-iceberg') && contains(matrix.profile, 'cloud-tests')) || (contains(matrix.modules, 'trino-bigquery') && contains(matrix.profile, 'cloud-tests-arrow')))
+          matrix.modules != 'plugin/trino-singlestore'
+          && ! (contains(matrix.modules, 'trino-delta-lake') && contains(matrix.profile, 'cloud-tests'))
+          && ! (contains(matrix.modules, 'trino-delta-lake') && contains(matrix.profile, 'gcs-tests'))
+          && ! (contains(matrix.modules, 'trino-iceberg') && contains(matrix.profile, 'cloud-tests'))
+          && ! (contains(matrix.modules, 'trino-bigquery') && contains(matrix.profile, 'cloud-tests-arrow'))
         run: $MAVEN test ${MAVEN_TEST} -pl ${{ matrix.modules }} ${{ matrix.profile != '' && format('-P {0}', matrix.profile) || '' }}
       # Additional tests for selected modules
       - name: Cloud Delta Lake Tests

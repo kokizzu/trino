@@ -14,9 +14,12 @@
 package io.trino.plugin.hive.benchmark;
 
 import com.google.common.collect.ImmutableMap;
-import io.airlift.slice.OutputStreamSliceOutput;
 import io.trino.filesystem.hdfs.HdfsFileSystemFactory;
 import io.trino.hdfs.HdfsEnvironment;
+import io.trino.hive.formats.rcfile.RcFileEncoding;
+import io.trino.hive.formats.rcfile.RcFileWriter;
+import io.trino.hive.formats.rcfile.binary.BinaryRcFileEncoding;
+import io.trino.hive.formats.rcfile.text.TextRcFileEncoding;
 import io.trino.orc.OrcReaderOptions;
 import io.trino.orc.OrcWriter;
 import io.trino.orc.OrcWriterOptions;
@@ -37,12 +40,6 @@ import io.trino.plugin.hive.orc.OrcPageSourceFactory;
 import io.trino.plugin.hive.parquet.ParquetPageSourceFactory;
 import io.trino.plugin.hive.parquet.ParquetReaderConfig;
 import io.trino.plugin.hive.rcfile.RcFilePageSourceFactory;
-import io.trino.rcfile.AircompressorCodecFactory;
-import io.trino.rcfile.HadoopCodecFactory;
-import io.trino.rcfile.RcFileEncoding;
-import io.trino.rcfile.RcFileWriter;
-import io.trino.rcfile.binary.BinaryRcFileEncoding;
-import io.trino.rcfile.text.TextRcFileEncoding;
 import io.trino.spi.Page;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.type.Type;
@@ -386,11 +383,10 @@ public final class StandardFileFormats
                 throws IOException
         {
             writer = new RcFileWriter(
-                    new OutputStreamSliceOutput(new FileOutputStream(targetFile)),
+                    new FileOutputStream(targetFile),
                     types,
                     encoding,
-                    compressionCodec.getCodec().map(Class::getName),
-                    new AircompressorCodecFactory(new HadoopCodecFactory(getClass().getClassLoader())),
+                    compressionCodec.getHiveCompressionKind(),
                     ImmutableMap.of(),
                     true);
         }
