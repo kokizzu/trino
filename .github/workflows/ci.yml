@@ -105,15 +105,12 @@ jobs:
       - name: Set matrix (dispatch commit checks)
         id: set-matrix
         run: |
-          # The output from rev-list ends with a newline, so we have to filter out index -1 in jq since it's an empty string
-          JQ_PIPELINE='split("\n") | .[0:-1] | map({commit: .}) | select(length > 0) | {include: .}'
-
           # Make sure the PR branch contains the compile-commit composite job
           if git merge-base --is-ancestor $( git rev-list HEAD -- .github/actions/compile-commit/action.yml | tail -n 1 ) ${{ github.event.pull_request.head.sha }}
           then
             # The HEAD commit of the PR can be safely ignored since it's already compiled in other jobs
             # This is achieved by adding a tilde (~) after the HEAD sha
-            git rev-list refs/remotes/origin/${{ github.event.pull_request.base.ref }}..${{ github.event.pull_request.head.sha }}~ | jq --raw-input --slurp "$JQ_PIPELINE" > commit-matrix.json
+            git log --reverse --pretty=format:'%H,%T,"%s"' refs/remotes/origin/${{ github.event.pull_request.base.ref }}..${{ github.event.pull_request.head.sha }}~ | ./.github/bin/prepare-check-commits-matrix.py > commit-matrix.json
           else
             echo -n '' > commit-matrix.json
           fi
@@ -129,6 +126,12 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.check-commits-dispatcher.outputs.matrix) }}
     steps:
+      - name: Verify args
+        shell: bash
+        if: matrix.commit == ''
+        run: |
+          echo >&2 "Required 'commit' argument not provided"
+          exit 1
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0 # checkout all commits to be able to determine merge base
@@ -431,6 +434,7 @@ jobs:
             !:trino-hive,
             !:trino-hudi,
             !:trino-iceberg,
+            !:trino-ignite,
             !:trino-jdbc,!:trino-base-jdbc,!:trino-thrift,!:trino-memory,
             !:trino-kafka,
             !:trino-kudu,
@@ -525,6 +529,7 @@ jobs:
             - { modules: plugin/trino-iceberg }
             - { modules: plugin/trino-iceberg, profile: additional-catalog-tests }
             - { modules: plugin/trino-iceberg, profile: cloud-tests }
+            - { modules: plugin/trino-ignite }
             - { modules: plugin/trino-kafka }
             - { modules: plugin/trino-kudu }
             - { modules: plugin/trino-mariadb }
@@ -682,7 +687,7 @@ jobs:
           # Generate a valid artifact name and make it available to next steps as
           # an environment variable ARTIFACT_NAME
           # ", :, <, >, |, *, ?, \, / are not allowed in artifact names, replace it with an underscore
-          name=$(echo -n "${{ matrix.modules }}" | sed -e 's/[":<>|\*\?\\\/]/_/g')
+          name=$(echo -n "${{ matrix.modules }}, ${{ matrix.profile }}, ${{ matrix.jdk }}" | sed -e 's/[":<>|\*\?\\\/]/_/g')
           echo "ARTIFACT_NAME=$name" >> $GITHUB_ENV
       - name: Upload test results
         uses: actions/upload-artifact@v3
@@ -910,6 +915,9 @@ jobs:
             # this suite is not meant to be run with different configs
             - config: default
               suite: suite-hudi
+            # this suite is not meant to be run with different configs
+            - config: default
+              suite: suite-ignite
           EOF
       - name: Build PT matrix (all)
         if: |

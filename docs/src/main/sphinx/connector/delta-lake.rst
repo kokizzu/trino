@@ -36,13 +36,13 @@ runtime. If non-Delta tables are present in the metastore, as well, they are not
 visible to the connector.
 
 To configure the Delta Lake connector, create a catalog properties file
-``etc/catalog/example.properties`` that references the ``delta-lake``
+``etc/catalog/example.properties`` that references the ``delta_lake``
 connector. Update the ``hive.metastore.uri`` with the URI of your Hive metastore
 Thrift service:
 
 .. code-block:: properties
 
-    connector.name=delta-lake
+    connector.name=delta_lake
     hive.metastore.uri=thrift://example.net:9083
 
 If you are using AWS Glue as Hive metastore, you can simply set the metastore to
@@ -50,7 +50,7 @@ If you are using AWS Glue as Hive metastore, you can simply set the metastore to
 
 .. code-block:: properties
 
-    connector.name=delta-lake
+    connector.name=delta_lake
     hive.metastore=glue
 
 The Delta Lake connector reuses certain functionalities from the Hive connector,
@@ -224,6 +224,13 @@ connector.
         for improved performance. Set this property to ``false`` to disable the
         optimized parquet reader by default. The equivalent catalog session
         property is ``parquet_optimized_reader_enabled``.
+      - ``true``
+    * - ``parquet.optimized-nested-reader.enabled``
+      - Whether batched column readers should be used when reading ARRAY, MAP
+        and ROW types from Parquet files for improved performance. Set this
+        property to ``false`` to disable the optimized parquet reader by default
+        for structural data types. The equivalent catalog session property is
+        ``parquet_optimized_nested_reader_enabled``.
       - ``true``
 
 The following table describes :ref:`catalog session properties
@@ -540,7 +547,7 @@ in the metastore. As a result, any Databricks engine can write to the table::
 The Delta Lake connector also supports creating tables using the :doc:`CREATE
 TABLE AS </sql/create-table-as>` syntax.
 
-There are three table properties available for use in table creation.
+The following properties are available for use:
 
 .. list-table:: Delta Lake table properties
   :widths: 40, 60
@@ -554,14 +561,17 @@ There are three table properties available for use in table creation.
     - Set partition columns.
   * - ``checkpoint_interval``
     - Set the checkpoint interval in seconds.
+  * - ``change_data_feed_enabled``
+    - Enables storing change data feed entries.
 
-The following example uses all three table properties::
+The following example uses all four table properties::
 
   CREATE TABLE example.default.example_partitioned_table
   WITH (
     location = 's3://my-bucket/a/path',
     partitioned_by = ARRAY['regionkey'],
-    checkpoint_interval = 5
+    checkpoint_interval = 5,
+    change_data_feed_enabled = true
   )
   AS SELECT name, comment, regionkey FROM tpch.tiny.nation;
 
