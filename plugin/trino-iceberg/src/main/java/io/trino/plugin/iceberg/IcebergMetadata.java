@@ -115,11 +115,14 @@ import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionSpecParser;
+import org.apache.iceberg.ReplaceSortOrder;
 import org.apache.iceberg.RewriteFiles;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SortField;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.StatisticsFile;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
@@ -158,6 +161,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
@@ -205,6 +209,7 @@ import static io.trino.plugin.iceberg.IcebergSessionProperties.isStatisticsEnabl
 import static io.trino.plugin.iceberg.IcebergTableProperties.FILE_FORMAT_PROPERTY;
 import static io.trino.plugin.iceberg.IcebergTableProperties.FORMAT_VERSION_PROPERTY;
 import static io.trino.plugin.iceberg.IcebergTableProperties.PARTITIONING_PROPERTY;
+import static io.trino.plugin.iceberg.IcebergTableProperties.SORTED_BY_PROPERTY;
 import static io.trino.plugin.iceberg.IcebergTableProperties.getPartitioning;
 import static io.trino.plugin.iceberg.IcebergUtil.canEnforceColumnConstraintInSpecs;
 import static io.trino.plugin.iceberg.IcebergUtil.commit;
@@ -221,10 +226,11 @@ import static io.trino.plugin.iceberg.IcebergUtil.newCreateTableTransaction;
 import static io.trino.plugin.iceberg.IcebergUtil.schemaFromMetadata;
 import static io.trino.plugin.iceberg.PartitionFields.parsePartitionFields;
 import static io.trino.plugin.iceberg.PartitionFields.toPartitionFields;
+import static io.trino.plugin.iceberg.SortFieldUtils.parseSortFields;
 import static io.trino.plugin.iceberg.TableStatisticsReader.TRINO_STATS_COLUMN_ID_PATTERN;
 import static io.trino.plugin.iceberg.TableStatisticsReader.TRINO_STATS_PREFIX;
 import static io.trino.plugin.iceberg.TableType.DATA;
-import static io.trino.plugin.iceberg.TypeConverter.toIcebergType;
+import static io.trino.plugin.iceberg.TypeConverter.toIcebergTypeForNewColumn;
 import static io.trino.plugin.iceberg.TypeConverter.toTrinoType;
 import static io.trino.plugin.iceberg.catalog.hms.TrinoHiveCatalog.DEPENDS_ON_TABLES;
 import static io.trino.plugin.iceberg.procedure.IcebergTableProcedureId.DROP_EXTENDED_STATS;
@@ -270,7 +276,7 @@ public class IcebergMetadata
     private static final int CLEANING_UP_PROCEDURES_MAX_SUPPORTED_TABLE_VERSION = 2;
     private static final String RETENTION_THRESHOLD = "retention_threshold";
     private static final String UNKNOWN_SNAPSHOT_TOKEN = "UNKNOWN";
-    public static final Set<String> UPDATABLE_TABLE_PROPERTIES = ImmutableSet.of(FILE_FORMAT_PROPERTY, FORMAT_VERSION_PROPERTY, PARTITIONING_PROPERTY);
+    public static final Set<String> UPDATABLE_TABLE_PROPERTIES = ImmutableSet.of(FILE_FORMAT_PROPERTY, FORMAT_VERSION_PROPERTY, PARTITIONING_PROPERTY, SORTED_BY_PROPERTY);
 
     public static final String ORC_BLOOM_FILTER_COLUMNS_KEY = "orc.bloom.filter.columns";
     public static final String ORC_BLOOM_FILTER_FPP_KEY = "orc.bloom.filter.fpp";
@@ -382,6 +388,9 @@ public class IcebergMetadata
                 name.getTableType(),
                 tableSnapshotId,
                 SchemaParser.toJson(tableSchema),
+                table.sortOrder().fields().stream()
+                        .map(TrinoSortField::fromIceberg)
+                        .collect(toImmutableList()),
                 partitionSpec.map(PartitionSpecParser::toJson),
                 table.operations().current().formatVersion(),
                 TupleDomain.all(),
@@ -795,11 +804,36 @@ public class IcebergMetadata
                 SchemaParser.toJson(table.schema()),
                 transformValues(table.specs(), PartitionSpecParser::toJson),
                 table.spec().specId(),
+                getSupportedSortFields(table.schema(), table.sortOrder()),
                 getColumns(table.schema(), typeManager),
                 table.location(),
                 getFileFormat(table),
                 table.properties(),
                 retryMode);
+    }
+
+    private static List<TrinoSortField> getSupportedSortFields(Schema schema, SortOrder sortOrder)
+    {
+        if (!sortOrder.isSorted()) {
+            return ImmutableList.of();
+        }
+        Set<Integer> baseColumnFieldIds = schema.columns().stream()
+                .map(Types.NestedField::fieldId)
+                .collect(toImmutableSet());
+
+        ImmutableList.Builder<TrinoSortField> sortFields = ImmutableList.<TrinoSortField>builder();
+        for (SortField sortField : sortOrder.fields()) {
+            if (!sortField.transform().isIdentity()) {
+                continue;
+            }
+            if (!baseColumnFieldIds.contains(sortField.sourceId())) {
+                continue;
+            }
+
+            sortFields.add(TrinoSortField.fromIceberg(sortField));
+        }
+
+        return sortFields.build();
     }
 
     @Override
@@ -982,6 +1016,7 @@ public class IcebergMetadata
                         tableHandle.getTableSchemaJson(),
                         tableHandle.getPartitionSpecJson().orElseThrow(() -> new VerifyException("Partition spec missing in the table handle")),
                         getColumns(SchemaParser.fromJson(tableHandle.getTableSchemaJson()), typeManager),
+                        tableHandle.getSortOrder(),
                         getFileFormat(tableHandle.getStorageProperties()),
                         tableHandle.getStorageProperties(),
                         maxScannedFileSize,
@@ -1468,6 +1503,20 @@ public class IcebergMetadata
             updatePartitioning(icebergTable, transaction, partitionColumns);
         }
 
+        if (properties.containsKey(SORTED_BY_PROPERTY)) {
+            @SuppressWarnings("unchecked")
+            List<String> sortColumns = (List<String>) properties.get(SORTED_BY_PROPERTY)
+                    .orElseThrow(() -> new IllegalArgumentException("The sorted_by property cannot be empty"));
+            ReplaceSortOrder replaceSortOrder = transaction.replaceSortOrder();
+            parseSortFields(replaceSortOrder, sortColumns);
+            try {
+                replaceSortOrder.commit();
+            }
+            catch (RuntimeException e) {
+                throw new TrinoException(ICEBERG_COMMIT_ERROR, "Failed to set the sorted_by property", e);
+            }
+        }
+
         try {
             transaction.commitTransaction();
         }
@@ -1522,9 +1571,12 @@ public class IcebergMetadata
             throw new TrinoException(NOT_SUPPORTED, "This connector does not support adding not null columns");
         }
         Table icebergTable = catalog.loadTable(session, ((IcebergTableHandle) tableHandle).getSchemaTableName());
+        // Start explicitly with highestFieldId + 2 to account for existing columns and the new one being
+        // added - instead of relying on addColumn in iceberg library to assign Ids
+        AtomicInteger nextFieldId = new AtomicInteger(icebergTable.schema().highestFieldId() + 2);
         try {
             icebergTable.updateSchema()
-                    .addColumn(column.getName(), toIcebergType(column.getType()), column.getComment())
+                    .addColumn(column.getName(), toIcebergTypeForNewColumn(column.getType(), nextFieldId), column.getComment())
                     .commit();
         }
         catch (RuntimeException e) {
@@ -1536,25 +1588,40 @@ public class IcebergMetadata
     public void dropColumn(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle column)
     {
         IcebergColumnHandle handle = (IcebergColumnHandle) column;
+        dropField(session, tableHandle, handle.getName());
+    }
+
+    @Override
+    public void dropField(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle column, List<String> fieldPath)
+    {
+        IcebergColumnHandle handle = (IcebergColumnHandle) column;
+        // Iceberg disallows ambiguous field names in a table. e.g. (a row(b int), "a.b" int)
+        String name = String.join(".", ImmutableList.<String>builder().add(handle.getName()).addAll(fieldPath).build());
+        dropField(session, tableHandle, name);
+    }
+
+    private void dropField(ConnectorSession session, ConnectorTableHandle tableHandle, String name)
+    {
         Table icebergTable = catalog.loadTable(session, ((IcebergTableHandle) tableHandle).getSchemaTableName());
+        long fieldId = icebergTable.schema().findField(name).fieldId();
         boolean isPartitionColumn = icebergTable.spec().fields().stream()
-                .anyMatch(field -> field.sourceId() == handle.getId());
+                .anyMatch(field -> field.sourceId() == fieldId);
         if (isPartitionColumn) {
-            throw new TrinoException(NOT_SUPPORTED, "Cannot drop partition field: " + handle.getName());
+            throw new TrinoException(NOT_SUPPORTED, "Cannot drop partition field: " + name);
         }
         int currentSpecId = icebergTable.spec().specId();
         boolean columnUsedInOlderPartitionSpecs = icebergTable.specs().entrySet().stream()
                 .filter(spec -> spec.getValue().specId() != currentSpecId)
                 .flatMap(spec -> spec.getValue().fields().stream())
-                .anyMatch(field -> field.sourceId() == handle.getId());
+                .anyMatch(field -> field.sourceId() == fieldId);
         if (columnUsedInOlderPartitionSpecs) {
             // After dropping a column which was used in older partition specs, insert/update/select fails on the table.
             // So restricting user to dropping that column. https://github.com/trinodb/trino/issues/15729
-            throw new TrinoException(NOT_SUPPORTED, "Cannot drop column which is used by an old partition spec: " + handle.getName());
+            throw new TrinoException(NOT_SUPPORTED, "Cannot drop column which is used by an old partition spec: " + name);
         }
         try {
             icebergTable.updateSchema()
-                    .deleteColumn(handle.getName())
+                    .deleteColumn(name)
                     .commit();
         }
         catch (RuntimeException e) {
@@ -1586,7 +1653,8 @@ public class IcebergMetadata
 
         Table icebergTable = catalog.loadTable(session, table.getSchemaTableName());
         Type sourceType = icebergTable.schema().findType(column.getName());
-        Type newType = toIcebergType(type);
+        AtomicInteger nextFieldId = new AtomicInteger(1);
+        Type newType = toIcebergTypeForNewColumn(type, nextFieldId);
         try {
             UpdateSchema schemaUpdate = icebergTable.updateSchema();
             buildUpdateSchema(column.getName(), sourceType, newType, schemaUpdate);
@@ -2188,6 +2256,7 @@ public class IcebergMetadata
                         table.getTableType(),
                         table.getSnapshotId(),
                         table.getTableSchemaJson(),
+                        table.getSortOrder(),
                         table.getPartitionSpecJson(),
                         table.getFormatVersion(),
                         newUnenforcedConstraint,
@@ -2337,6 +2406,7 @@ public class IcebergMetadata
                         originalHandle.getTableType(),
                         originalHandle.getSnapshotId(),
                         originalHandle.getTableSchemaJson(),
+                        originalHandle.getSortOrder(),
                         originalHandle.getPartitionSpecJson(),
                         originalHandle.getFormatVersion(),
                         originalHandle.getUnenforcedPredicate(),

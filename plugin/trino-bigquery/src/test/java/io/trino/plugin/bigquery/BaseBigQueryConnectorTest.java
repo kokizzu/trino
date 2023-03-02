@@ -13,6 +13,7 @@
  */
 package io.trino.plugin.bigquery;
 
+import io.airlift.units.Duration;
 import io.trino.Session;
 import io.trino.testing.BaseConnectorTest;
 import io.trino.testing.MaterializedResult;
@@ -38,6 +39,7 @@ import static io.trino.testing.TestingNames.randomNameSuffix;
 import static io.trino.testing.assertions.Assert.assertEquals;
 import static io.trino.testing.assertions.Assert.assertEventually;
 import static java.lang.String.format;
+import static java.util.concurrent.TimeUnit.MINUTES;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.testng.Assert.assertFalse;
@@ -434,10 +436,10 @@ public abstract class BaseBigQueryConnectorTest
 
             // Use assertEventually because there's delay until new row access policies become effective
             onBigQuery("CREATE ROW ACCESS POLICY " + policyName + " ON " + table.getName() + " FILTER USING (true)");
-            assertEventually(() -> assertQueryReturnsEmptyResult("SELECT * FROM " + table.getName()));
+            assertEventually(new Duration(1, MINUTES), () -> assertQueryReturnsEmptyResult("SELECT * FROM " + table.getName()));
 
             onBigQuery("DROP ALL ROW ACCESS POLICIES ON " + table.getName());
-            assertEventually(() -> assertQuery("SELECT * FROM " + table.getName(), "VALUES 1"));
+            assertEventually(new Duration(1, MINUTES), () -> assertQuery("SELECT * FROM " + table.getName(), "VALUES 1"));
         }
     }
 
@@ -450,10 +452,10 @@ public abstract class BaseBigQueryConnectorTest
 
             // Use assertEventually because there's delay until new row access policies become effective
             onBigQuery("CREATE ROW ACCESS POLICY " + policyName + " ON " + table.getName() + " GRANT TO (\"allAuthenticatedUsers\") FILTER USING (col = 1)");
-            assertEventually(() -> assertQuery("SELECT * FROM " + table.getName(), "VALUES 1"));
+            assertEventually(new Duration(1, MINUTES), () -> assertQuery("SELECT * FROM " + table.getName(), "VALUES 1"));
 
             onBigQuery("DROP ALL ROW ACCESS POLICIES ON " + table.getName());
-            assertEventually(() -> assertQuery("SELECT * FROM " + table.getName(), "VALUES (1), (2)"));
+            assertEventually(new Duration(1, MINUTES), () -> assertQuery("SELECT * FROM " + table.getName(), "VALUES (1), (2)"));
         }
     }
 
@@ -708,6 +710,35 @@ public abstract class BaseBigQueryConnectorTest
     }
 
     @Test
+    public void testNativeQuerySelectForCaseSensitiveColumnNames()
+    {
+        assertThat(computeActual("SELECT * FROM TABLE(bigquery.system.query(query => 'SELECT 1 AS lower, 2 AS UPPER, 3 AS miXED'))").getColumnNames())
+                .containsExactly("lower", "UPPER", "miXED");
+
+        assertThat(computeActual("SELECT * FROM TABLE(bigquery.system.query(query => 'SELECT 1 AS duplicated, 2 AS duplicated'))").getColumnNames())
+                .containsExactly("duplicated", "duplicated_1");
+
+        String tableName = "test.test_non_lowercase" + randomNameSuffix();
+        onBigQuery("CREATE TABLE " + tableName + " AS SELECT 1 AS lower, 2 AS UPPER, 3 AS miXED");
+        try {
+            assertQuery(
+                    "SELECT * FROM TABLE(bigquery.system.query(query => 'SELECT * FROM " + tableName + "'))",
+                    "VALUES (1, 2, 3)");
+            assertQuery(
+                    "SELECT \"lower\", \"UPPER\", \"miXED\" FROM TABLE(bigquery.system.query(query => 'SELECT * FROM " + tableName + "'))",
+                    "VALUES (1, 2, 3)");
+            assertQuery(
+                    "SELECT * FROM TABLE(bigquery.system.query(query => 'SELECT * FROM " + tableName + "')) WHERE \"UPPER\" = 2",
+                    "VALUES (1, 2, 3)");
+            assertQueryReturnsEmptyResult("SELECT * FROM TABLE(bigquery.system.query(query => 'SELECT * FROM " + tableName + "')) WHERE \"UPPER\" = 100");
+            assertQueryReturnsEmptyResult("SELECT * FROM TABLE(bigquery.system.query(query => 'SELECT * FROM " + tableName + "')) WHERE upper = 100");
+        }
+        finally {
+            onBigQuery("DROP TABLE " + tableName);
+        }
+    }
+
+    @Test
     public void testNativeQuerySelectFromNation()
     {
         assertQuery(
@@ -816,7 +847,14 @@ public abstract class BaseBigQueryConnectorTest
     @Override
     protected TestTable createTableWithDefaultColumns()
     {
-        throw new SkipException("BigQuery connector does not support column default values");
+        return new TestTable(
+                this::onBigQuery,
+                "test.test_table",
+                "(col_required INT64 NOT NULL," +
+                        "col_nullable INT64," +
+                        "col_default INT64 DEFAULT 43," +
+                        "col_nonnull_default INT64 DEFAULT 42 NOT NULL," +
+                        "col_required2 INT64 NOT NULL)");
     }
 
     @Override

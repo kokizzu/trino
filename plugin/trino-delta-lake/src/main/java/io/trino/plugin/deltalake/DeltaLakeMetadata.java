@@ -158,6 +158,8 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.collect.MoreCollectors.toOptional;
+import static com.google.common.collect.Sets.difference;
+import static com.google.common.primitives.Ints.max;
 import static io.trino.plugin.deltalake.DataFileInfo.DataFileType.DATA;
 import static io.trino.plugin.deltalake.DeltaLakeAnalyzeProperties.getColumnNames;
 import static io.trino.plugin.deltalake.DeltaLakeAnalyzeProperties.getFilesModifiedAfterProperty;
@@ -204,6 +206,7 @@ import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.se
 import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.serializeStatsAsJson;
 import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.validateType;
 import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.verifySupportedColumnMapping;
+import static io.trino.plugin.deltalake.transactionlog.MetadataEntry.DELTA_CHANGE_DATA_FEED_ENABLED_PROPERTY;
 import static io.trino.plugin.deltalake.transactionlog.MetadataEntry.configurationForNewTable;
 import static io.trino.plugin.deltalake.transactionlog.TransactionLogParser.getMandatoryCurrentVersion;
 import static io.trino.plugin.deltalake.transactionlog.TransactionLogUtil.getTransactionLogDir;
@@ -280,13 +283,13 @@ public class DeltaLakeMetadata
     public static final String SET_TBLPROPERTIES_OPERATION = "SET TBLPROPERTIES";
     public static final String CHANGE_COLUMN_OPERATION = "CHANGE COLUMN";
     public static final String ISOLATION_LEVEL = "WriteSerializable";
-    private static final int READER_VERSION = 1;
-    // The required writer version used by tables created by Trino
-    private static final int WRITER_VERSION = 2;
-    // The highest writer version Trino supports writing to
-    private static final int MAX_WRITER_VERSION = 4;
-    // This constant should be used only for a new table
-    private static final ProtocolEntry DEFAULT_PROTOCOL = new ProtocolEntry(READER_VERSION, WRITER_VERSION);
+
+    public static final int DEFAULT_READER_VERSION = 1;
+    public static final int DEFAULT_WRITER_VERSION = 2;
+    // The highest reader and writer versions Trino supports writing to
+    public static final int MAX_WRITER_VERSION = 4;
+    private static final int CDF_SUPPORTED_WRITER_VERSION = 4;
+
     // Matches the dummy column Databricks stores in the metastore
     private static final List<Column> DUMMY_DATA_COLUMNS = ImmutableList.of(
             new Column("col", HiveType.toHiveType(new ArrayType(VarcharType.createUnboundedVarcharType())), Optional.empty()));
@@ -295,6 +298,7 @@ public class DeltaLakeMetadata
             .add(NUMBER_OF_DISTINCT_VALUES_SUMMARY)
             .build();
     private static final String ENABLE_NON_CONCURRENT_WRITES_CONFIGURATION_KEY = "delta.enable-non-concurrent-writes";
+    public static final Set<String> UPDATABLE_TABLE_PROPERTIES = ImmutableSet.of(CHANGE_DATA_FEED_ENABLED_PROPERTY);
 
     private final DeltaLakeMetastore metastore;
     private final TrinoFileSystemFactory fileSystemFactory;
@@ -744,10 +748,8 @@ public class DeltaLakeMetadata
                         configurationForNewTable(checkpointInterval, changeDataFeedEnabled),
                         CREATE_TABLE_OPERATION,
                         session,
-                        nodeVersion,
-                        nodeId,
                         tableMetadata.getComment(),
-                        DEFAULT_PROTOCOL);
+                        protocolEntryForNewTable(tableMetadata.getProperties()));
 
                 setRollback(() -> deleteRecursivelyIfExists(fileSystem, deltaLogDirectory));
                 transactionLogWriter.flush();
@@ -871,7 +873,8 @@ public class DeltaLakeMetadata
                 getCheckpointInterval(tableMetadata.getProperties()),
                 external,
                 tableMetadata.getComment(),
-                getChangeDataFeedEnabled(tableMetadata.getProperties()));
+                getChangeDataFeedEnabled(tableMetadata.getProperties()),
+                protocolEntryForNewTable(tableMetadata.getProperties()));
     }
 
     private Optional<String> getSchemaLocation(Database database)
@@ -986,10 +989,8 @@ public class DeltaLakeMetadata
                     configurationForNewTable(handle.getCheckpointInterval(), handle.getChangeDataFeedEnabled()),
                     CREATE_TABLE_AS_OPERATION,
                     session,
-                    nodeVersion,
-                    nodeId,
                     handle.getComment(),
-                    DEFAULT_PROTOCOL);
+                    handle.getProtocolEntry());
             appendAddFileEntries(transactionLogWriter, dataFileInfos, handle.getPartitionedBy(), true);
             transactionLogWriter.flush();
 
@@ -1081,8 +1082,6 @@ public class DeltaLakeMetadata
                     handle.getMetadataEntry().getConfiguration(),
                     SET_TBLPROPERTIES_OPERATION,
                     session,
-                    nodeVersion,
-                    nodeId,
                     comment,
                     getProtocolEntry(session, handle.getSchemaTableName()));
             transactionLogWriter.flush();
@@ -1129,8 +1128,6 @@ public class DeltaLakeMetadata
                     deltaLakeTableHandle.getMetadataEntry().getConfiguration(),
                     CHANGE_COLUMN_OPERATION,
                     session,
-                    nodeVersion,
-                    nodeId,
                     Optional.ofNullable(deltaLakeTableHandle.getMetadataEntry().getDescription()),
                     getProtocolEntry(session, deltaLakeTableHandle.getSchemaTableName()));
             transactionLogWriter.flush();
@@ -1188,8 +1185,6 @@ public class DeltaLakeMetadata
                     handle.getMetadataEntry().getConfiguration(),
                     ADD_COLUMN_OPERATION,
                     session,
-                    nodeVersion,
-                    nodeId,
                     Optional.ofNullable(handle.getMetadataEntry().getDescription()),
                     getProtocolEntry(session, handle.getSchemaTableName()));
             transactionLogWriter.flush();
@@ -1199,7 +1194,7 @@ public class DeltaLakeMetadata
         }
     }
 
-    private static void appendTableEntries(
+    private void appendTableEntries(
             long commitVersion,
             TransactionLogWriter transactionLogWriter,
             String tableId,
@@ -1211,26 +1206,11 @@ public class DeltaLakeMetadata
             Map<String, String> configuration,
             String operation,
             ConnectorSession session,
-            String nodeVersion,
-            String nodeId,
             Optional<String> comment,
             ProtocolEntry protocolEntry)
     {
         long createdTime = System.currentTimeMillis();
-        transactionLogWriter.appendCommitInfoEntry(
-                new CommitInfoEntry(
-                        commitVersion,
-                        createdTime,
-                        session.getUser(),
-                        session.getUser(),
-                        operation,
-                        ImmutableMap.of("queryId", session.getQueryId()),
-                        null,
-                        null,
-                        "trino-" + nodeVersion + "-" + nodeId,
-                        0,
-                        ISOLATION_LEVEL,
-                        Optional.of(true)));
+        transactionLogWriter.appendCommitInfoEntry(getCommitInfoEntry(session, commitVersion, createdTime, operation, 0));
 
         transactionLogWriter.appendProtocolEntry(protocolEntry);
 
@@ -1365,20 +1345,8 @@ public class DeltaLakeMetadata
                         commitVersion - 1));
             }
             Optional<Long> checkpointInterval = handle.getMetadataEntry().getCheckpointInterval();
-            transactionLogWriter.appendCommitInfoEntry(
-                    new CommitInfoEntry(
-                            commitVersion,
-                            createdTime,
-                            session.getUser(),
-                            session.getUser(),
-                            INSERT_OPERATION,
-                            ImmutableMap.of("queryId", session.getQueryId()),
-                            null,
-                            null,
-                            "trino-" + nodeVersion + "-" + nodeId,
-                            handle.getReadVersion(), // it is not obvious why we need to persist this readVersion
-                            ISOLATION_LEVEL,
-                            Optional.of(true)));
+            // it is not obvious why we need to persist this readVersion
+            transactionLogWriter.appendCommitInfoEntry(getCommitInfoEntry(session, commitVersion, createdTime, INSERT_OPERATION, handle.getReadVersion()));
 
             // Note: during writes we want to preserve original case of partition columns
             List<String> partitionColumns = handle.getMetadataEntry().getOriginalPartitionColumns();
@@ -1513,20 +1481,7 @@ public class DeltaLakeMetadata
             }
             long commitVersion = currentVersion + 1;
 
-            transactionLogWriter.appendCommitInfoEntry(
-                    new CommitInfoEntry(
-                            commitVersion,
-                            createdTime,
-                            session.getUser(),
-                            session.getUser(),
-                            MERGE_OPERATION,
-                            ImmutableMap.of("queryId", session.getQueryId()),
-                            null,
-                            null,
-                            "trino-" + nodeVersion + "-" + nodeId,
-                            handle.getReadVersion(),
-                            ISOLATION_LEVEL,
-                            Optional.of(true)));
+            transactionLogWriter.appendCommitInfoEntry(getCommitInfoEntry(session, commitVersion, createdTime, MERGE_OPERATION, handle.getReadVersion()));
             // TODO: Delta writes another field "operationMetrics" (https://github.com/trinodb/trino/issues/12005)
 
             long writeTimestamp = Instant.now().toEpochMilli();
@@ -1724,20 +1679,7 @@ public class DeltaLakeMetadata
 
             long createdTime = Instant.now().toEpochMilli();
             long commitVersion = readVersion + 1;
-            transactionLogWriter.appendCommitInfoEntry(
-                    new CommitInfoEntry(
-                            commitVersion,
-                            createdTime,
-                            session.getUser(),
-                            session.getUser(),
-                            OPTIMIZE_OPERATION,
-                            ImmutableMap.of("queryId", session.getQueryId()),
-                            null,
-                            null,
-                            "trino-" + nodeVersion + "-" + nodeId,
-                            readVersion,
-                            ISOLATION_LEVEL,
-                            Optional.of(true)));
+            transactionLogWriter.appendCommitInfoEntry(getCommitInfoEntry(session, commitVersion, createdTime, OPTIMIZE_OPERATION, readVersion));
             // TODO: Delta writes another field "operationMetrics" that I haven't
             //   seen before. It contains delete/update metrics. Investigate/include it.
 
@@ -1803,6 +1745,17 @@ public class DeltaLakeMetadata
     private ProtocolEntry getProtocolEntry(ConnectorSession session, SchemaTableName schemaTableName)
     {
         return metastore.getProtocol(session, metastore.getSnapshot(schemaTableName, session));
+    }
+
+    private ProtocolEntry protocolEntryForNewTable(Map<String, Object> properties)
+    {
+        int writerVersion = DEFAULT_WRITER_VERSION;
+        Optional<Boolean> changeDataFeedEnabled = getChangeDataFeedEnabled(properties);
+        if (changeDataFeedEnabled.isPresent() && changeDataFeedEnabled.get()) {
+            // Enabling cdf (change data feed) requires setting the writer version to 4
+            writerVersion = CDF_SUPPORTED_WRITER_VERSION;
+        }
+        return new ProtocolEntry(DEFAULT_READER_VERSION, writerVersion);
     }
 
     private void writeCheckpointIfNeeded(ConnectorSession session, SchemaTableName table, Optional<Long> checkpointInterval, long newVersion)
@@ -1879,6 +1832,89 @@ public class DeltaLakeMetadata
             throw new TrinoException(NOT_SUPPORTED, "Renaming managed tables is not allowed with current metastore configuration");
         }
         metastore.renameTable(session, handle.getSchemaTableName(), newTableName);
+    }
+
+    private CommitInfoEntry getCommitInfoEntry(
+            ConnectorSession session,
+            long commitVersion,
+            long createdTime,
+            String operation,
+            long readVersion)
+    {
+        return new CommitInfoEntry(
+                commitVersion,
+                createdTime,
+                session.getUser(),
+                session.getUser(),
+                operation,
+                ImmutableMap.of("queryId", session.getQueryId()),
+                null,
+                null,
+                "trino-" + nodeVersion + "-" + nodeId,
+                readVersion,
+                ISOLATION_LEVEL,
+                Optional.of(true));
+    }
+
+    @Override
+    public void setTableProperties(ConnectorSession session, ConnectorTableHandle tableHandle, Map<String, Optional<Object>> properties)
+    {
+        Set<String> unsupportedProperties = difference(properties.keySet(), UPDATABLE_TABLE_PROPERTIES);
+        if (!unsupportedProperties.isEmpty()) {
+            throw new TrinoException(NOT_SUPPORTED, "The following properties cannot be updated: " + String.join(", ", unsupportedProperties));
+        }
+
+        DeltaLakeTableHandle handle = (DeltaLakeTableHandle) tableHandle;
+        ProtocolEntry currentProtocolEntry = getProtocolEntry(session, handle.getSchemaTableName());
+
+        long createdTime = Instant.now().toEpochMilli();
+
+        int requiredWriterVersion = currentProtocolEntry.getMinWriterVersion();
+        Optional<MetadataEntry> metadataEntry = Optional.empty();
+        if (properties.containsKey(CHANGE_DATA_FEED_ENABLED_PROPERTY)) {
+            boolean changeDataFeedEnabled = (Boolean) properties.get(CHANGE_DATA_FEED_ENABLED_PROPERTY)
+                    .orElseThrow(() -> new IllegalArgumentException("The change_data_feed_enabled  property cannot be empty"));
+            if (changeDataFeedEnabled) {
+                requiredWriterVersion = max(requiredWriterVersion, CDF_SUPPORTED_WRITER_VERSION);
+            }
+            Map<String, String> configuration = new HashMap<>(handle.getMetadataEntry().getConfiguration());
+            configuration.put(DELTA_CHANGE_DATA_FEED_ENABLED_PROPERTY, String.valueOf(changeDataFeedEnabled));
+            metadataEntry = Optional.of(buildMetadataEntry(handle.getMetadataEntry(), configuration, createdTime));
+        }
+
+        long readVersion = handle.getReadVersion();
+        long commitVersion = readVersion + 1;
+
+        Optional<ProtocolEntry> protocolEntry = Optional.empty();
+        if (requiredWriterVersion != currentProtocolEntry.getMinWriterVersion()) {
+            protocolEntry = Optional.of(new ProtocolEntry(currentProtocolEntry.getMinReaderVersion(), requiredWriterVersion));
+        }
+
+        try {
+            TransactionLogWriter transactionLogWriter = transactionLogWriterFactory.newWriter(session, handle.getLocation());
+            transactionLogWriter.appendCommitInfoEntry(getCommitInfoEntry(session, commitVersion, createdTime, SET_TBLPROPERTIES_OPERATION, readVersion));
+            protocolEntry.ifPresent(transactionLogWriter::appendProtocolEntry);
+
+            metadataEntry.ifPresent(transactionLogWriter::appendMetadataEntry);
+
+            transactionLogWriter.flush();
+        }
+        catch (IOException e) {
+            throw new TrinoException(DELTA_LAKE_BAD_WRITE, "Failed to write Delta Lake transaction log entry", e);
+        }
+    }
+
+    private MetadataEntry buildMetadataEntry(MetadataEntry metadataEntry, Map<String, String> configuration, long createdTime)
+    {
+        return new MetadataEntry(
+                metadataEntry.getId(),
+                metadataEntry.getName(),
+                metadataEntry.getDescription(),
+                metadataEntry.getFormat(),
+                metadataEntry.getSchemaString(),
+                metadataEntry.getOriginalPartitionColumns(),
+                configuration,
+                createdTime);
     }
 
     @Override

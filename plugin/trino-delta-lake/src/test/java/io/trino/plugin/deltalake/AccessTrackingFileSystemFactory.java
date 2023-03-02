@@ -17,13 +17,13 @@ import com.google.common.collect.HashMultiset;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Multiset;
 import io.trino.filesystem.FileIterator;
+import io.trino.filesystem.SeekableInputStream;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.filesystem.TrinoInput;
 import io.trino.filesystem.TrinoInputFile;
 import io.trino.filesystem.TrinoOutputFile;
 import io.trino.spi.security.ConnectorIdentity;
-import org.apache.iceberg.io.FileIO;
 
 import java.io.IOException;
 import java.util.Collection;
@@ -122,12 +122,6 @@ public final class AccessTrackingFileSystemFactory
         {
             throw new UnsupportedOperationException();
         }
-
-        @Override
-        public FileIO toFileIo()
-        {
-            throw new UnsupportedOperationException();
-        }
     }
 
     private static class TrackingInputFile
@@ -148,6 +142,14 @@ public final class AccessTrackingFileSystemFactory
         {
             fileOpened.accept(location());
             return delegate.newInput();
+        }
+
+        @Override
+        public SeekableInputStream newStream()
+                throws IOException
+        {
+            fileOpened.accept(location());
+            return delegate.newStream();
         }
 
         @Override
@@ -175,6 +177,12 @@ public final class AccessTrackingFileSystemFactory
         public String location()
         {
             return delegate.location();
+        }
+
+        @Override
+        public String toString()
+        {
+            return delegate.toString();
         }
     }
 }

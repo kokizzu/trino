@@ -57,6 +57,7 @@ import io.trino.plugin.iceberg.delete.DeleteFile;
 import io.trino.plugin.iceberg.delete.DeleteFilter;
 import io.trino.plugin.iceberg.delete.PositionDeleteFilter;
 import io.trino.plugin.iceberg.delete.RowPredicate;
+import io.trino.plugin.iceberg.fileio.ForwardingFileIo;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorPageSource;
@@ -1075,7 +1076,7 @@ public class IcebergPageSourceProvider
         InputFile file;
         OptionalLong fileModifiedTime = OptionalLong.empty();
         try {
-            file = fileSystem.toFileIo().newInputFile(inputFile.location(), inputFile.length());
+            file = new ForwardingFileIo(fileSystem).newInputFile(inputFile.location(), inputFile.length());
             if (readColumns.stream().anyMatch(IcebergColumnHandle::isFileModifiedTimeColumn)) {
                 fileModifiedTime = OptionalLong.of(inputFile.modificationTime());
             }

@@ -15,20 +15,19 @@ package io.trino.plugin.iceberg;
 
 import com.google.common.collect.ImmutableMap;
 import io.trino.filesystem.FileIterator;
+import io.trino.filesystem.SeekableInputStream;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
+import io.trino.filesystem.TrinoInput;
 import io.trino.filesystem.TrinoInputFile;
 import io.trino.filesystem.TrinoOutputFile;
+import io.trino.memory.context.AggregatedMemoryContext;
 import io.trino.spi.security.ConnectorIdentity;
-import org.apache.iceberg.io.FileIO;
-import org.apache.iceberg.io.InputFile;
-import org.apache.iceberg.io.OutputFile;
-import org.apache.iceberg.io.PositionOutputStream;
-import org.apache.iceberg.io.SeekableInputStream;
 
 import javax.annotation.concurrent.Immutable;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
@@ -43,7 +42,6 @@ import static io.trino.plugin.iceberg.TrackingFileSystemFactory.OperationType.IN
 import static io.trino.plugin.iceberg.TrackingFileSystemFactory.OperationType.OUTPUT_FILE_CREATE;
 import static io.trino.plugin.iceberg.TrackingFileSystemFactory.OperationType.OUTPUT_FILE_CREATE_OR_OVERWRITE;
 import static io.trino.plugin.iceberg.TrackingFileSystemFactory.OperationType.OUTPUT_FILE_LOCATION;
-import static io.trino.plugin.iceberg.TrackingFileSystemFactory.OperationType.OUTPUT_FILE_TO_INPUT_FILE;
 import static java.util.Objects.requireNonNull;
 
 public class TrackingFileSystemFactory
@@ -112,19 +110,28 @@ public class TrackingFileSystemFactory
         @Override
         public TrinoInputFile newInputFile(String path)
         {
-            return delegate.newInputFile(path);
+            int nextId = fileId.incrementAndGet();
+            return new TrackingInputFile(
+                    delegate.newInputFile(path),
+                    operation -> tracker.track(path, nextId, operation));
         }
 
         @Override
         public TrinoInputFile newInputFile(String path, long length)
         {
-            return delegate.newInputFile(path, length);
+            int nextId = fileId.incrementAndGet();
+            return new TrackingInputFile(
+                    delegate.newInputFile(path, length),
+                    operation -> tracker.track(path, nextId, operation));
         }
 
         @Override
         public TrinoOutputFile newOutputFile(String path)
         {
-            return delegate.newOutputFile(path);
+            int nextId = fileId.incrementAndGet();
+            return new TrackingOutputFile(
+                    delegate.newOutputFile(path),
+                    operationType -> tracker.track(path, nextId, operationType));
         }
 
         @Override
@@ -161,75 +168,57 @@ public class TrackingFileSystemFactory
         {
             return delegate.listFiles(path);
         }
-
-        @Override
-        public FileIO toFileIo()
-        {
-            return new TrackingFileIo(delegate.toFileIo(), tracker);
-        }
-    }
-
-    private class TrackingFileIo
-            implements FileIO
-    {
-        private final FileIO delegate;
-        private final Tracker tracker;
-
-        public TrackingFileIo(FileIO delegate, Tracker tracker)
-        {
-            this.delegate = requireNonNull(delegate, "delegate is null");
-            this.tracker = requireNonNull(tracker, "tracker is null");
-        }
-
-        @Override
-        public InputFile newInputFile(String path)
-        {
-            int nextId = fileId.incrementAndGet();
-            return new TrackingInputFile(
-                    delegate.newInputFile(path),
-                    operation -> tracker.track(path, nextId, operation));
-        }
-
-        @Override
-        public OutputFile newOutputFile(String path)
-        {
-            int nextId = fileId.incrementAndGet();
-            return new TrackingOutputFile(
-                    delegate.newOutputFile(path),
-                    operationType -> tracker.track(path, nextId, operationType));
-        }
-
-        @Override
-        public void deleteFile(String path)
-        {
-            delegate.deleteFile(path);  // TODO: track delete files calls
-        }
     }
 
     private static class TrackingInputFile
-            implements InputFile
+            implements TrinoInputFile
     {
-        private final InputFile delegate;
+        private final TrinoInputFile delegate;
         private final Consumer<OperationType> tracker;
 
-        public TrackingInputFile(InputFile delegate, Consumer<OperationType> tracker)
+        public TrackingInputFile(TrinoInputFile delegate, Consumer<OperationType> tracker)
         {
             this.delegate = requireNonNull(delegate, "delegate is null");
             this.tracker = requireNonNull(tracker, "tracker is null");
         }
 
         @Override
-        public long getLength()
+        public long length()
+                throws IOException
         {
             tracker.accept(INPUT_FILE_GET_LENGTH);
-            return delegate.getLength();
+            return delegate.length();
+        }
+
+        @Override
+        public TrinoInput newInput()
+                throws IOException
+        {
+            tracker.accept(INPUT_FILE_NEW_STREAM);
+            return delegate.newInput();
         }
 
         @Override
         public SeekableInputStream newStream()
+                throws IOException
         {
             tracker.accept(INPUT_FILE_NEW_STREAM);
             return delegate.newStream();
+        }
+
+        @Override
+        public boolean exists()
+                throws IOException
+        {
+            tracker.accept(INPUT_FILE_EXISTS);
+            return delegate.exists();
+        }
+
+        @Override
+        public long modificationTime()
+                throws IOException
+        {
+            return delegate.modificationTime();
         }
 
         @Override
@@ -237,39 +226,34 @@ public class TrackingFileSystemFactory
         {
             return delegate.location();
         }
-
-        @Override
-        public boolean exists()
-        {
-            tracker.accept(INPUT_FILE_EXISTS);
-            return delegate.exists();
-        }
     }
 
     private static class TrackingOutputFile
-            implements OutputFile
+            implements TrinoOutputFile
     {
-        private final OutputFile delegate;
+        private final TrinoOutputFile delegate;
         private final Consumer<OperationType> tracker;
 
-        public TrackingOutputFile(OutputFile delegate, Consumer<OperationType> tracker)
+        public TrackingOutputFile(TrinoOutputFile delegate, Consumer<OperationType> tracker)
         {
             this.delegate = requireNonNull(delegate, "delete is null");
             this.tracker = requireNonNull(tracker, "tracker is null");
         }
 
         @Override
-        public PositionOutputStream create()
+        public OutputStream create(AggregatedMemoryContext memoryContext)
+                throws IOException
         {
             tracker.accept(OUTPUT_FILE_CREATE);
-            return delegate.create();
+            return delegate.create(memoryContext);
         }
 
         @Override
-        public PositionOutputStream createOrOverwrite()
+        public OutputStream createOrOverwrite(AggregatedMemoryContext memoryContext)
+                throws IOException
         {
             tracker.accept(OUTPUT_FILE_CREATE_OR_OVERWRITE);
-            return delegate.createOrOverwrite();
+            return delegate.createOrOverwrite(memoryContext);
         }
 
         @Override
@@ -277,13 +261,6 @@ public class TrackingFileSystemFactory
         {
             tracker.accept(OUTPUT_FILE_LOCATION);
             return delegate.location();
-        }
-
-        @Override
-        public InputFile toInputFile()
-        {
-            tracker.accept(OUTPUT_FILE_TO_INPUT_FILE);
-            return delegate.toInputFile();
         }
     }
 

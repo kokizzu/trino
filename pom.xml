@@ -10,7 +10,7 @@
 
     <groupId>io.trino</groupId>
     <artifactId>trino-root</artifactId>
-    <version>408-SNAPSHOT</version>
+    <version>409-SNAPSHOT</version>
 
     <name>trino-root</name>
     <description>Trino</description>
@@ -1147,7 +1147,7 @@
             <dependency>
                 <groupId>com.clickhouse</groupId>
                 <artifactId>clickhouse-jdbc</artifactId>
-                <version>0.3.2-patch3</version>
+                <version>0.4.1</version>
                 <classifier>all</classifier>
                 <exclusions>
                     <exclusion>
@@ -1373,6 +1373,12 @@
                 <artifactId>re2j-td</artifactId>
                 <version>1.4</version>
             </dependency>
+
+            <dependency>
+                 <groupId>commons-codec</groupId>
+                 <artifactId>commons-codec</artifactId>
+                 <version>1.15</version>
+             </dependency>
 
             <dependency>
                 <groupId>dev.failsafe</groupId>

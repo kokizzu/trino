@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -862,6 +863,42 @@ public abstract class BaseDeltaLakeMinioConnectorTest
                 .contains("change_data_feed_enabled = true");
     }
 
+    @Test
+    public void testAlterTableWithUnsupportedProperties()
+    {
+        String tableName = "test_alter_table_with_unsupported_properties_" + randomNameSuffix();
+
+        assertUpdate("CREATE TABLE " + tableName + " (a_number INT)");
+
+        assertQueryFails("ALTER TABLE " + tableName + " SET PROPERTIES change_data_feed_enabled = true, checkpoint_interval = 10",
+                "The following properties cannot be updated: checkpoint_interval");
+        assertQueryFails("ALTER TABLE " + tableName + " SET PROPERTIES partitioned_by = ARRAY['a']",
+                "The following properties cannot be updated: partitioned_by");
+
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    @Test
+    public void testSettingChangeDataFeedEnabledProperty()
+    {
+        String tableName = "test_enable_and_disable_cdf_" + randomNameSuffix();
+        assertUpdate("CREATE TABLE " + tableName + " (page_url VARCHAR, domain VARCHAR, views INTEGER)");
+
+        assertUpdate("ALTER TABLE " + tableName + " SET PROPERTIES change_data_feed_enabled = false");
+        assertThat((String) computeScalar("SHOW CREATE TABLE " + tableName))
+                .contains("change_data_feed_enabled = false");
+
+        assertUpdate("ALTER TABLE " + tableName + " SET PROPERTIES change_data_feed_enabled = true");
+        assertThat((String) computeScalar("SHOW CREATE TABLE " + tableName)).contains("change_data_feed_enabled = true");
+
+        assertUpdate("ALTER TABLE " + tableName + " SET PROPERTIES change_data_feed_enabled = false");
+        assertThat((String) computeScalar("SHOW CREATE TABLE " + tableName)).contains("change_data_feed_enabled = false");
+
+        assertUpdate("ALTER TABLE " + tableName + " SET PROPERTIES change_data_feed_enabled = true");
+        assertThat((String) computeScalar("SHOW CREATE TABLE " + tableName))
+                .contains("change_data_feed_enabled = true");
+    }
+
     @Override
     protected void verifyAddNotNullColumnToNonEmptyTableFailurePermissible(Throwable e)
     {
@@ -922,5 +959,11 @@ public abstract class BaseDeltaLakeMinioConnectorTest
         return hiveMinioDataLake.listFiles(format("%s/%s", SCHEMA, tableName)).stream()
                 .map(path -> format("s3://%s/%s", bucketName, path))
                 .collect(toImmutableList());
+    }
+
+    private void assertThatShowCreateTable(String tableName, String expectedRegex)
+    {
+        assertThat((String) computeScalar("SHOW CREATE TABLE " + tableName))
+                .matches(Pattern.compile(expectedRegex, Pattern.DOTALL));
     }
 }

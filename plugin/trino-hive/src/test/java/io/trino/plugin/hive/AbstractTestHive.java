@@ -37,6 +37,7 @@ import io.trino.plugin.hive.aws.athena.PartitionProjectionService;
 import io.trino.plugin.hive.fs.DirectoryLister;
 import io.trino.plugin.hive.fs.TrinoFileStatus;
 import io.trino.plugin.hive.fs.TrinoFileStatusRemoteIterator;
+import io.trino.plugin.hive.line.LinePageSource;
 import io.trino.plugin.hive.metastore.Column;
 import io.trino.plugin.hive.metastore.HiveColumnStatistics;
 import io.trino.plugin.hive.metastore.HiveMetastore;
@@ -225,6 +226,7 @@ import static io.trino.plugin.hive.HiveStorageFormat.ORC;
 import static io.trino.plugin.hive.HiveStorageFormat.PARQUET;
 import static io.trino.plugin.hive.HiveStorageFormat.RCBINARY;
 import static io.trino.plugin.hive.HiveStorageFormat.RCTEXT;
+import static io.trino.plugin.hive.HiveStorageFormat.REGEX;
 import static io.trino.plugin.hive.HiveStorageFormat.SEQUENCEFILE;
 import static io.trino.plugin.hive.HiveStorageFormat.TEXTFILE;
 import static io.trino.plugin.hive.HiveTableProperties.BUCKETED_BY_PROPERTY;
@@ -502,8 +504,8 @@ public abstract class AbstractTestHive
 
     protected Set<HiveStorageFormat> createTableFormats = difference(
             ImmutableSet.copyOf(HiveStorageFormat.values()),
-            // exclude formats that change table schema with serde
-            ImmutableSet.of(AVRO, CSV));
+            // exclude formats that change table schema with serde and read-only formats
+            ImmutableSet.of(AVRO, CSV, REGEX));
 
     private static final TypeOperators TYPE_OPERATORS = new TypeOperators();
     private static final BlockTypeOperators BLOCK_TYPE_OPERATORS = new BlockTypeOperators(TYPE_OPERATORS);
@@ -908,6 +910,7 @@ public abstract class AbstractTestHive
                 new GroupByHashPageIndexerFactory(JOIN_COMPILER, BLOCK_TYPE_OPERATORS),
                 TESTING_TYPE_MANAGER,
                 getHiveConfig(),
+                getSortingFileWriterConfig(),
                 locationService,
                 partitionUpdateCodec,
                 new TestingNodeManager("fake-environment"),
@@ -932,8 +935,13 @@ public abstract class AbstractTestHive
     protected HiveConfig getHiveConfig()
     {
         return new HiveConfig()
+                .setTemporaryStagingDirectoryPath(temporaryStagingDirectory.toAbsolutePath().toString());
+    }
+
+    protected SortingFileWriterConfig getSortingFileWriterConfig()
+    {
+        return new SortingFileWriterConfig()
                 .setMaxOpenSortFiles(10)
-                .setTemporaryStagingDirectoryPath(temporaryStagingDirectory.toAbsolutePath().toString())
                 .setWriterSortBufferSize(DataSize.of(100, KILOBYTE));
     }
 
@@ -2340,19 +2348,6 @@ public abstract class AbstractTestHive
         }
     }
 
-    @Test(expectedExceptions = RuntimeException.class, expectedExceptionsMessageRegExp = ".*" + INVALID_COLUMN + ".*")
-    public void testGetRecordsInvalidColumn()
-            throws Exception
-    {
-        try (Transaction transaction = newTransaction()) {
-            ConnectorMetadata connectorMetadata = transaction.getMetadata();
-            ConnectorTableHandle table = getTableHandle(connectorMetadata, tableUnpartitioned);
-            ConnectorSession session = newSession();
-            connectorMetadata.beginQuery(session);
-            readTable(transaction, table, ImmutableList.of(invalidColumnHandle), session, TupleDomain.all(), OptionalInt.empty(), Optional.empty());
-        }
-    }
-
     @Test(expectedExceptions = TrinoException.class, expectedExceptionsMessageRegExp = ".*The column 't_data' in table '.*\\.trino_test_partition_schema_change' is declared as type 'double', but partition 'ds=2012-12-29' declared column 't_data' as type 'string'.")
     public void testPartitionSchemaMismatch()
             throws Exception
@@ -2775,7 +2770,7 @@ public abstract class AbstractTestHive
 
             assertThat(listAllDataFiles(context, stagingPathRoot))
                     .filteredOn(file -> file.contains(".tmp-sort."))
-                    .size().isGreaterThan(bucketCount * getHiveConfig().getMaxOpenSortFiles() * 2);
+                    .size().isGreaterThan(bucketCount * getSortingFileWriterConfig().getMaxOpenSortFiles() * 2);
 
             // finish the write
             Collection<Slice> fragments = getFutureValue(sink.finish());
@@ -5293,6 +5288,11 @@ public abstract class AbstractTestHive
                 return OrcPageSource.class;
             case PARQUET:
                 return ParquetPageSource.class;
+            case CSV:
+            case JSON:
+            case TEXTFILE:
+            case SEQUENCEFILE:
+                return LinePageSource.class;
             default:
                 throw new AssertionError("File type does not use a PageSource: " + hiveStorageFormat);
         }

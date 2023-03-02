@@ -17,6 +17,7 @@ import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoOutputFile;
 import io.trino.parquet.writer.ParquetWriterOptions;
 import io.trino.plugin.hive.parquet.ParquetFileWriter;
+import io.trino.plugin.iceberg.fileio.ForwardingFileIo;
 import io.trino.spi.type.Type;
 import org.apache.iceberg.Metrics;
 import org.apache.iceberg.MetricsConfig;
@@ -78,7 +79,7 @@ public class IcebergParquetFileWriter
     @Override
     public Metrics getMetrics()
     {
-        InputFile inputFile = fileSystem.toFileIo().newInputFile(outputPath);
+        InputFile inputFile = new ForwardingFileIo(fileSystem).newInputFile(outputPath);
         return fileMetrics(inputFile, metricsConfig);
     }
 }
