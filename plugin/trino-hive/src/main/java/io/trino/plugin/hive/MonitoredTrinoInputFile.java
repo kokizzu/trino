@@ -13,11 +13,12 @@
  */
 package io.trino.plugin.hive;
 
-import io.trino.filesystem.SeekableInputStream;
 import io.trino.filesystem.TrinoInput;
 import io.trino.filesystem.TrinoInputFile;
+import io.trino.filesystem.TrinoInputStream;
 
 import java.io.IOException;
+import java.time.Instant;
 
 import static java.util.Objects.requireNonNull;
 
@@ -41,10 +42,10 @@ public class MonitoredTrinoInputFile
     }
 
     @Override
-    public SeekableInputStream newStream()
+    public TrinoInputStream newStream()
             throws IOException
     {
-        return new MonitoredSeekableInputStream(stats, delegate.newStream());
+        return new MonitoredTrinoInputStream(stats, delegate.newStream());
     }
 
     @Override
@@ -55,10 +56,10 @@ public class MonitoredTrinoInputFile
     }
 
     @Override
-    public long modificationTime()
+    public Instant lastModified()
             throws IOException
     {
-        return delegate.modificationTime();
+        return delegate.lastModified();
     }
 
     @Override
@@ -125,13 +126,13 @@ public class MonitoredTrinoInputFile
         }
     }
 
-    private static final class MonitoredSeekableInputStream
-            extends SeekableInputStream
+    private static final class MonitoredTrinoInputStream
+            extends TrinoInputStream
     {
         private final FileFormatDataSourceStats stats;
-        private final SeekableInputStream delegate;
+        private final TrinoInputStream delegate;
 
-        public MonitoredSeekableInputStream(FileFormatDataSourceStats stats, SeekableInputStream delegate)
+        public MonitoredTrinoInputStream(FileFormatDataSourceStats stats, TrinoInputStream delegate)
         {
             this.stats = requireNonNull(stats, "stats is null");
             this.delegate = requireNonNull(delegate, "delegate is null");

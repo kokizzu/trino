@@ -15,8 +15,7 @@ package io.trino.hive.formats;
 
 import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
-import io.trino.filesystem.SeekableInputStream;
-import org.openjdk.jol.info.ClassLayout;
+import io.trino.filesystem.TrinoInputStream;
 
 import java.io.DataInput;
 import java.io.EOFException;
@@ -30,19 +29,19 @@ import static io.airlift.slice.SizeOf.SIZE_OF_BYTE;
 import static io.airlift.slice.SizeOf.SIZE_OF_INT;
 import static io.airlift.slice.SizeOf.SIZE_OF_LONG;
 import static io.airlift.slice.SizeOf.SIZE_OF_SHORT;
+import static io.airlift.slice.SizeOf.instanceSize;
 import static io.airlift.slice.SizeOf.sizeOf;
-import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
-public final class DataSeekableInputStream
+public final class TrinoDataInputStream
         extends InputStream
         implements DataInput
 {
-    private static final int INSTANCE_SIZE = toIntExact(ClassLayout.parseClass(DataSeekableInputStream.class).instanceSize());
+    private static final int INSTANCE_SIZE = instanceSize(TrinoDataInputStream.class);
     private static final int DEFAULT_BUFFER_SIZE = 4 * 1024;
     private static final int MINIMUM_CHUNK_SIZE = 1024;
 
-    private final SeekableInputStream inputStream;
+    private final TrinoInputStream inputStream;
     private long readTimeNanos;
     private long readBytes;
 
@@ -59,12 +58,12 @@ public final class DataSeekableInputStream
 
     private int bufferFill;
 
-    public DataSeekableInputStream(SeekableInputStream inputStream)
+    public TrinoDataInputStream(TrinoInputStream inputStream)
     {
         this(inputStream, DEFAULT_BUFFER_SIZE);
     }
 
-    public DataSeekableInputStream(SeekableInputStream inputStream, int bufferSize)
+    public TrinoDataInputStream(TrinoInputStream inputStream, int bufferSize)
     {
         requireNonNull(inputStream, "inputStream is null");
         checkArgument(bufferSize >= MINIMUM_CHUNK_SIZE, "minimum buffer size of " + MINIMUM_CHUNK_SIZE + " required");

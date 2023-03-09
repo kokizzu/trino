@@ -15,11 +15,11 @@ package io.trino.plugin.iceberg;
 
 import com.google.common.collect.ImmutableMap;
 import io.trino.filesystem.FileIterator;
-import io.trino.filesystem.SeekableInputStream;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.filesystem.TrinoInput;
 import io.trino.filesystem.TrinoInputFile;
+import io.trino.filesystem.TrinoInputStream;
 import io.trino.filesystem.TrinoOutputFile;
 import io.trino.memory.context.AggregatedMemoryContext;
 import io.trino.spi.security.ConnectorIdentity;
@@ -28,6 +28,7 @@ import javax.annotation.concurrent.Immutable;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
@@ -108,51 +109,51 @@ public class TrackingFileSystemFactory
         }
 
         @Override
-        public TrinoInputFile newInputFile(String path)
+        public TrinoInputFile newInputFile(String location)
         {
             int nextId = fileId.incrementAndGet();
             return new TrackingInputFile(
-                    delegate.newInputFile(path),
-                    operation -> tracker.track(path, nextId, operation));
+                    delegate.newInputFile(location),
+                    operation -> tracker.track(location, nextId, operation));
         }
 
         @Override
-        public TrinoInputFile newInputFile(String path, long length)
+        public TrinoInputFile newInputFile(String location, long length)
         {
             int nextId = fileId.incrementAndGet();
             return new TrackingInputFile(
-                    delegate.newInputFile(path, length),
-                    operation -> tracker.track(path, nextId, operation));
+                    delegate.newInputFile(location, length),
+                    operation -> tracker.track(location, nextId, operation));
         }
 
         @Override
-        public TrinoOutputFile newOutputFile(String path)
+        public TrinoOutputFile newOutputFile(String location)
         {
             int nextId = fileId.incrementAndGet();
             return new TrackingOutputFile(
-                    delegate.newOutputFile(path),
-                    operationType -> tracker.track(path, nextId, operationType));
+                    delegate.newOutputFile(location),
+                    operationType -> tracker.track(location, nextId, operationType));
         }
 
         @Override
-        public void deleteFile(String path)
+        public void deleteFile(String location)
                 throws IOException
         {
-            delegate.deleteFile(path);
+            delegate.deleteFile(location);
         }
 
         @Override
-        public void deleteFiles(Collection<String> paths)
+        public void deleteFiles(Collection<String> locations)
                 throws IOException
         {
-            delegate.deleteFiles(paths);
+            delegate.deleteFiles(locations);
         }
 
         @Override
-        public void deleteDirectory(String path)
+        public void deleteDirectory(String location)
                 throws IOException
         {
-            delegate.deleteDirectory(path);
+            delegate.deleteDirectory(location);
         }
 
         @Override
@@ -163,10 +164,10 @@ public class TrackingFileSystemFactory
         }
 
         @Override
-        public FileIterator listFiles(String path)
+        public FileIterator listFiles(String location)
                 throws IOException
         {
-            return delegate.listFiles(path);
+            return delegate.listFiles(location);
         }
     }
 
@@ -199,7 +200,7 @@ public class TrackingFileSystemFactory
         }
 
         @Override
-        public SeekableInputStream newStream()
+        public TrinoInputStream newStream()
                 throws IOException
         {
             tracker.accept(INPUT_FILE_NEW_STREAM);
@@ -215,10 +216,10 @@ public class TrackingFileSystemFactory
         }
 
         @Override
-        public long modificationTime()
+        public Instant lastModified()
                 throws IOException
         {
-            return delegate.modificationTime();
+            return delegate.lastModified();
         }
 
         @Override

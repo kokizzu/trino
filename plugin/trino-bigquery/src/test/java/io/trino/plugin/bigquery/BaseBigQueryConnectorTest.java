@@ -36,12 +36,12 @@ import static io.trino.plugin.bigquery.BigQueryQueryRunner.BigQuerySqlExecutor;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static io.trino.testing.MaterializedResult.resultBuilder;
 import static io.trino.testing.TestingNames.randomNameSuffix;
-import static io.trino.testing.assertions.Assert.assertEquals;
 import static io.trino.testing.assertions.Assert.assertEventually;
 import static java.lang.String.format;
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 
 public abstract class BaseBigQueryConnectorTest
@@ -92,28 +92,14 @@ public abstract class BaseBigQueryConnectorTest
     @Override
     public void testShowColumns()
     {
-        // shippriority column is bigint (not integer) in BigQuery connector
-        MaterializedResult actual = computeActual("SHOW COLUMNS FROM orders");
-
-        MaterializedResult expectedParametrizedVarchar = resultBuilder(getSession(), VARCHAR, VARCHAR, VARCHAR, VARCHAR)
-                .row("orderkey", "bigint", "", "")
-                .row("custkey", "bigint", "", "")
-                .row("orderstatus", "varchar", "", "")
-                .row("totalprice", "double", "", "")
-                .row("orderdate", "date", "", "")
-                .row("orderpriority", "varchar", "", "")
-                .row("clerk", "varchar", "", "")
-                .row("shippriority", "bigint", "", "")
-                .row("comment", "varchar", "", "")
-                .build();
-
-        assertEquals(actual, expectedParametrizedVarchar);
+        assertThat(query("SHOW COLUMNS FROM orders")).matches(getDescribeOrdersResult());
     }
 
     @Override
-    public void testDescribeTable()
+    protected MaterializedResult getDescribeOrdersResult()
     {
-        MaterializedResult expectedColumns = resultBuilder(getSession(), VARCHAR, VARCHAR, VARCHAR, VARCHAR)
+        // shippriority column is bigint (not integer) in BigQuery connector
+        return resultBuilder(getSession(), VARCHAR, VARCHAR, VARCHAR, VARCHAR)
                 .row("orderkey", "bigint", "", "")
                 .row("custkey", "bigint", "", "")
                 .row("orderstatus", "varchar", "", "")
@@ -124,8 +110,6 @@ public abstract class BaseBigQueryConnectorTest
                 .row("shippriority", "bigint", "", "")
                 .row("comment", "varchar", "", "")
                 .build();
-        MaterializedResult actualColumns = computeActual("DESCRIBE orders");
-        assertEquals(actualColumns, expectedColumns);
     }
 
     @Test(dataProvider = "createTableSupportedTypes")

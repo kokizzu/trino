@@ -70,7 +70,6 @@ import static io.trino.testing.TestingAccessControlManager.privilege;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_DELETE;
 import static io.trino.testing.TestingNames.randomNameSuffix;
 import static io.trino.testing.TestingSession.testSessionBuilder;
-import static io.trino.testing.assertions.Assert.assertEquals;
 import static io.trino.testing.assertions.Assert.assertEventually;
 import static io.trino.tpch.TpchTable.CUSTOMER;
 import static io.trino.tpch.TpchTable.LINE_ITEM;
@@ -81,6 +80,7 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
@@ -1818,6 +1818,27 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
         assertThat(showCreateTableOld).isEqualTo(showCreateTableNew);
         assertQuery("SELECT * FROM " + tableName, "VALUES (1, 'INDIA', true), (2, 'POLAND', false)");
 
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    @Test
+    public void testRegisterTableWithTrailingSpaceInLocation()
+    {
+        String tableName = "test_create_table_with_trailing_space_" + randomNameSuffix();
+        String tableLocationWithTrailingSpace = bucketUrl() + tableName + " ";
+
+        assertQuerySucceeds(format("CREATE TABLE %s WITH (location = '%s') AS SELECT 1 AS a, 'INDIA' AS b, true AS c", tableName, tableLocationWithTrailingSpace));
+        assertQuery("SELECT * FROM " + tableName, "VALUES (1, 'INDIA', true)");
+
+        assertThat(getTableLocation(tableName)).isEqualTo(tableLocationWithTrailingSpace);
+
+        String registeredTableName = "test_register_table_with_trailing_space_" + randomNameSuffix();
+        assertQuerySucceeds(format("CALL system.register_table('%s', '%s', '%s')", SCHEMA, registeredTableName, tableLocationWithTrailingSpace));
+        assertQuery("SELECT * FROM " + registeredTableName, "VALUES (1, 'INDIA', true)");
+
+        assertThat(getTableLocation(registeredTableName)).isEqualTo(tableLocationWithTrailingSpace);
+
+        assertUpdate("DROP TABLE " + registeredTableName);
         assertUpdate("DROP TABLE " + tableName);
     }
 

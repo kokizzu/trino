@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>409-SNAPSHOT</version>
+        <version>411-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -35,9 +35,11 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- used by slice and must be listed for plugin dependency enforcer -->
         <dependency>
             <groupId>org.openjdk.jol</groupId>
             <artifactId>jol-core</artifactId>
+            <scope>runtime</scope>
         </dependency>
 
         <!-- for testing -->
@@ -246,6 +248,12 @@
                                 </item>
                                 <!-- Backwards incompatible changes since the previous release -->
                                 <!-- Any exclusions below can be deleted after each release -->
+                                <item>
+                                    <code>java.method.exception.checkedRemoved</code>
+                                    <old>method void io.airlift.slice.SliceOutput::write(byte[]) throws java.io.IOException</old>
+                                    <new>method void io.airlift.slice.SliceOutput::write(byte[])</new>
+                                    <exception>java.io.IOException</exception>
+                                </item>
                                 <item>
                                     <ignore>true</ignore>
                                     <code>java.field.visibilityReduced</code>

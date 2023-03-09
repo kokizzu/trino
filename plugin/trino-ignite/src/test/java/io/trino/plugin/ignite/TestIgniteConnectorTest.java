@@ -30,6 +30,7 @@ import java.util.Optional;
 
 import static com.google.common.base.Strings.nullToEmpty;
 import static io.trino.plugin.ignite.IgniteQueryRunner.createIgniteQueryRunner;
+import static io.trino.testing.TestingNames.randomNameSuffix;
 import static java.lang.String.format;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -58,40 +59,77 @@ public class TestIgniteConnectorTest
         return igniteServer::execute;
     }
 
+    @SuppressWarnings("DuplicateBranchesInSwitch")
     @Override
     protected boolean hasBehavior(TestingConnectorBehavior connectorBehavior)
     {
         switch (connectorBehavior) {
             case SUPPORTS_DELETE:
+            case SUPPORTS_TRUNCATE:
+                return false;
+
             case SUPPORTS_CREATE_SCHEMA:
-            case SUPPORTS_CREATE_VIEW:
             case SUPPORTS_RENAME_TABLE:
+            case SUPPORTS_RENAME_COLUMN:
             case SUPPORTS_COMMENT_ON_TABLE:
             case SUPPORTS_COMMENT_ON_COLUMN:
-
-                // https://issues.apache.org/jira/browse/IGNITE-18829
-                // Add not null column to non-empty table Ignite doesn't give the default value
-            case SUPPORTS_ADD_COLUMN:
-            case SUPPORTS_ADD_COLUMN_WITH_COMMENT:
-            case SUPPORTS_ARRAY:
-            case SUPPORTS_ROW_TYPE:
-            case SUPPORTS_CREATE_TABLE_WITH_COLUMN_COMMENT:
             case SUPPORTS_CREATE_TABLE_WITH_TABLE_COMMENT:
-            case SUPPORTS_RENAME_COLUMN:
-            case SUPPORTS_TRUNCATE:
-            case SUPPORTS_SET_COLUMN_TYPE:
-            case SUPPORTS_NEGATIVE_DATE:
+            case SUPPORTS_CREATE_TABLE_WITH_COLUMN_COMMENT:
                 return false;
 
             case SUPPORTS_DROP_COLUMN:
-            case SUPPORTS_LIMIT_PUSHDOWN:
-            case SUPPORTS_TOPN_PUSHDOWN:
+                return true;
+
+            // https://issues.apache.org/jira/browse/IGNITE-18829
+            // Add not null column to non-empty table Ignite doesn't give the default value
+            case SUPPORTS_ADD_COLUMN:
+            case SUPPORTS_SET_COLUMN_TYPE:
+                return false;
+
+            case SUPPORTS_ARRAY:
+            case SUPPORTS_ROW_TYPE:
+            case SUPPORTS_NEGATIVE_DATE:
+                return false;
+
+            case SUPPORTS_PREDICATE_EXPRESSION_PUSHDOWN_WITH_LIKE:
+            case SUPPORTS_AGGREGATION_PUSHDOWN_COUNT_DISTINCT:
             case SUPPORTS_TOPN_PUSHDOWN_WITH_VARCHAR:
             case SUPPORTS_NOT_NULL_CONSTRAINT:
                 return true;
 
             default:
                 return super.hasBehavior(connectorBehavior);
+        }
+    }
+
+    @Test
+    public void testDatabaseMetadataSearchEscapedWildCardCharacters()
+    {
+        // wildcard characters on schema name
+        assertQuerySucceeds("SHOW TABLES FROM public");
+        assertQueryFails("SHOW TABLES FROM \"publi_\"", ".*Schema 'publi_' does not exist");
+        assertQueryFails("SHOW TABLES FROM \"pu%lic\"", ".*Schema 'pu%lic' does not exist");
+
+        String tableNameSuffix = randomNameSuffix();
+        String normalTableName = "testxsearch" + tableNameSuffix;
+        String underscoreTableName = "\"" + "test_search" + tableNameSuffix + "\"";
+        String percentTableName = "\"" + "test%search" + tableNameSuffix + "\"";
+        try {
+            assertUpdate("CREATE TABLE " + normalTableName + "(a int, b int, c int) WITH (primary_key = ARRAY['a'])");
+            assertUpdate("CREATE TABLE " + underscoreTableName + "(a int, b int, c int) WITH (primary_key = ARRAY['b'])");
+            assertUpdate("CREATE TABLE " + percentTableName + " (a int, b int, c int) WITH (primary_key = ARRAY['c'])");
+
+            // wildcard characters on table name
+            assertThat((String) computeScalar("SHOW CREATE TABLE " + normalTableName)).contains("primary_key = ARRAY['a']");
+            assertThat((String) computeScalar("SHOW CREATE TABLE " + underscoreTableName)).contains("primary_key = ARRAY['b']");
+            assertThat((String) computeScalar("SHOW CREATE TABLE " + percentTableName)).contains("primary_key = ARRAY['c']");
+            assertQueryFails("SHOW CREATE TABLE " + "\"test%\"", ".*Table 'ignite.public.test%' does not exist");
+            assertQueryFails("SHOW COLUMNS FROM " + "\"test%\"", ".*Table 'ignite.public.test%' does not exist");
+        }
+        finally {
+            assertUpdate("DROP TABLE IF EXISTS " + normalTableName);
+            assertUpdate("DROP TABLE IF EXISTS " + underscoreTableName);
+            assertUpdate("DROP TABLE IF EXISTS " + percentTableName);
         }
     }
 

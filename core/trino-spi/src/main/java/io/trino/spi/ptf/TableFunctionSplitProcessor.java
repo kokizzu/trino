@@ -11,23 +11,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.filesystem;
+package io.trino.spi.ptf;
 
-import java.io.IOException;
-import java.io.InputStream;
+import io.trino.spi.connector.ConnectorSplit;
 
-public abstract class SeekableInputStream
-        extends InputStream
+public interface TableFunctionSplitProcessor
 {
     /**
-     * @return current position from the start of the file
+     * This method processes a split. It is called multiple times until the whole output for the split is produced.
+     *
+     * @param split a {@link ConnectorSplit} representing a subtask.
+     * @return {@link TableFunctionProcessorState} including the processor's state and optionally a portion of result.
+     * After the returned state is {@code FINISHED}, the method will not be called again.
      */
-    public abstract long getPosition()
-            throws IOException;
-
-    /**
-     * @param position the new position from the start of the file
-     */
-    public abstract void seek(long position)
-            throws IOException;
+    TableFunctionProcessorState process(ConnectorSplit split);
 }

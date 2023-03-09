@@ -48,14 +48,15 @@ import static com.google.common.collect.Sets.union;
 import static io.trino.plugin.deltalake.DeltaLakeQueryRunner.DELTA_CATALOG;
 import static io.trino.plugin.deltalake.transactionlog.TransactionLogUtil.TRANSACTION_LOG_DIRECTORY;
 import static io.trino.spi.type.VarcharType.VARCHAR;
+import static io.trino.testing.MaterializedResult.resultBuilder;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_CREATE_SCHEMA;
 import static io.trino.testing.TestingNames.randomNameSuffix;
-import static io.trino.testing.assertions.Assert.assertEquals;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.testng.Assert.assertEquals;
 
 public abstract class BaseDeltaLakeMinioConnectorTest
         extends BaseConnectorTest
@@ -224,11 +225,10 @@ public abstract class BaseDeltaLakeMinioConnectorTest
         throw new SkipException("Delta Lake does not support columns with a default value");
     }
 
-    @Test
     @Override
-    public void testDescribeTable()
+    protected MaterializedResult getDescribeOrdersResult()
     {
-        MaterializedResult expectedColumns = MaterializedResult.resultBuilder(getQueryRunner().getDefaultSession(), VARCHAR, VARCHAR, VARCHAR, VARCHAR)
+        return resultBuilder(getQueryRunner().getDefaultSession(), VARCHAR, VARCHAR, VARCHAR, VARCHAR)
                 .row("orderkey", "bigint", "", "")
                 .row("custkey", "bigint", "", "")
                 .row("orderstatus", "varchar", "", "")
@@ -239,8 +239,6 @@ public abstract class BaseDeltaLakeMinioConnectorTest
                 .row("shippriority", "integer", "", "")
                 .row("comment", "varchar", "", "")
                 .build();
-        MaterializedResult actualColumns = computeActual("DESCRIBE orders");
-        assertEquals(actualColumns, expectedColumns);
     }
 
     @Test
@@ -561,6 +559,19 @@ public abstract class BaseDeltaLakeMinioConnectorTest
             assertQuery("SELECT x FROM " + table.getName() + " WHERE \"$path\" IS NOT NULL", "VALUES ('first'), ('second')");
             assertQueryReturnsEmptyResult("SELECT x FROM " + table.getName() + " WHERE \"$path\" IS NULL");
         }
+    }
+
+    @Test
+    public void testTableLocationTrailingSpace()
+    {
+        String tableName = "table_with_space_" + randomNameSuffix();
+        String tableLocationWithTrailingSpace = "s3://" + bucketName + "/" + tableName + " ";
+
+        assertUpdate(format("CREATE TABLE %s (customer VARCHAR) WITH (location = '%s')", tableName, tableLocationWithTrailingSpace));
+        assertUpdate("INSERT INTO " + tableName + " (customer) VALUES ('Aaron'), ('Bill')", 2);
+        assertQuery("SELECT * FROM " + tableName, "VALUES ('Aaron'), ('Bill')");
+
+        assertUpdate("DROP TABLE " + tableName);
     }
 
     @Test

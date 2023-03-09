@@ -130,7 +130,6 @@ import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_TOPN_PUSHDOWN;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_TRUNCATE;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_UPDATE;
 import static io.trino.testing.TestingNames.randomNameSuffix;
-import static io.trino.testing.assertions.Assert.assertEquals;
 import static io.trino.testing.assertions.Assert.assertEventually;
 import static io.trino.testing.assertions.TestUtil.verifyResultOrFailure;
 import static io.trino.transaction.TransactionBuilder.transaction;
@@ -148,6 +147,7 @@ import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
@@ -176,14 +176,9 @@ public abstract class BaseConnectorTest
     {
         MockConnectorFactory connectorFactory = MockConnectorFactory.builder()
                 .withListSchemaNames(session -> ImmutableList.copyOf(mockTableListings.keySet()))
-                .withListTables((session, schemaName) -> {
-                    if (schemaName.equals("information_schema")) {
-                        // TODO (https://github.com/trinodb/trino/issues/1559) connector should not be asked about information_schema
-                        return List.of();
-                    }
-                    return verifyNotNull(mockTableListings.get(schemaName), "No listing function registered for [%s]", schemaName)
-                            .apply(session);
-                })
+                .withListTables((session, schemaName) ->
+                    verifyNotNull(mockTableListings.get(schemaName), "No listing function registered for [%s]", schemaName)
+                            .apply(session))
                 .build();
         return new MockConnectorPlugin(connectorFactory);
     }
@@ -766,7 +761,13 @@ public abstract class BaseConnectorTest
     @Test
     public void testDescribeTable()
     {
-        MaterializedResult expectedColumns = MaterializedResult.resultBuilder(getSession(), VARCHAR, VARCHAR, VARCHAR, VARCHAR)
+        // TODO: this is redundant with testShowColumns()
+        assertThat(query("DESCRIBE orders")).matches(getDescribeOrdersResult());
+    }
+
+    protected MaterializedResult getDescribeOrdersResult()
+    {
+        return resultBuilder(getSession(), VARCHAR, VARCHAR, VARCHAR, VARCHAR)
                 .row("orderkey", "bigint", "", "")
                 .row("custkey", "bigint", "", "")
                 .row("orderstatus", "varchar(1)", "", "")
@@ -777,8 +778,6 @@ public abstract class BaseConnectorTest
                 .row("shippriority", "integer", "", "")
                 .row("comment", "varchar(79)", "", "")
                 .build();
-        MaterializedResult actualColumns = computeActual("DESCRIBE orders");
-        assertEquals(actualColumns, expectedColumns);
     }
 
     @Test
@@ -1350,14 +1349,11 @@ public abstract class BaseConnectorTest
         assertContains(actual, expected);
 
         // test SHOW COLUMNS
-        actual = computeActual("SHOW COLUMNS FROM " + viewName);
-
-        expected = resultBuilder(getSession(), VARCHAR, VARCHAR, VARCHAR, VARCHAR)
+        assertThat(query("SHOW COLUMNS FROM " + viewName))
+                .matches(resultBuilder(getSession(), VARCHAR, VARCHAR, VARCHAR, VARCHAR)
                 .row("x", "bigint", "", "")
                 .row("y", "varchar(3)", "", "")
-                .build();
-
-        assertEquals(actual, expected);
+                .build());
 
         // test SHOW CREATE VIEW
         String expectedSql = formatSqlText(format(
@@ -4890,14 +4886,12 @@ public abstract class BaseConnectorTest
         assertQuery("SELECT count(*) FROM " + tableName + " WHERE mod(orderkey, 3) = 1", "SELECT 0");
 
         // verify untouched rows
-        assertEquals(
-                computeActual("SELECT count(*), cast(sum(totalprice) AS decimal(18,2)) FROM " + tableName + " WHERE mod(orderkey, 3) = 2"),
-                computeActual("SELECT count(*), cast(sum(totalprice) AS decimal(18,2)) FROM tpch.sf1.orders WHERE mod(orderkey, 3) = 2"));
+        assertThat(query("SELECT count(*), cast(sum(totalprice) AS decimal(18,2)) FROM " + tableName + " WHERE mod(orderkey, 3) = 2"))
+                .matches("SELECT count(*), cast(sum(totalprice) AS decimal(18,2)) FROM tpch.sf1.orders WHERE mod(orderkey, 3) = 2");
 
         // verify updated rows
-        assertEquals(
-                computeActual("SELECT count(*), cast(sum(totalprice) AS decimal(18,2)) FROM " + tableName + " WHERE mod(orderkey, 3) = 0"),
-                computeActual("SELECT count(*), cast(sum(totalprice * 2) AS decimal(18,2)) FROM tpch.sf1.orders WHERE mod(orderkey, 3) = 0"));
+        assertThat(query("SELECT count(*), cast(sum(totalprice) AS decimal(18,2)) FROM " + tableName + " WHERE mod(orderkey, 3) = 0"))
+                .matches("SELECT count(*), cast(sum(totalprice * 2) AS decimal(18,2)) FROM tpch.sf1.orders WHERE mod(orderkey, 3) = 0");
 
         assertUpdate("DROP TABLE " + tableName);
     }

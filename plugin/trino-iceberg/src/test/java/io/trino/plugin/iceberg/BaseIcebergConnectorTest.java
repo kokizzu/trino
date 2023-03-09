@@ -116,7 +116,6 @@ import static io.trino.testing.MaterializedResult.resultBuilder;
 import static io.trino.testing.QueryAssertions.assertEqualsIgnoreOrder;
 import static io.trino.testing.TestingNames.randomNameSuffix;
 import static io.trino.testing.TestingSession.testSessionBuilder;
-import static io.trino.testing.assertions.Assert.assertEquals;
 import static io.trino.testing.assertions.Assert.assertEventually;
 import static io.trino.tpch.TpchTable.LINE_ITEM;
 import static io.trino.transaction.TransactionBuilder.transaction;
@@ -134,6 +133,7 @@ import static java.util.stream.Collectors.toUnmodifiableList;
 import static java.util.stream.IntStream.range;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertNull;
@@ -268,10 +268,9 @@ public abstract class BaseIcebergConnectorTest
     }
 
     @Override
-    @Test
-    public void testDescribeTable()
+    protected MaterializedResult getDescribeOrdersResult()
     {
-        MaterializedResult expectedColumns = resultBuilder(getSession(), VARCHAR, VARCHAR, VARCHAR, VARCHAR)
+        return resultBuilder(getSession(), VARCHAR, VARCHAR, VARCHAR, VARCHAR)
                 .row("orderkey", "bigint", "", "")
                 .row("custkey", "bigint", "", "")
                 .row("orderstatus", "varchar", "", "")
@@ -282,8 +281,6 @@ public abstract class BaseIcebergConnectorTest
                 .row("shippriority", "integer", "", "")
                 .row("comment", "varchar", "", "")
                 .build();
-        MaterializedResult actualColumns = computeActual("DESCRIBE orders");
-        assertEquals(actualColumns, expectedColumns);
     }
 
     @Override
@@ -3434,7 +3431,7 @@ public abstract class BaseIcebergConnectorTest
                             .row(null, null, null, null, 2.0, null, null)
                             .build();
         }
-        assertEquals(result, expectedStatistics);
+        assertThat(result).containsExactlyElementsOf(expectedStatistics);
 
         assertUpdate("INSERT INTO " + tableName + " VALUES 200", 1);
 
@@ -3451,7 +3448,7 @@ public abstract class BaseIcebergConnectorTest
                             .row(null, null, null, null, 3.0, null, null)
                             .build();
         }
-        assertEquals(result, expectedStatistics);
+        assertThat(result).containsExactlyElementsOf(expectedStatistics);
 
         dropTable(tableName);
     }
@@ -3544,7 +3541,7 @@ public abstract class BaseIcebergConnectorTest
                     .row(null, null, null, null, 2.0, null, null)
                     .build();
         }
-        assertEquals(result, expectedStatistics);
+        assertThat(result).containsExactlyElementsOf(expectedStatistics);
 
         assertUpdate("INSERT INTO " + tableName + " VALUES (200, 20, DATE '2020-06-28')", 1);
         result = computeActual("SHOW STATS FOR " + tableName);
@@ -3564,7 +3561,7 @@ public abstract class BaseIcebergConnectorTest
                             .row(null, null, null, null, 3.0, null, null)
                             .build();
         }
-        assertEquals(result, expectedStatistics);
+        assertThat(result).containsExactlyElementsOf(expectedStatistics);
 
         assertUpdate("INSERT INTO " + tableName + " VALUES " + IntStream.rangeClosed(21, 25)
                 .mapToObj(i -> format("(200, %d, DATE '2020-07-%d')", i, i))
@@ -3592,7 +3589,7 @@ public abstract class BaseIcebergConnectorTest
                             .row(null, null, null, null, 13.0, null, null)
                             .build();
         }
-        assertEquals(result, expectedStatistics);
+        assertThat(result).containsExactlyElementsOf(expectedStatistics);
 
         dropTable(tableName);
     }
@@ -5363,13 +5360,10 @@ public abstract class BaseIcebergConnectorTest
                 " ) t(userid, zip)";
         assertUpdate(createTable, 8);
 
-        MaterializedResult expectedColumns = resultBuilder(getSession(), VARCHAR, VARCHAR, VARCHAR, VARCHAR)
-                .row("userid", "integer", "", "")
-                .row("zip", "integer", "", "")
-                .build();
-        MaterializedResult actualColumns = computeActual(format("DESCRIBE %s", tableName));
         // Describe output should not have the $path hidden column
-        assertEquals(actualColumns, expectedColumns);
+        assertThat(query("DESCRIBE " + tableName))
+                .skippingTypesCheck()
+                .matches("VALUES ('userid', 'integer', '', ''), ('zip', 'integer', '', '')");
 
         assertThat(query("SELECT file_path FROM \"" + tableName + "$files\""))
                 .matches("SELECT DISTINCT \"$path\" as file_path FROM " + tableName);
@@ -5448,12 +5442,10 @@ public abstract class BaseIcebergConnectorTest
     {
         ZonedDateTime beforeTime = (ZonedDateTime) computeScalar("SELECT current_timestamp(3)");
         try (TestTable table = new TestTable(getQueryRunner()::execute, "test_file_modified_time_", "(col) AS VALUES (1)")) {
-            MaterializedResult expectedColumns = resultBuilder(getSession(), VARCHAR, VARCHAR, VARCHAR, VARCHAR)
-                    .row("col", "integer", "", "")
-                    .build();
-            MaterializedResult actualColumns = computeActual("DESCRIBE " + table.getName());
             // Describe output should not have the $file_modified_time hidden column
-            assertEquals(actualColumns, expectedColumns);
+            assertThat(query("DESCRIBE " + table.getName()))
+                    .skippingTypesCheck()
+                    .matches("VALUES ('col', 'integer', '', '')");
 
             ZonedDateTime fileModifiedTime = (ZonedDateTime) computeScalar("SELECT \"$file_modified_time\" FROM " + table.getName());
             ZonedDateTime afterTime = (ZonedDateTime) computeScalar("SELECT current_timestamp(3)");

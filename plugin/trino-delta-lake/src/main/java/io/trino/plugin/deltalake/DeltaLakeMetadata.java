@@ -30,8 +30,6 @@ import io.trino.filesystem.FileEntry;
 import io.trino.filesystem.FileIterator;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
-import io.trino.hdfs.HdfsContext;
-import io.trino.hdfs.HdfsEnvironment;
 import io.trino.plugin.base.classloader.ClassLoaderSafeSystemTable;
 import io.trino.plugin.deltalake.expression.SparkExpressionParser;
 import io.trino.plugin.deltalake.metastore.DeltaLakeMetastore;
@@ -221,13 +219,9 @@ import static io.trino.plugin.hive.util.HiveClassNames.LAZY_SIMPLE_SERDE_CLASS;
 import static io.trino.plugin.hive.util.HiveClassNames.SEQUENCEFILE_INPUT_FORMAT_CLASS;
 import static io.trino.plugin.hive.util.HiveUtil.isDeltaLakeTable;
 import static io.trino.plugin.hive.util.HiveUtil.isHiveSystemSchema;
-import static io.trino.plugin.hive.util.HiveWriteUtils.createDirectory;
-import static io.trino.plugin.hive.util.HiveWriteUtils.isS3FileSystem;
-import static io.trino.plugin.hive.util.HiveWriteUtils.pathExists;
 import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static io.trino.spi.StandardErrorCode.INVALID_ANALYZE_PROPERTY;
 import static io.trino.spi.StandardErrorCode.INVALID_SCHEMA_PROPERTY;
-import static io.trino.spi.StandardErrorCode.INVALID_TABLE_PROPERTY;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.connector.RetryMode.NO_RETRIES;
 import static io.trino.spi.connector.RowChangeParadigm.DELETE_ROW_AND_INSERT_ROW;
@@ -254,10 +248,8 @@ import static io.trino.spi.type.TypeUtils.isFloatingPointNaN;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.lang.String.format;
 import static java.time.Instant.EPOCH;
-import static java.util.Collections.emptyIterator;
 import static java.util.Collections.singletonList;
 import static java.util.Collections.unmodifiableMap;
-import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
 import static java.util.UUID.randomUUID;
 import static java.util.function.Function.identity;
@@ -302,7 +294,6 @@ public class DeltaLakeMetadata
 
     private final DeltaLakeMetastore metastore;
     private final TrinoFileSystemFactory fileSystemFactory;
-    private final HdfsEnvironment hdfsEnvironment;
     private final TypeManager typeManager;
     private final AccessControlMetadata accessControlMetadata;
     private final TrinoViewHiveMetastore trinoViewHiveMetastore;
@@ -325,7 +316,6 @@ public class DeltaLakeMetadata
     public DeltaLakeMetadata(
             DeltaLakeMetastore metastore,
             TrinoFileSystemFactory fileSystemFactory,
-            HdfsEnvironment hdfsEnvironment,
             TypeManager typeManager,
             AccessControlMetadata accessControlMetadata,
             TrinoViewHiveMetastore trinoViewHiveMetastore,
@@ -345,7 +335,6 @@ public class DeltaLakeMetadata
     {
         this.metastore = requireNonNull(metastore, "metastore is null");
         this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
-        this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
         this.typeManager = requireNonNull(typeManager, "typeManager is null");
         this.accessControlMetadata = requireNonNull(accessControlMetadata, "accessControlMetadata is null");
         this.trinoViewHiveMetastore = requireNonNull(trinoViewHiveMetastore, "trinoViewHiveMetastore is null");
@@ -369,10 +358,7 @@ public class DeltaLakeMetadata
     public List<String> listSchemaNames(ConnectorSession session)
     {
         return metastore.getAllDatabases().stream()
-                .filter(schema -> {
-                    String schemaName = schema.toLowerCase(ENGLISH);
-                    return !(schemaName.equals("information_schema") || schemaName.equals("sys"));
-                })
+                .filter(schema -> !schema.equalsIgnoreCase("sys"))
                 .collect(toImmutableList());
     }
 
@@ -466,9 +452,10 @@ public class DeltaLakeMetadata
         String location = metastore.getTableLocation(tableHandle.getSchemaTableName(), session);
         Map<String, String> columnComments = getColumnComments(tableHandle.getMetadataEntry());
         Map<String, Boolean> columnsNullability = getColumnsNullability(tableHandle.getMetadataEntry());
-        List<String> checkConstraints = getCheckConstraints(tableHandle.getMetadataEntry()).values().stream()
-                .map(SparkExpressionParser::toTrinoExpression)
-                .collect(toImmutableList());
+        List<String> constraints = ImmutableList.<String>builder()
+                .addAll(getCheckConstraints(tableHandle.getMetadataEntry()).values())
+                .addAll(getColumnInvariants(tableHandle.getMetadataEntry()).values()) // The internal logic for column invariants in Delta Lake is same as check constraints
+                .build();
         List<ColumnMetadata> columns = getColumns(tableHandle.getMetadataEntry()).stream()
                 .map(column -> getColumnMetadata(column, columnComments.get(column.getName()), columnsNullability.getOrDefault(column.getName(), true)))
                 .collect(toImmutableList());
@@ -488,16 +475,14 @@ public class DeltaLakeMetadata
                 columns,
                 properties.buildOrThrow(),
                 Optional.ofNullable(tableHandle.getMetadataEntry().getDescription()),
-                checkConstraints);
+                constraints.stream()
+                        .map(SparkExpressionParser::toTrinoExpression)
+                        .collect(toImmutableList()));
     }
 
     @Override
     public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> schemaName)
     {
-        if (schemaName.isPresent() && schemaName.get().equals("information_schema")) {
-            // TODO https://github.com/trinodb/trino/issues/1559 information_schema should be handled by the engine fully
-            return ImmutableList.of();
-        }
         return schemaName.map(Collections::singletonList)
                 .orElseGet(() -> listSchemaNames(session))
                 .stream()
@@ -565,11 +550,6 @@ public class DeltaLakeMetadata
     @Override
     public Iterator<TableColumnsMetadata> streamTableColumns(ConnectorSession session, SchemaTablePrefix prefix)
     {
-        if (prefix.getSchema().isPresent() && prefix.getSchema().get().equals("information_schema")) {
-            // TODO https://github.com/trinodb/trino/issues/1559 information_schema should be handled by the engine fully
-            return emptyIterator();
-        }
-
         List<SchemaTableName> tables = prefix.getTable()
                 .map(ignored -> singletonList(prefix.toSchemaTableName()))
                 .orElseGet(() -> listTables(session, prefix.getSchema()));
@@ -714,7 +694,6 @@ public class DeltaLakeMetadata
             external = false;
         }
         Path targetPath = new Path(location);
-        ensurePathExists(session, targetPath);
         Path deltaLogDirectory = getTransactionLogDir(targetPath);
         Optional<Long> checkpointInterval = getCheckpointInterval(tableMetadata.getProperties());
         Optional<Boolean> changeDataFeedEnabled = getChangeDataFeedEnabled(tableMetadata.getProperties());
@@ -768,7 +747,7 @@ public class DeltaLakeMetadata
             throw new TrinoException(DELTA_LAKE_BAD_WRITE, "Unable to access file system for: " + location, e);
         }
 
-        Table table = buildTable(session, schemaTableName, location, targetPath, external);
+        Table table = buildTable(session, schemaTableName, location, external);
 
         PrincipalPrivileges principalPrivileges = buildInitialPrivilegeSet(table.getOwner().orElseThrow());
         metastore.createTable(
@@ -777,7 +756,7 @@ public class DeltaLakeMetadata
                 principalPrivileges);
     }
 
-    public static Table buildTable(ConnectorSession session, SchemaTableName schemaTableName, String location, Path targetPath, boolean isExternal)
+    public static Table buildTable(ConnectorSession session, SchemaTableName schemaTableName, String location, boolean isExternal)
     {
         Table.Builder tableBuilder = Table.builder()
                 .setDatabaseName(schemaTableName.getSchemaName())
@@ -787,7 +766,7 @@ public class DeltaLakeMetadata
                 .setDataColumns(DUMMY_DATA_COLUMNS)
                 .setParameters(deltaTableProperties(session, location, isExternal));
 
-        setDeltaStorageFormat(tableBuilder, location, targetPath);
+        setDeltaStorageFormat(tableBuilder, location);
         return tableBuilder.build();
     }
 
@@ -810,29 +789,13 @@ public class DeltaLakeMetadata
         return properties.buildOrThrow();
     }
 
-    private static void setDeltaStorageFormat(Table.Builder tableBuilder, String location, Path targetPath)
+    private static void setDeltaStorageFormat(Table.Builder tableBuilder, String location)
     {
         tableBuilder.getStorageBuilder()
                 // this mimics what Databricks is doing when creating a Delta table in the Hive metastore
                 .setStorageFormat(DELTA_STORAGE_FORMAT)
                 .setSerdeParameters(ImmutableMap.of(PATH_PROPERTY, location))
-                .setLocation(targetPath.toString());
-    }
-
-    private Path getExternalPath(HdfsContext context, String location)
-    {
-        try {
-            Path path = new Path(location);
-            if (!isS3FileSystem(context, hdfsEnvironment, path)) {
-                if (!hdfsEnvironment.getFileSystem(context, path).getFileStatus(path).isDirectory()) {
-                    throw new TrinoException(INVALID_TABLE_PROPERTY, "External location must be a directory: " + location);
-                }
-            }
-            return path;
-        }
-        catch (IllegalArgumentException | IOException e) {
-            throw new TrinoException(INVALID_TABLE_PROPERTY, "External location is not a valid file system URI: " + location, e);
-        }
+                .setLocation(location);
     }
 
     @Override
@@ -860,7 +823,6 @@ public class DeltaLakeMetadata
             external = false;
         }
         Path targetPath = new Path(location);
-        ensurePathExists(session, targetPath);
         checkPathContainsNoFiles(session, targetPath);
 
         setRollback(() -> deleteRecursivelyIfExists(fileSystemFactory.create(session), targetPath));
@@ -885,14 +847,6 @@ public class DeltaLakeMetadata
         }
 
         return schemaLocation;
-    }
-
-    private void ensurePathExists(ConnectorSession session, Path directoryPath)
-    {
-        HdfsContext hdfsContext = new HdfsContext(session);
-        if (!pathExists(hdfsContext, hdfsEnvironment, directoryPath)) {
-            createDirectory(hdfsContext, hdfsEnvironment, directoryPath);
-        }
     }
 
     private void checkPathContainsNoFiles(ConnectorSession session, Path targetPath)
@@ -964,7 +918,7 @@ public class DeltaLakeMetadata
                 .map(dataFileInfoCodec::fromJson)
                 .collect(toImmutableList());
 
-        Table table = buildTable(session, schemaTableName(schemaName, tableName), location, getExternalPath(new HdfsContext(session), location), handle.isExternal());
+        Table table = buildTable(session, schemaTableName(schemaName, tableName), location, handle.isExternal());
         // Ensure the table has queryId set. This is relied on for exception handling
         String queryId = session.getQueryId();
         verify(
@@ -1260,10 +1214,6 @@ public class DeltaLakeMetadata
                     NOT_SUPPORTED,
                     format("Inserts are not enabled on the %1$s filesystem in order to avoid eventual data corruption which may be caused by concurrent data modifications on the table. " +
                             "Writes to the %1$s filesystem can be however enabled with the '%2$s' configuration property.", fileSystem, ENABLE_NON_CONCURRENT_WRITES_CONFIGURATION_KEY));
-        }
-        Map<String, String> columnInvariants = getColumnInvariants(table.getMetadataEntry());
-        if (!columnInvariants.isEmpty()) {
-            throw new TrinoException(NOT_SUPPORTED, "Inserts are not supported for tables with delta invariants");
         }
         checkUnsupportedGeneratedColumns(table.getMetadataEntry());
         checkSupportedWriterVersion(session, table.getSchemaTableName());
@@ -1873,7 +1823,7 @@ public class DeltaLakeMetadata
         Optional<MetadataEntry> metadataEntry = Optional.empty();
         if (properties.containsKey(CHANGE_DATA_FEED_ENABLED_PROPERTY)) {
             boolean changeDataFeedEnabled = (Boolean) properties.get(CHANGE_DATA_FEED_ENABLED_PROPERTY)
-                    .orElseThrow(() -> new IllegalArgumentException("The change_data_feed_enabled  property cannot be empty"));
+                    .orElseThrow(() -> new IllegalArgumentException("The change_data_feed_enabled property cannot be empty"));
             if (changeDataFeedEnabled) {
                 requiredWriterVersion = max(requiredWriterVersion, CDF_SUPPORTED_WRITER_VERSION);
             }
@@ -2445,7 +2395,7 @@ public class DeltaLakeMetadata
             FileIterator iterator = fileSystem.listFiles(location);
             while (iterator.hasNext()) {
                 FileEntry file = iterator.next();
-                String fileName = new Path(file.path()).getName();
+                String fileName = new Path(file.location()).getName();
                 if (isFileCreatedByQuery(fileName, queryId) && !filesToKeep.contains(location + "/" + fileName)) {
                     filesToDelete.add(fileName);
                 }

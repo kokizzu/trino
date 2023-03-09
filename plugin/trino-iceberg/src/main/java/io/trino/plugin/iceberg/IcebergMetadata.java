@@ -146,6 +146,7 @@ import org.apache.iceberg.types.Types.StructType;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -351,11 +352,11 @@ public class IcebergMetadata
             throw new TrinoException(NOT_SUPPORTED, "Read table with start version is not supported");
         }
 
-        IcebergTableName name = IcebergTableName.from(tableName.getTableName());
-        if (name.getTableType() != DATA) {
+        if (!IcebergTableName.isDataTable(tableName.getTableName())) {
             // Pretend the table does not exist to produce better error message in case of table redirects to Hive
             return null;
         }
+        IcebergTableName name = IcebergTableName.from(tableName.getTableName());
 
         BaseTable table;
         try {
@@ -446,15 +447,15 @@ public class IcebergMetadata
 
     private Optional<SystemTable> getRawSystemTable(ConnectorSession session, SchemaTableName tableName)
     {
-        IcebergTableName name = IcebergTableName.from(tableName.getTableName());
-        if (name.getTableType() == DATA) {
+        if (IcebergTableName.isDataTable(tableName.getTableName())) {
             return Optional.empty();
         }
 
-        // load the base table for the system table
+        // Only when dealing with an actual system table proceed to retrieve the base table for the system table
+        String name = IcebergTableName.tableNameFrom(tableName.getTableName());
         Table table;
         try {
-            table = catalog.loadTable(session, new SchemaTableName(tableName.getSchemaName(), name.getTableName()));
+            table = catalog.loadTable(session, new SchemaTableName(tableName.getSchemaName(), name));
         }
         catch (TableNotFoundException e) {
             return Optional.empty();
@@ -464,25 +465,21 @@ public class IcebergMetadata
             return Optional.empty();
         }
 
-        SchemaTableName systemTableName = new SchemaTableName(tableName.getSchemaName(), name.getTableNameWithType());
-        switch (name.getTableType()) {
-            case DATA:
-                // Handled above.
-                break;
-            case HISTORY:
-                return Optional.of(new HistoryTable(systemTableName, table));
-            case SNAPSHOTS:
-                return Optional.of(new SnapshotsTable(systemTableName, typeManager, table));
-            case PARTITIONS:
-                return Optional.of(new PartitionTable(systemTableName, typeManager, table, getCurrentSnapshotId(table)));
-            case MANIFESTS:
-                return Optional.of(new ManifestsTable(systemTableName, table, getCurrentSnapshotId(table)));
-            case FILES:
-                return Optional.of(new FilesTable(systemTableName, typeManager, table, getCurrentSnapshotId(table)));
-            case PROPERTIES:
-                return Optional.of(new PropertiesTable(systemTableName, table));
+        Optional<TableType> tableType = IcebergTableName.tableTypeFrom(tableName.getTableName());
+        if (tableType.isEmpty()) {
+            return Optional.empty();
         }
-        return Optional.empty();
+        IcebergTableName icebergTableName = new IcebergTableName(name, tableType.get());
+        SchemaTableName systemTableName = new SchemaTableName(tableName.getSchemaName(), icebergTableName.getTableNameWithType());
+        return switch (icebergTableName.getTableType()) {
+            case DATA -> Optional.empty(); // Handled above.
+            case HISTORY -> Optional.of(new HistoryTable(systemTableName, table));
+            case SNAPSHOTS -> Optional.of(new SnapshotsTable(systemTableName, typeManager, table));
+            case PARTITIONS -> Optional.of(new PartitionTable(systemTableName, typeManager, table, getCurrentSnapshotId(table)));
+            case MANIFESTS -> Optional.of(new ManifestsTable(systemTableName, table, getCurrentSnapshotId(table)));
+            case FILES -> Optional.of(new FilesTable(systemTableName, typeManager, table, getCurrentSnapshotId(table)));
+            case PROPERTIES -> Optional.of(new PropertiesTable(systemTableName, table));
+        };
     }
 
     @Override
@@ -909,7 +906,7 @@ public class IcebergMetadata
             FileIterator iterator = fileSystem.listFiles(location);
             while (iterator.hasNext()) {
                 FileEntry entry = iterator.next();
-                String name = fileName(entry.path());
+                String name = fileName(entry.location());
                 if (name.startsWith(queryId + "-") && !fileNamesToKeep.contains(name)) {
                     filesToDelete.add(name);
                 }
@@ -1354,11 +1351,11 @@ public class IcebergMetadata
             return;
         }
 
-        long expireTimestampMillis = session.getStart().toEpochMilli() - retention.toMillis();
-        removeOrphanFiles(table, session, executeHandle.getSchemaTableName(), expireTimestampMillis);
+        Instant expiration = session.getStart().minusMillis(retention.toMillis());
+        removeOrphanFiles(table, session, executeHandle.getSchemaTableName(), expiration);
     }
 
-    private void removeOrphanFiles(Table table, ConnectorSession session, SchemaTableName schemaTableName, long expireTimestamp)
+    private void removeOrphanFiles(Table table, ConnectorSession session, SchemaTableName schemaTableName, Instant expiration)
     {
         Set<String> processedManifestFilePaths = new HashSet<>();
         // Similarly to issues like https://github.com/trinodb/trino/issues/13759, equivalent paths may have different String
@@ -1395,8 +1392,8 @@ public class IcebergMetadata
                 .forEach(validMetadataFileNames::add);
         validMetadataFileNames.add(fileName(versionHintLocation(table)));
 
-        scanAndDeleteInvalidFiles(table, session, schemaTableName, expireTimestamp, validDataFileNames.build(), "data");
-        scanAndDeleteInvalidFiles(table, session, schemaTableName, expireTimestamp, validMetadataFileNames.build(), "metadata");
+        scanAndDeleteInvalidFiles(table, session, schemaTableName, expiration, validDataFileNames.build(), "data");
+        scanAndDeleteInvalidFiles(table, session, schemaTableName, expiration, validMetadataFileNames.build(), "metadata");
     }
 
     private static ManifestReader<? extends ContentFile<?>> readerForManifest(Table table, ManifestFile manifest)
@@ -1407,7 +1404,7 @@ public class IcebergMetadata
         };
     }
 
-    private void scanAndDeleteInvalidFiles(Table table, ConnectorSession session, SchemaTableName schemaTableName, long expireTimestamp, Set<String> validFiles, String subfolder)
+    private void scanAndDeleteInvalidFiles(Table table, ConnectorSession session, SchemaTableName schemaTableName, Instant expiration, Set<String> validFiles, String subfolder)
     {
         try {
             List<String> filesToDelete = new ArrayList<>();
@@ -1415,8 +1412,8 @@ public class IcebergMetadata
             FileIterator allFiles = fileSystem.listFiles(table.location() + "/" + subfolder);
             while (allFiles.hasNext()) {
                 FileEntry entry = allFiles.next();
-                if (entry.lastModified() < expireTimestamp && !validFiles.contains(fileName(entry.path()))) {
-                    filesToDelete.add(entry.path());
+                if (entry.lastModified().isBefore(expiration) && !validFiles.contains(fileName(entry.location()))) {
+                    filesToDelete.add(entry.location());
                     if (filesToDelete.size() >= DELETE_BATCH_SIZE) {
                         log.debug("Deleting files while removing orphan files for table %s [%s]", schemaTableName, filesToDelete);
                         fileSystem.deleteFiles(filesToDelete);
@@ -1424,7 +1421,7 @@ public class IcebergMetadata
                     }
                 }
                 else {
-                    log.debug("%s file retained while removing orphan files %s", entry.path(), schemaTableName.getTableName());
+                    log.debug("%s file retained while removing orphan files %s", entry.location(), schemaTableName.getTableName());
                 }
             }
             if (!filesToDelete.isEmpty()) {

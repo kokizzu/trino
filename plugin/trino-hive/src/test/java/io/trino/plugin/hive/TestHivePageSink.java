@@ -87,14 +87,15 @@ import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.spi.type.VarcharType.createUnboundedVarcharType;
 import static io.trino.testing.TestingPageSinkId.TESTING_PAGE_SINK_ID;
-import static io.trino.testing.assertions.Assert.assertEquals;
 import static io.trino.type.InternalTypeManager.TESTING_TYPE_MANAGER;
 import static java.lang.Math.round;
 import static java.lang.String.format;
 import static java.util.stream.Collectors.toList;
 import static org.apache.hadoop.hive.metastore.api.hive_metastoreConstants.FILE_INPUT_FORMAT;
 import static org.apache.hadoop.hive.serde.serdeConstants.SERIALIZATION_LIB;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 
 public class TestHivePageSink
@@ -225,7 +226,7 @@ public class TestHivePageSink
         }
         MaterializedResult expectedResults = toMaterializedResult(getHiveSession(config), columnTypes, ImmutableList.of(page));
         MaterializedResult results = toMaterializedResult(getHiveSession(config), columnTypes, pages);
-        assertEquals(results, expectedResults);
+        assertThat(results).containsExactlyElementsOf(expectedResults);
         assertEquals(round(stats.getInputPageSizeInBytes().getAllTime().getMax()), page.getRetainedSizeInBytes());
         return length;
     }
