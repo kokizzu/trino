@@ -73,6 +73,7 @@
             <artifactId>trino-plugin-toolkit</artifactId>
         </dependency>
 
+        <!-- TODO: move to runtime scope and remove dependency plugin exclusion below -->
         <dependency>
             <groupId>io.trino.hadoop</groupId>
             <artifactId>hadoop-apache</artifactId>
@@ -213,6 +214,11 @@
 
         <dependency>
             <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-orc</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-parquet</artifactId>
         </dependency>
 
@@ -287,12 +293,6 @@
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-bundled-guava</artifactId>
             <version>${dep.iceberg.version}</version>
-            <scope>runtime</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-orc</artifactId>
             <scope>runtime</scope>
         </dependency>
 
@@ -506,7 +506,21 @@
                                 <exclude>com.google.guava:guava</exclude>
                             </excludes>
                         </requireUpperBoundDeps>
+                        <RestrictImports>
+                            <includeTestCode>false</includeTestCode>
+                            <bannedImport>org.apache.hadoop.**</bannedImport>
+                        </RestrictImports>
                     </rules>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <configuration>
+                    <ignoredNonTestScopedDependencies>
+                        <ignoredDependency>io.trino.hadoop:hadoop-apache</ignoredDependency>
+                    </ignoredNonTestScopedDependencies>
                 </configuration>
             </plugin>
 

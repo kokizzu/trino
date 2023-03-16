@@ -198,6 +198,27 @@ public class TestIcebergJdbcConnectorTest
     }
 
     @Override
+    public void testMaterializedViewAllTypes()
+    {
+        assertThatThrownBy(super::testMaterializedViewAllTypes)
+                .hasMessage("createMaterializedView is not supported for Iceberg JDBC catalogs");
+    }
+
+    @Override
+    public void testMaterializedViewGracePeriod()
+    {
+        assertThatThrownBy(super::testMaterializedViewGracePeriod)
+                .hasMessage("createMaterializedView is not supported for Iceberg JDBC catalogs");
+    }
+
+    @Override
+    public void testFederatedMaterializedViewWithGracePeriod()
+    {
+        assertThatThrownBy(super::testFederatedMaterializedViewWithGracePeriod)
+                .hasMessage("createMaterializedView is not supported for Iceberg JDBC catalogs");
+    }
+
+    @Override
     public void testMaterializedViewBaseTableGone(boolean initialized)
     {
         assertThatThrownBy(() -> super.testMaterializedViewBaseTableGone(initialized))
@@ -259,8 +280,8 @@ public class TestIcebergJdbcConnectorTest
     @Override
     protected boolean supportsIcebergFileStatistics(String typeName)
     {
-        return !(typeName.equalsIgnoreCase("varbinary")) &&
-                !(typeName.equalsIgnoreCase("uuid"));
+        return !typeName.equalsIgnoreCase("varbinary") &&
+                !typeName.equalsIgnoreCase("uuid");
     }
 
     @Override
