@@ -50,6 +50,7 @@ import static io.trino.tests.product.utils.QueryExecutors.onTrino;
 import static java.lang.String.format;
 import static java.sql.JDBCType.ARRAY;
 import static java.sql.JDBCType.BIGINT;
+import static java.sql.JDBCType.CHAR;
 import static java.sql.JDBCType.DECIMAL;
 import static java.sql.JDBCType.DOUBLE;
 import static java.sql.JDBCType.FLOAT;
@@ -108,6 +109,8 @@ public abstract class BaseTestHiveCoercion
                 "long_decimal_to_bounded_varchar",
                 "varchar_to_bigger_varchar",
                 "varchar_to_smaller_varchar",
+                "char_to_bigger_char",
+                "char_to_smaller_char",
                 "id");
 
         Function<Engine, Map<String, List<Object>>> expected = engine -> expectedValuesForEngineProvider(engine, tableName, decimalToFloatVal, floatToDecimalVal);
@@ -162,6 +165,8 @@ public abstract class BaseTestHiveCoercion
                         "  DECIMAL '12345678.123456123456', " +
                         "  'abc', " +
                         "  'abc', " +
+                        "  'abc', " +
+                        "  'abc', " +
                         "  1), " +
                         "(" +
                         "  CAST(ROW (NULL, 1, -100, -2323, -12345, 2) AS ROW(keep VARCHAR, ti2si TINYINT, si2int SMALLINT, int2bi INTEGER, bi2vc BIGINT, lower2uppercase BIGINT)), " +
@@ -190,6 +195,8 @@ public abstract class BaseTestHiveCoercion
                         "  DECIMAL '-12345678.123456123456', " +
                         "  '\uD83D\uDCB0\uD83D\uDCB0\uD83D\uDCB0', " +
                         "  '\uD83D\uDCB0\uD83D\uDCB0\uD83D\uDCB0', " +
+                        "  '\uD83D\uDCB0\uD83D\uDCB0\uD83D\uDCB0', " +
+                        "  '\uD83D\uDCB0\uD83D\uDCB0\uD83D\uDCB0', " +
                         "  1)",
                 tableName,
                 floatToDoubleType));
@@ -210,7 +217,7 @@ public abstract class BaseTestHiveCoercion
         }
 
         return ImmutableMap.<String, List<Object>>builder()
-                .put("row_to_row", Arrays.asList(
+                .put("row_to_row", ImmutableList.of(
                         engine == Engine.TRINO ?
                                 rowBuilder()
                                         .addField("keep", "as is")
@@ -232,7 +239,7 @@ public abstract class BaseTestHiveCoercion
                                         .addField("lower2uppercase", 2L)
                                         .build() :
                                 String.format("{\"keep\":null,\"ti2si\":1,\"si2int\":-100,\"int2bi\":-2323,\"bi2vc\":\"-12345\",%s}", hiveValueForCaseChangeField)))
-                .put("list_to_list", Arrays.asList(
+                .put("list_to_list", ImmutableList.of(
                         engine == Engine.TRINO ?
                                 ImmutableList.of(rowBuilder()
                                         .addField("ti2int", 2)
@@ -247,7 +254,7 @@ public abstract class BaseTestHiveCoercion
                                         .addField("bi2vc", "-12345")
                                         .build()) :
                                 "[{\"ti2int\":-2,\"si2bi\":101,\"bi2vc\":\"-12345\"}]"))
-                .put("map_to_map", Arrays.asList(
+                .put("map_to_map", ImmutableList.of(
                         engine == Engine.TRINO ?
                                 ImmutableMap.of(2, rowBuilder()
                                         .addField("ti2bi", -3L)
@@ -264,70 +271,76 @@ public abstract class BaseTestHiveCoercion
                                         .addField("add", null)
                                         .build()) :
                                 "{-2:{\"ti2bi\":null,\"int2bi\":-2323,\"float2double\":-1.5,\"add\":null}}"))
-                .put("tinyint_to_smallint", Arrays.asList(
+                .put("tinyint_to_smallint", ImmutableList.of(
                         -1,
                         1))
-                .put("tinyint_to_int", Arrays.asList(
+                .put("tinyint_to_int", ImmutableList.of(
                         2,
                         -2))
                 .put("tinyint_to_bigint", Arrays.asList(
                         -3L,
                         null))
-                .put("smallint_to_int", Arrays.asList(
+                .put("smallint_to_int", ImmutableList.of(
                         100,
                         -100))
-                .put("smallint_to_bigint", Arrays.asList(
+                .put("smallint_to_bigint", ImmutableList.of(
                         -101L,
                         101L))
-                .put("int_to_bigint", Arrays.asList(
+                .put("int_to_bigint", ImmutableList.of(
                         2323L,
                         -2323L))
-                .put("bigint_to_varchar", Arrays.asList(
+                .put("bigint_to_varchar", ImmutableList.of(
                         "12345",
                         "-12345"))
-                .put("float_to_double", Arrays.asList(
+                .put("float_to_double", ImmutableList.of(
                         0.5,
                         -1.5))
-                .put("double_to_float", Arrays.asList(0.5, -1.5))
-                .put("shortdecimal_to_shortdecimal", Arrays.asList(
+                .put("double_to_float", ImmutableList.of(0.5, -1.5))
+                .put("shortdecimal_to_shortdecimal", ImmutableList.of(
                         new BigDecimal("12345678.1200"),
                         new BigDecimal("-12345678.1200")))
-                .put("shortdecimal_to_longdecimal", Arrays.asList(
+                .put("shortdecimal_to_longdecimal", ImmutableList.of(
                         new BigDecimal("12345678.1200"),
                         new BigDecimal("-12345678.1200")))
-                .put("longdecimal_to_shortdecimal", Arrays.asList(
+                .put("longdecimal_to_shortdecimal", ImmutableList.of(
                         new BigDecimal("12345678.12"),
                         new BigDecimal("-12345678.12")))
-                .put("longdecimal_to_longdecimal", Arrays.asList(
+                .put("longdecimal_to_longdecimal", ImmutableList.of(
                         new BigDecimal("12345678.12345612345600"),
                         new BigDecimal("-12345678.12345612345600")))
-                .put("float_to_decimal", Arrays.asList(new BigDecimal(floatToDecimalVal), new BigDecimal("-" + floatToDecimalVal)))
-                .put("double_to_decimal", Arrays.asList(new BigDecimal("12345.12345"), new BigDecimal("-12345.12345")))
-                .put("decimal_to_float", Arrays.asList(
+                .put("float_to_decimal", ImmutableList.of(new BigDecimal(floatToDecimalVal), new BigDecimal("-" + floatToDecimalVal)))
+                .put("double_to_decimal", ImmutableList.of(new BigDecimal("12345.12345"), new BigDecimal("-12345.12345")))
+                .put("decimal_to_float", ImmutableList.of(
                         Float.parseFloat(decimalToFloatVal),
                         -Float.parseFloat(decimalToFloatVal)))
-                .put("decimal_to_double", Arrays.asList(
+                .put("decimal_to_double", ImmutableList.of(
                         12345.12345,
                         -12345.12345))
-                .put("short_decimal_to_varchar", Arrays.asList(
+                .put("short_decimal_to_varchar", ImmutableList.of(
                         "12345.12345",
                         "-12345.12345"))
-                .put("long_decimal_to_varchar", Arrays.asList(
+                .put("long_decimal_to_varchar", ImmutableList.of(
                         "12345678.123456123456",
                         "-12345678.123456123456"))
-                .put("short_decimal_to_bounded_varchar", Arrays.asList(
+                .put("short_decimal_to_bounded_varchar", ImmutableList.of(
                         "12345.12345",
                         "12345.12345"))
-                .put("long_decimal_to_bounded_varchar", Arrays.asList(
+                .put("long_decimal_to_bounded_varchar", ImmutableList.of(
                         "12345678.123456123456",
                         "-12345678.123456123456"))
-                .put("varchar_to_bigger_varchar", Arrays.asList(
+                .put("varchar_to_bigger_varchar", ImmutableList.of(
                         "abc",
                         "\uD83D\uDCB0\uD83D\uDCB0\uD83D\uDCB0"))
-                .put("varchar_to_smaller_varchar", Arrays.asList(
+                .put("varchar_to_smaller_varchar", ImmutableList.of(
                         "ab",
                         "\uD83D\uDCB0\uD83D\uDCB0"))
-                .put("id", Arrays.asList(
+                .put("char_to_bigger_char", ImmutableList.of(
+                        "abc ",
+                        "\uD83D\uDCB0\uD83D\uDCB0\uD83D\uDCB0 "))
+                .put("char_to_smaller_char", ImmutableList.of(
+                        "ab",
+                        "\uD83D\uDCB0\uD83D\uDCB0"))
+                .put("id", ImmutableList.of(
                         1,
                         1))
                 .buildOrThrow();
@@ -549,6 +562,8 @@ public abstract class BaseTestHiveCoercion
                 row("long_decimal_to_bounded_varchar", "varchar(30)"),
                 row("varchar_to_bigger_varchar", "varchar(4)"),
                 row("varchar_to_smaller_varchar", "varchar(2)"),
+                row("char_to_bigger_char", "char(4)"),
+                row("char_to_smaller_char", "char(2)"),
                 row("id", "bigint"));
     }
 
@@ -593,6 +608,8 @@ public abstract class BaseTestHiveCoercion
                 .put("long_decimal_to_bounded_varchar", VARCHAR)
                 .put("varchar_to_bigger_varchar", VARCHAR)
                 .put("varchar_to_smaller_varchar", VARCHAR)
+                .put("char_to_bigger_char", CHAR)
+                .put("char_to_smaller_char", CHAR)
                 .put("id", BIGINT)
                 .put("nested_field", BIGINT)
                 .buildOrThrow();
@@ -631,6 +648,8 @@ public abstract class BaseTestHiveCoercion
         onHive().executeQuery(format("ALTER TABLE %s CHANGE COLUMN long_decimal_to_bounded_varchar long_decimal_to_bounded_varchar varchar(30)", tableName));
         onHive().executeQuery(format("ALTER TABLE %s CHANGE COLUMN varchar_to_bigger_varchar varchar_to_bigger_varchar varchar(4)", tableName));
         onHive().executeQuery(format("ALTER TABLE %s CHANGE COLUMN varchar_to_smaller_varchar varchar_to_smaller_varchar varchar(2)", tableName));
+        onHive().executeQuery(format("ALTER TABLE %s CHANGE COLUMN char_to_bigger_char char_to_bigger_char char(4)", tableName));
+        onHive().executeQuery(format("ALTER TABLE %s CHANGE COLUMN char_to_smaller_char char_to_smaller_char char(2)", tableName));
     }
 
     protected static TableInstance<?> mutableTableInstanceOf(TableDefinition tableDefinition)
@@ -689,7 +708,7 @@ public abstract class BaseTestHiveCoercion
     private static List<List<?>> extract(List<TrinoArray> arrays)
     {
         return arrays.stream()
-                .map(trinoArray -> Arrays.asList((Object[]) trinoArray.getArray()))
+                .map(trinoArray -> ImmutableList.copyOf((Object[]) trinoArray.getArray()))
                 .collect(toImmutableList());
     }
 

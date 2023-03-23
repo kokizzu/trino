@@ -41,7 +41,6 @@ import io.trino.spi.statistics.DoubleRange;
 import io.trino.spi.statistics.Estimate;
 import io.trino.spi.statistics.TableStatistics;
 import io.trino.spi.type.TypeManager;
-import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -122,16 +121,19 @@ public class HiveMetastoreBackedDeltaLakeMetastore
     public Optional<Table> getTable(String databaseName, String tableName)
     {
         Optional<Table> candidate = delegate.getTable(databaseName, tableName);
-        candidate.ifPresent(table -> {
-            if (isHiveOrPrestoView(table)) {
-                // this is a Hive view, hence not a table
-                throw new NotADeltaLakeTableException(databaseName, tableName);
-            }
-            if (!TABLE_PROVIDER_VALUE.equalsIgnoreCase(table.getParameters().get(TABLE_PROVIDER_PROPERTY))) {
-                throw new NotADeltaLakeTableException(databaseName, tableName);
-            }
-        });
+        candidate.ifPresent(HiveMetastoreBackedDeltaLakeMetastore::verifyDeltaLakeTable);
         return candidate;
+    }
+
+    public static void verifyDeltaLakeTable(Table table)
+    {
+        if (isHiveOrPrestoView(table)) {
+            // this is a Hive view, hence not a table
+            throw new NotADeltaLakeTableException(table.getDatabaseName(), table.getTableName());
+        }
+        if (!TABLE_PROVIDER_VALUE.equalsIgnoreCase(table.getParameters().get(TABLE_PROVIDER_PROPERTY))) {
+            throw new NotADeltaLakeTableException(table.getDatabaseName(), table.getTableName());
+        }
     }
 
     @Override
@@ -153,7 +155,7 @@ public class HiveMetastoreBackedDeltaLakeMetastore
         statisticsAccess.invalidateCache(tableLocation);
         transactionLogAccess.invalidateCaches(tableLocation);
         try {
-            TableSnapshot tableSnapshot = transactionLogAccess.loadSnapshot(table.getSchemaTableName(), new Path(tableLocation), session);
+            TableSnapshot tableSnapshot = transactionLogAccess.loadSnapshot(table.getSchemaTableName(), tableLocation, session);
             Optional<MetadataEntry> maybeMetadata = transactionLogAccess.getMetadataEntry(tableSnapshot, session);
             if (maybeMetadata.isEmpty()) {
                 throw new TrinoException(DELTA_LAKE_INVALID_TABLE, "Provided location did not contain a valid Delta Lake table: " + tableLocation);
@@ -168,7 +170,7 @@ public class HiveMetastoreBackedDeltaLakeMetastore
     @Override
     public void dropTable(ConnectorSession session, String databaseName, String tableName, boolean deleteData)
     {
-        String tableLocation = getTableLocation(new SchemaTableName(databaseName, tableName), session);
+        String tableLocation = getTableLocation(new SchemaTableName(databaseName, tableName));
         delegate.dropTable(databaseName, tableName, deleteData);
         statisticsAccess.invalidateCache(tableLocation);
         transactionLogAccess.invalidateCaches(tableLocation);
@@ -203,11 +205,16 @@ public class HiveMetastoreBackedDeltaLakeMetastore
     }
 
     @Override
-    public String getTableLocation(SchemaTableName table, ConnectorSession session)
+    public String getTableLocation(SchemaTableName tableName)
     {
-        Map<String, String> serdeParameters = getTable(table.getSchemaName(), table.getTableName())
-                .orElseThrow(() -> new TableNotFoundException(table))
-                .getStorage().getSerdeParameters();
+        Table table = getTable(tableName.getSchemaName(), tableName.getTableName())
+                .orElseThrow(() -> new TableNotFoundException(tableName));
+        return getTableLocation(table);
+    }
+
+    public static String getTableLocation(Table table)
+    {
+        Map<String, String> serdeParameters = table.getStorage().getSerdeParameters();
         String location = serdeParameters.get(PATH_PROPERTY);
         if (location == null) {
             throw new TrinoException(DELTA_LAKE_INVALID_SCHEMA, format("No %s property defined for table: %s", PATH_PROPERTY, table));
@@ -219,7 +226,7 @@ public class HiveMetastoreBackedDeltaLakeMetastore
     public TableSnapshot getSnapshot(SchemaTableName table, ConnectorSession session)
     {
         try {
-            return transactionLogAccess.loadSnapshot(table, new Path(getTableLocation(table, session)), session);
+            return transactionLogAccess.loadSnapshot(table, getTableLocation(table), session);
         }
         catch (NotADeltaLakeTableException e) {
             throw e;

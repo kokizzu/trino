@@ -20,6 +20,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.io.Closer;
 import io.airlift.log.Logger;
+import io.trino.plugin.jdbc.expression.ParameterizedExpression;
 import io.trino.plugin.jdbc.logging.RemoteQueryModifier;
 import io.trino.plugin.jdbc.mapping.IdentifierMapping;
 import io.trino.spi.TrinoException;
@@ -106,26 +107,7 @@ public abstract class BaseJdbcClient
     protected final Set<String> jdbcTypesMappedToVarchar;
     protected final RemoteQueryModifier queryModifier;
     private final IdentifierMapping identifierMapping;
-
     private final boolean supportsRetries;
-
-    public BaseJdbcClient(
-            BaseJdbcConfig config,
-            String identifierQuote,
-            ConnectionFactory connectionFactory,
-            QueryBuilder queryBuilder,
-            IdentifierMapping identifierMapping,
-            RemoteQueryModifier remoteQueryModifier)
-    {
-        this(
-                identifierQuote,
-                connectionFactory,
-                queryBuilder,
-                config.getJdbcTypesMappedToVarchar(),
-                identifierMapping,
-                remoteQueryModifier,
-                false);
-    }
 
     public BaseJdbcClient(
             String identifierQuote,
@@ -247,13 +229,14 @@ public abstract class BaseJdbcClient
     {
         ImmutableList.Builder<JdbcColumnHandle> columns = ImmutableList.builder();
         try (Connection connection = connectionFactory.openConnection(session);
-                PreparedStatement preparedStatement = queryBuilder.prepareStatement(this, session, connection, preparedQuery)) {
+                PreparedStatement preparedStatement = queryBuilder.prepareStatement(this, session, connection, preparedQuery, Optional.empty())) {
             ResultSetMetaData metadata = preparedStatement.getMetaData();
             if (metadata == null) {
                 throw new UnsupportedOperationException("Query not supported: ResultSetMetaData not available for query: " + preparedQuery.getQuery());
             }
             for (int column = 1; column <= metadata.getColumnCount(); column++) {
-                String name = metadata.getColumnName(column);
+                // Use getColumnLabel method because query pass-through table function may contain column aliases
+                String name = metadata.getColumnLabel(column);
                 JdbcTypeHandle jdbcTypeHandle = new JdbcTypeHandle(
                         metadata.getColumnType(column),
                         Optional.ofNullable(metadata.getColumnTypeName(column)),
@@ -414,7 +397,7 @@ public abstract class BaseJdbcClient
     @Override
     public ConnectorSplitSource getSplits(ConnectorSession session, JdbcTableHandle tableHandle)
     {
-        return new FixedSplitSource(ImmutableList.of(new JdbcSplit(Optional.empty())));
+        return new FixedSplitSource(new JdbcSplit(Optional.empty()));
     }
 
     @Override
@@ -439,7 +422,7 @@ public abstract class BaseJdbcClient
             JdbcTableHandle table,
             Optional<List<List<JdbcColumnHandle>>> groupingSets,
             List<JdbcColumnHandle> columns,
-            Map<String, String> columnExpressions)
+            Map<String, ParameterizedExpression> columnExpressions)
     {
         verify(table.getAuthorization().isEmpty(), "Unexpected authorization is required for table: %s".formatted(table));
         try (Connection connection = connectionFactory.openConnection(session)) {
@@ -455,7 +438,7 @@ public abstract class BaseJdbcClient
             throws SQLException
     {
         PreparedQuery preparedQuery = prepareQuery(session, connection, table, Optional.empty(), columns, ImmutableMap.of(), Optional.of(split));
-        return queryBuilder.prepareStatement(this, session, connection, preparedQuery);
+        return queryBuilder.prepareStatement(this, session, connection, preparedQuery, Optional.of(columns.size()));
     }
 
     protected PreparedQuery prepareQuery(
@@ -464,7 +447,7 @@ public abstract class BaseJdbcClient
             JdbcTableHandle table,
             Optional<List<List<JdbcColumnHandle>>> groupingSets,
             List<JdbcColumnHandle> columns,
-            Map<String, String> columnExpressions,
+            Map<String, ParameterizedExpression> columnExpressions,
             Optional<JdbcSplit> split)
     {
         return applyQueryTransformations(table, queryBuilder.prepareSelectQuery(
@@ -479,15 +462,18 @@ public abstract class BaseJdbcClient
                 getAdditionalPredicate(table.getConstraintExpressions(), split.flatMap(JdbcSplit::getAdditionalPredicate))));
     }
 
-    protected static Optional<String> getAdditionalPredicate(List<String> constraintExpressions, Optional<String> splitPredicate)
+    protected static Optional<ParameterizedExpression> getAdditionalPredicate(List<ParameterizedExpression> constraintExpressions, Optional<String> splitPredicate)
     {
         if (constraintExpressions.isEmpty() && splitPredicate.isEmpty()) {
             return Optional.empty();
         }
 
-        return Optional.of(
-                Stream.concat(constraintExpressions.stream(), splitPredicate.stream())
-                        .collect(joining(") AND (", "(", ")")));
+        return Optional.of(new ParameterizedExpression(
+                Stream.concat(constraintExpressions.stream().map(ParameterizedExpression::expression), splitPredicate.stream())
+                        .collect(joining(") AND (", "(", ")")),
+                constraintExpressions.stream()
+                        .flatMap(expressionRewrite -> expressionRewrite.parameters().stream())
+                        .collect(toImmutableList())));
     }
 
     @Override
@@ -1059,7 +1045,7 @@ public abstract class BaseJdbcClient
     }
 
     @Override
-    public PreparedStatement getPreparedStatement(Connection connection, String sql)
+    public PreparedStatement getPreparedStatement(Connection connection, String sql, Optional<Integer> columnCount)
             throws SQLException
     {
         return connection.prepareStatement(sql);
@@ -1291,7 +1277,7 @@ public abstract class BaseJdbcClient
                     handle.getRequiredNamedRelation(),
                     handle.getConstraint(),
                     getAdditionalPredicate(handle.getConstraintExpressions(), Optional.empty()));
-            try (PreparedStatement preparedStatement = queryBuilder.prepareStatement(this, session, connection, preparedQuery)) {
+            try (PreparedStatement preparedStatement = queryBuilder.prepareStatement(this, session, connection, preparedQuery, Optional.empty())) {
                 return OptionalLong.of(preparedStatement.executeUpdate());
             }
         }

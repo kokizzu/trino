@@ -601,6 +601,20 @@ existing Delta Lake table from the metastores without deleting the data::
 
     CALL example.system.unregister_table(schema_name => 'testdb', table_name => 'customer_orders')
 
+.. _delta-lake-flush-metadata-cache:
+
+Flush metadata cache
+^^^^^^^^^^^^^^^^^^^^
+
+* ``system.flush_metadata_cache()``
+
+  Flush all metadata caches.
+
+* ``system.flush_metadata_cache(schema_name => ..., table_name => ...)``
+
+  Flush metadata caches entries connected with selected table.
+  Procedure requires named parameters to be passed
+
 .. _delta-lake-write-support:
 
 Updating data
@@ -662,20 +676,7 @@ These metadata tables contain information about the internal structure
 of the Delta Lake table. You can query each metadata table by appending the
 metadata table name to the table name::
 
-   SELECT * FROM "test_table$data"
-
-``$data`` table
-^^^^^^^^^^^^^^^
-
-The ``$data`` table is an alias for the Delta Lake table itself.
-
-The statement::
-
-    SELECT * FROM "test_table$data"
-
-is equivalent to::
-
-    SELECT * FROM test_table
+   SELECT * FROM "test_table$history"
 
 ``$history`` table
 ^^^^^^^^^^^^^^^^^^

@@ -81,14 +81,20 @@ public abstract class BaseFailureRecoveryTest
     protected static final int INVOCATION_COUNT = 1;
     private static final Duration MAX_ERROR_DURATION = new Duration(5, SECONDS);
     private static final Duration REQUEST_TIMEOUT = new Duration(5, SECONDS);
-    private static final int MAX_PARALLEL_TEST_CONCURRENCY = 4;
+    private static final int DEFAULT_MAX_PARALLEL_TEST_CONCURRENCY = 4;
 
     private final RetryPolicy retryPolicy;
-    private final Semaphore parallelTestsSemaphore = new Semaphore(MAX_PARALLEL_TEST_CONCURRENCY);
+    private final Semaphore parallelTestsSemaphore;
 
     protected BaseFailureRecoveryTest(RetryPolicy retryPolicy)
     {
+        this(retryPolicy, DEFAULT_MAX_PARALLEL_TEST_CONCURRENCY);
+    }
+
+    protected BaseFailureRecoveryTest(RetryPolicy retryPolicy, int maxParallelTestConcurrency)
+    {
         this.retryPolicy = requireNonNull(retryPolicy, "retryPolicy is null");
+        this.parallelTestsSemaphore = new Semaphore(maxParallelTestConcurrency);
     }
 
     protected RetryPolicy getRetryPolicy()
@@ -437,7 +443,7 @@ public abstract class BaseFailureRecoveryTest
                 String temporaryTableName = (String) temporaryTableRow.getField(0);
                 try {
                     assertThatThrownBy(() -> getQueryRunner().execute("SELECT 1 FROM %s WHERE 1 = 0".formatted(temporaryTableName)))
-                            .hasMessageContaining("%s does not exist", temporaryTableName);
+                            .hasMessageContaining("Table '%s' does not exist", temporaryTableName);
                 }
                 catch (AssertionError e) {
                     remainingTemporaryTables.computeIfAbsent(queryId, ignored -> new HashSet<>()).add(temporaryTableName);
