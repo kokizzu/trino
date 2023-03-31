@@ -187,7 +187,7 @@ public class TransactionLogAccess
         activeDataFileCache.invalidate(tableLocation);
     }
 
-    public Optional<MetadataEntry> getMetadataEntry(TableSnapshot tableSnapshot, ConnectorSession session)
+    public MetadataEntry getMetadataEntry(TableSnapshot tableSnapshot, ConnectorSession session)
     {
         if (tableSnapshot.getCachedMetadata().isEmpty()) {
             try (Stream<MetadataEntry> metadataEntries = getEntries(
@@ -201,13 +201,14 @@ public class TransactionLogAccess
                 tableSnapshot.setCachedMetadata(metadataEntries.reduce((first, second) -> second));
             }
         }
-        return tableSnapshot.getCachedMetadata();
+        return tableSnapshot.getCachedMetadata()
+                .orElseThrow(() -> new TrinoException(DELTA_LAKE_INVALID_SCHEMA, "Metadata not found in transaction log for " + tableSnapshot.getTable()));
     }
 
     public List<AddFileEntry> getActiveFiles(TableSnapshot tableSnapshot, ConnectorSession session)
     {
         try {
-            String tableLocation = tableSnapshot.getTableLocation().toString();
+            String tableLocation = tableSnapshot.getTableLocation();
             DeltaLakeDataFileCacheEntry cachedTable = activeDataFileCache.get(tableLocation, () -> {
                 List<AddFileEntry> activeFiles = loadActiveFiles(tableSnapshot, session);
                 return new DeltaLakeDataFileCacheEntry(tableSnapshot.getVersion(), activeFiles);

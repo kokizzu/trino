@@ -1470,6 +1470,10 @@ connector.
       - The target number of buffered splits for each table scan in a query,
         before the scheduler tries to pause.
       - ``1000``
+    * - ``hive.max-outstanding-splits-size``
+      - The maximum size allowed for buffered splits for each table scan
+        in a query, before the query fails.
+      - ``256 MB``
     * - ``hive.max-splits-per-second``
       - The maximum number of splits generated per second per table scan. This
         can be used to reduce the load on the storage system. By default, there
@@ -1552,7 +1556,7 @@ with Parquet files performed by the Hive connector.
       - Adjusts timestamp values to a specific time zone. For Hive 3.1+, set
         this to UTC.
       - JVM default
-    * - ``hive.parquet.use-columns-names``
+    * - ``hive.parquet.use-column-names``
       - Access Parquet columns by name by default. Set this property to
         ``false`` to access columns by their ordinal position in the Hive table
         definition. The equivalent catalog session property is

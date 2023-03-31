@@ -407,7 +407,6 @@ public class IcebergMetadata
                 table.location(),
                 table.properties(),
                 NO_RETRIES,
-                ImmutableList.of(),
                 false,
                 Optional.empty());
     }
@@ -775,7 +774,7 @@ public class IcebergMetadata
                 .distinct()
                 .collect(toImmutableList());
         List<String> partitioningColumnNames = partitioningColumns.stream()
-                .map(IcebergColumnHandle::getName)
+                .map(column -> column.getName().toLowerCase(ENGLISH))
                 .collect(toImmutableList());
 
         if (!forceRepartitioning && partitionSpec.fields().stream().allMatch(field -> field.transform().isIdentity())) {
@@ -2326,7 +2325,6 @@ public class IcebergMetadata
                         table.getTableLocation(),
                         table.getStorageProperties(),
                         table.getRetryMode(),
-                        table.getUpdatedColumns(),
                         table.isRecordScannedFiles(),
                         table.getMaxScannedFileSize()),
                 remainingConstraint.transformKeys(ColumnHandle.class::cast),
@@ -2455,7 +2453,6 @@ public class IcebergMetadata
         IcebergTableHandle originalHandle = (IcebergTableHandle) tableHandle;
         // Certain table handle attributes are not applicable to select queries (which need stats).
         // If this changes, the caching logic may here may need to be revised.
-        checkArgument(originalHandle.getUpdatedColumns().isEmpty(), "Unexpected updated columns");
         checkArgument(!originalHandle.isRecordScannedFiles(), "Unexpected scanned files recording set");
         checkArgument(originalHandle.getMaxScannedFileSize().isEmpty(), "Unexpected max scanned file size set");
 
@@ -2476,7 +2473,6 @@ public class IcebergMetadata
                         originalHandle.getTableLocation(),
                         originalHandle.getStorageProperties(),
                         NO_RETRIES, // retry mode doesn't affect stats
-                        originalHandle.getUpdatedColumns(),
                         originalHandle.isRecordScannedFiles(),
                         originalHandle.getMaxScannedFileSize()),
                 handle -> {
