@@ -16,6 +16,7 @@ package io.trino.plugin.hive.metastore.procedure;
 import com.google.common.collect.ImmutableList;
 import io.trino.plugin.hive.HiveErrorCode;
 import io.trino.plugin.hive.metastore.cache.CachingHiveMetastore;
+import io.trino.spi.StandardErrorCode;
 import io.trino.spi.TrinoException;
 import io.trino.spi.classloader.ThreadContextClassLoader;
 import io.trino.spi.procedure.Procedure;
@@ -35,7 +36,7 @@ import static java.lang.invoke.MethodHandles.lookup;
 import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
 
-public class FlushHiveMetastoreCacheProcedure
+public class FlushMetadataCacheProcedure
         implements Provider<Procedure>
 {
     private static final String PROCEDURE_NAME = "flush_metadata_cache";
@@ -73,7 +74,7 @@ public class FlushHiveMetastoreCacheProcedure
 
     static {
         try {
-            FLUSH_HIVE_METASTORE_CACHE = lookup().unreflect(FlushHiveMetastoreCacheProcedure.class.getMethod(
+            FLUSH_HIVE_METASTORE_CACHE = lookup().unreflect(FlushMetadataCacheProcedure.class.getMethod(
                     "flushMetadataCache", String.class, String.class, List.class, List.class, List.class, List.class));
         }
         catch (ReflectiveOperationException e) {
@@ -84,7 +85,7 @@ public class FlushHiveMetastoreCacheProcedure
     private final Optional<CachingHiveMetastore> cachingHiveMetastore;
 
     @Inject
-    public FlushHiveMetastoreCacheProcedure(Optional<CachingHiveMetastore> cachingHiveMetastore)
+    public FlushMetadataCacheProcedure(Optional<CachingHiveMetastore> cachingHiveMetastore)
     {
         this.cachingHiveMetastore = requireNonNull(cachingHiveMetastore, "cachingHiveMetastore is null");
     }
@@ -153,9 +154,7 @@ public class FlushHiveMetastoreCacheProcedure
             }
         }
         else {
-            throw new TrinoException(
-                    HiveErrorCode.HIVE_METASTORE_ERROR,
-                    "Illegal parameter set passed. " + PROCEDURE_USAGE_EXAMPLES);
+            throw new TrinoException(StandardErrorCode.INVALID_PROCEDURE_ARGUMENT, "Illegal parameter set passed. " + PROCEDURE_USAGE_EXAMPLES);
         }
     }
 

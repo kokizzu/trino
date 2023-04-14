@@ -10,7 +10,7 @@
 
     <groupId>io.trino</groupId>
     <artifactId>trino-root</artifactId>
-    <version>413-SNAPSHOT</version>
+    <version>414-SNAPSHOT</version>
 
     <name>trino-root</name>
     <description>Trino</description>
@@ -52,14 +52,14 @@
         <dep.airlift.version>228</dep.airlift.version>
         <dep.arrow.version>9.0.0</dep.arrow.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
-        <dep.aws-sdk.version>1.12.261</dep.aws-sdk.version>
+        <dep.aws-sdk.version>1.12.445</dep.aws-sdk.version>
         <dep.jsonwebtoken.version>0.11.5</dep.jsonwebtoken.version>
         <dep.oracle.version>21.9.0.0</dep.oracle.version>
         <dep.drift.version>1.14</dep.drift.version>
         <dep.tempto.version>191</dep.tempto.version>
         <dep.gcs.version>2.2.8</dep.gcs.version>
         <dep.errorprone.version>2.18.0</dep.errorprone.version>
-        <dep.testcontainers.version>1.17.6</dep.testcontainers.version>
+        <dep.testcontainers.version>1.18.0</dep.testcontainers.version>
         <dep.duct-tape.version>1.0.8</dep.duct-tape.version>
         <dep.coral.version>2.0.77</dep.coral.version>
         <dep.confluent.version>7.3.1</dep.confluent.version>
@@ -71,8 +71,10 @@
         <dep.wire.version>4.5.0</dep.wire.version>
         <dep.kotlin.version>1.8.0</dep.kotlin.version>
         <dep.netty.version>4.1.79.Final</dep.netty.version>
+        <dep.jna.version>5.13.0</dep.jna.version>
+        <dep.slf4j.version>2.0.7</dep.slf4j.version>
 
-        <dep.docker.images.version>77</dep.docker.images.version>
+        <dep.docker.images.version>79</dep.docker.images.version>
 
         <!--
           America/Bahia_Banderas has:
@@ -740,7 +742,7 @@
             <dependency>
                 <groupId>io.trino.benchto</groupId>
                 <artifactId>benchto-driver</artifactId>
-                <version>0.23</version>
+                <version>0.24</version>
             </dependency>
 
             <dependency>
@@ -818,7 +820,7 @@
             <dependency>
                 <groupId>io.trino.tpch</groupId>
                 <artifactId>tpch</artifactId>
-                <version>1.1</version>
+                <version>1.2</version>
             </dependency>
 
             <!-- Airlift -->
@@ -1233,7 +1235,7 @@
             <dependency>
                 <groupId>com.github.docker-java</groupId>
                 <artifactId>docker-java-api</artifactId>
-                <version>3.2.13</version>
+                <version>3.3.0</version>
             </dependency>
 
             <dependency>
@@ -1245,7 +1247,7 @@
             <dependency>
                 <groupId>com.github.oshi</groupId>
                 <artifactId>oshi-core</artifactId>
-                <version>5.8.5</version>
+                <version>6.4.1</version>
             </dependency>
 
             <dependency>
@@ -1662,7 +1664,13 @@
                 <!-- org.testcontainers:testcontainer's dependencies pull two different versions of this artifact and this is to negotiate the version -->
                 <groupId>net.java.dev.jna</groupId>
                 <artifactId>jna</artifactId>
-                <version>5.12.1</version>
+                <version>${dep.jna.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>net.java.dev.jna</groupId>
+                <artifactId>jna-platform</artifactId>
+                <version>${dep.jna.version}</version>
             </dependency>
 
             <dependency>
@@ -1901,7 +1909,7 @@
                 <groupId>org.jdbi</groupId>
                 <artifactId>jdbi3-bom</artifactId>
                 <type>pom</type>
-                <version>3.32.0</version>
+                <version>3.37.1</version>
                 <scope>import</scope>
             </dependency>
 
@@ -2149,7 +2157,15 @@
                                 <excludes combine.children="append">
                                     <!-- We don't use log4j2, additionally versions < 2.15.0 are vulnerable to the RCE Log4Shell (CVE-2021-44228) -->
                                     <exclude>org.apache.logging.log4j:log4j-core</exclude>
+                                    <!-- 1.x versions are banned due to https://www.cve.org/CVERecord?id=CVE-2022-1471 -->
+                                    <exclude>org.yaml:snakeyaml</exclude>
                                 </excludes>
+                                <includes combine.children="append">
+                                    <!-- 2.x versions are not affected by CVE-2022-1471 -->
+                                    <include>org.yaml:snakeyaml:2.0</include>
+                                    <!-- allow in test scope (tempto and benchto are using old versions) -->
+                                    <include>org.yaml:snakeyaml:*:jar:test</include>
+                                </includes>
                             </bannedDependencies>
                         </rules>
                     </configuration>

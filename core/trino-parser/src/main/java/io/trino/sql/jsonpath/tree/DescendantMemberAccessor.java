@@ -11,22 +11,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.iceberg;
+package io.trino.sql.jsonpath.tree;
 
-import static io.trino.plugin.iceberg.IcebergTestUtils.checkOrcFileSorting;
-import static org.apache.iceberg.FileFormat.ORC;
+import static java.util.Objects.requireNonNull;
 
-public class TestIcebergMinioOrcConnectorSmokeTest
-        extends BaseIcebergMinioConnectorSmokeTest
+public class DescendantMemberAccessor
+        extends Accessor
 {
-    public TestIcebergMinioOrcConnectorSmokeTest()
+    private final String key;
+
+    public DescendantMemberAccessor(PathNode base, String key)
     {
-        super(ORC);
+        super(base);
+        this.key = requireNonNull(key, "key is null");
     }
 
     @Override
-    protected boolean isFileSorted(String path, String sortColumnName)
+    public <R, C> R accept(JsonPathTreeVisitor<R, C> visitor, C context)
     {
-        return checkOrcFileSorting(fileSystemFactory, path, sortColumnName);
+        return visitor.visitDescendantMemberAccessor(this, context);
+    }
+
+    public String getKey()
+    {
+        return key;
     }
 }

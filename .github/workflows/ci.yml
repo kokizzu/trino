@@ -70,6 +70,11 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           java-version: ${{ matrix.java-version }}
+      - name: Check SPI backward compatibility
+        run: |
+          export MAVEN_OPTS="${MAVEN_INSTALL_OPTS}"
+          $MAVEN clean install ${MAVEN_FAST_INSTALL} -pl :trino-spi -am
+          ${MAVEN//--offline/} clean verify -B --strict-checksums -DskipTests -pl :trino-spi
       - name: Maven Checks
         run: |
           export MAVEN_OPTS="${MAVEN_INSTALL_OPTS}"
@@ -78,6 +83,11 @@ jobs:
         run: |
           export MAVEN_OPTS="${MAVEN_INSTALL_OPTS}"
           $MAVEN verify -B --strict-checksums -P ci -pl :trino-server-rpm
+      - name: Test JDBC shading
+        # Run only integration tests to verify JDBC driver shading
+        run: |
+          export MAVEN_OPTS="${MAVEN_INSTALL_OPTS}"          
+          $MAVEN failsafe:integration-test -B --strict-checksums -P ci -pl :trino-jdbc
       - name: Clean Maven Output
         run: $MAVEN clean -pl '!:trino-server,!:trino-cli'
       - uses: docker/setup-qemu-action@v2
@@ -527,6 +537,7 @@ jobs:
             - { modules: plugin/trino-hive, profile: test-parquet }
             - { modules: plugin/trino-hudi }
             - { modules: plugin/trino-iceberg }
+            - { modules: plugin/trino-iceberg, profile: minio-and-avro }
             - { modules: plugin/trino-iceberg, profile: cloud-tests }
             - { modules: plugin/trino-ignite }
             - { modules: plugin/trino-kafka }

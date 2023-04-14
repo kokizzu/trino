@@ -15,7 +15,6 @@ package io.trino.plugin.clickhouse;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import io.trino.Session;
 import io.trino.plugin.jdbc.BaseJdbcConnectorTest;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.testing.MaterializedResult;
@@ -79,6 +78,9 @@ public class TestClickHouseConnectorTest
             case SUPPORTS_ARRAY:
             case SUPPORTS_ROW_TYPE:
             case SUPPORTS_NEGATIVE_DATE:
+                return false;
+
+            case SUPPORTS_NATIVE_QUERY:
                 return false;
 
             default:
@@ -203,10 +205,24 @@ public class TestClickHouseConnectorTest
         return "(x VARCHAR NOT NULL) WITH (engine = 'MergeTree', order_by = ARRAY['x'])";
     }
 
-    @Override
-    public void testAddNotNullColumnToNonEmptyTable()
+    @Override // Overridden because the default storage type doesn't support adding columns
+    public void testAddNotNullColumnToEmptyTable()
     {
-        // Override because the default storage type doesn't support adding columns
+        try (TestTable table = new TestTable(getQueryRunner()::execute, "test_add_notnull_col_to_empty", "(a_varchar varchar NOT NULL)  WITH (engine = 'MergeTree', order_by = ARRAY['a_varchar'])")) {
+            String tableName = table.getName();
+
+            assertUpdate("ALTER TABLE " + tableName + " ADD COLUMN b_varchar varchar NOT NULL");
+            assertFalse(columnIsNullable(tableName, "b_varchar"));
+            assertUpdate("INSERT INTO " + tableName + " VALUES ('a', 'b')", 1);
+            assertThat(query("TABLE " + tableName))
+                    .skippingTypesCheck()
+                    .matches("VALUES ('a', 'b')");
+        }
+    }
+
+    @Override // Overridden because (a) the default storage type doesn't support adding columns and (b) ClickHouse has implicit default value for new NON NULL column
+    public void testAddNotNullColumn()
+    {
         try (TestTable table = new TestTable(getQueryRunner()::execute, "test_add_notnull_col", "(a_varchar varchar NOT NULL)  WITH (engine = 'MergeTree', order_by = ARRAY['a_varchar'])")) {
             String tableName = table.getName();
 
@@ -658,115 +674,6 @@ public class TestClickHouseConnectorTest
         assertThatThrownBy(super::testCharTrailingSpace)
                 .hasMessageStartingWith("Failed to execute statement: CREATE TABLE tpch.char_trailing_space");
         throw new SkipException("Implement test for ClickHouse");
-    }
-
-    @Override
-    public void testNativeQuerySimple()
-    {
-        // table function disabled for ClickHouse, because it doesn't provide ResultSetMetaData, so the result relation type cannot be determined
-        assertQueryFails("SELECT * FROM TABLE(system.query(query => 'SELECT 1'))", "line 1:21: Table function system.query not registered");
-    }
-
-    @Override
-    public void testNativeQueryParameters()
-    {
-        // table function disabled for ClickHouse, because it doesn't provide ResultSetMetaData, so the result relation type cannot be determined
-        Session session = Session.builder(getSession())
-                .addPreparedStatement("my_query_simple", "SELECT * FROM TABLE(system.query(query => ?))")
-                .addPreparedStatement("my_query", "SELECT * FROM TABLE(system.query(query => format('SELECT %s FROM %s', ?, ?)))")
-                .build();
-        assertQueryFails(session, "EXECUTE my_query_simple USING 'SELECT 1 a'", "line 1:21: Table function system.query not registered");
-        assertQueryFails(session, "EXECUTE my_query USING 'a', '(SELECT 2 a) t'", "line 1:21: Table function system.query not registered");
-    }
-
-    @Override
-    public void testNativeQuerySelectFromNation()
-    {
-        // table function disabled for ClickHouse, because it doesn't provide ResultSetMetaData, so the result relation type cannot be determined
-        assertQueryFails(
-                format("SELECT * FROM TABLE(system.query(query => 'SELECT name FROM %s.nation WHERE nationkey = 0'))", getSession().getSchema().orElseThrow()),
-                "line 1:21: Table function system.query not registered");
-    }
-
-    @Override
-    public void testNativeQuerySelectFromTestTable()
-    {
-        // table function disabled for ClickHouse, because it doesn't provide ResultSetMetaData, so the result relation type cannot be determined
-        try (TestTable testTable = simpleTable()) {
-            assertQueryFails(
-                    format("SELECT * FROM TABLE(system.query(query => 'SELECT * FROM %s'))", testTable.getName()),
-                    "line 1:21: Table function system.query not registered");
-        }
-    }
-
-    @Override
-    public void testNativeQueryColumnAlias()
-    {
-        // table function disabled for ClickHouse, because it doesn't provide ResultSetMetaData, so the result relation type cannot be determined
-        assertQueryFails(
-                "SELECT * FROM TABLE(system.query(query => 'SELECT name AS region_name FROM tpch.region WHERE regionkey = 0'))",
-                ".* Table function system.query not registered");
-    }
-
-    @Override
-    public void testNativeQueryColumnAliasNotFound()
-    {
-        // table function disabled for ClickHouse, because it doesn't provide ResultSetMetaData, so the result relation type cannot be determined
-        assertQueryFails(
-                "SELECT name FROM TABLE(system.query(query => 'SELECT name AS region_name FROM tpch.region'))",
-                ".* Table function system.query not registered");
-    }
-
-    @Override
-    public void testNativeQuerySelectUnsupportedType()
-    {
-        // table function disabled for ClickHouse, because it doesn't provide ResultSetMetaData, so the result relation type cannot be determined
-        try (TestTable testTable = createTableWithUnsupportedColumn()) {
-            String unqualifiedTableName = testTable.getName().replaceAll("^\\w+\\.", "");
-            // Check that column 'two' is not supported.
-            assertQuery("SELECT column_name FROM information_schema.columns WHERE table_name = '" + unqualifiedTableName + "'", "VALUES 'one', 'three'");
-            assertUpdate("INSERT INTO " + testTable.getName() + " (one, three) VALUES (123, 'test')", 1);
-            assertThatThrownBy(() -> query(format("SELECT * FROM TABLE(system.query(query => 'SELECT * FROM %s'))", testTable.getName())))
-                    .hasMessage("line 1:21: Table function system.query not registered");
-        }
-    }
-
-    @Override
-    public void testNativeQueryCreateStatement()
-    {
-        // table function disabled for ClickHouse, because it doesn't provide ResultSetMetaData, so the result relation type cannot be determined
-        assertFalse(getQueryRunner().tableExists(getSession(), "numbers"));
-        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'CREATE TABLE numbers(n INTEGER)'))"))
-                .hasMessage("line 1:21: Table function system.query not registered");
-        assertFalse(getQueryRunner().tableExists(getSession(), "numbers"));
-    }
-
-    @Override
-    public void testNativeQueryInsertStatementTableDoesNotExist()
-    {
-        // table function disabled for ClickHouse, because it doesn't provide ResultSetMetaData, so the result relation type cannot be determined
-        assertFalse(getQueryRunner().tableExists(getSession(), "non_existent_table"));
-        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'INSERT INTO non_existent_table VALUES (1)'))"))
-                .hasMessage("line 1:21: Table function system.query not registered");
-    }
-
-    @Override
-    public void testNativeQueryInsertStatementTableExists()
-    {
-        // table function disabled for ClickHouse, because it doesn't provide ResultSetMetaData, so the result relation type cannot be determined
-        try (TestTable testTable = simpleTable()) {
-            assertThatThrownBy(() -> query(format("SELECT * FROM TABLE(system.query(query => 'INSERT INTO %s VALUES (3)'))", testTable.getName())))
-                    .hasMessage("line 1:21: Table function system.query not registered");
-            assertQuery("SELECT * FROM " + testTable.getName(), "VALUES 1, 2");
-        }
-    }
-
-    @Override
-    public void testNativeQueryIncorrectSyntax()
-    {
-        // table function disabled for ClickHouse, because it doesn't provide ResultSetMetaData, so the result relation type cannot be determined
-        assertThatThrownBy(() -> query("SELECT * FROM TABLE(system.query(query => 'some wrong syntax'))"))
-                .hasMessage("line 1:21: Table function system.query not registered");
     }
 
     @Override

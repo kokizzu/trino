@@ -69,6 +69,7 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -105,6 +106,7 @@ import static io.trino.testing.MaterializedResult.resultBuilder;
 import static io.trino.testing.QueryAssertions.assertContains;
 import static io.trino.testing.QueryAssertions.getTrinoExceptionCause;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_ADD_COLUMN;
+import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_ADD_COLUMN_NOT_NULL_CONSTRAINT;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_ADD_COLUMN_WITH_COMMENT;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_ARRAY;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_COMMENT_ON_COLUMN;
@@ -162,7 +164,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.InstanceOfAssertFactories.ZONED_DATE_TIME;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
-import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
@@ -1947,7 +1948,8 @@ public abstract class BaseConnectorTest
         writeTasksCount = 2 * writeTasksCount; // writes are scheduled twice
         CountDownLatch writeTasksInitialized = new CountDownLatch(writeTasksCount);
         Runnable writeInitialized = writeTasksInitialized::countDown;
-        Supplier<Boolean> done = () -> incompleteReadTasks.get() == 0;
+        AtomicBoolean aborted = new AtomicBoolean();
+        Supplier<Boolean> done = () -> aborted.get() || incompleteReadTasks.get() == 0;
         List<Callable<Void>> writeTasks = new ArrayList<>();
         writeTasks.add(createDropRepeatedly(writeInitialized, done, "concur_table", createTableSqlTemplateForConcurrentModifications(), "DROP TABLE %s"));
         if (hasBehavior(SUPPORTS_CREATE_VIEW)) {
@@ -1977,6 +1979,14 @@ public abstract class BaseConnectorTest
                 verifyNotNull(future, "Task did not completed before timeout; completed tasks: %s, current poll timeout: %s s", i, remainingTimeSeconds);
                 future.get(); // non-blocking
             }
+        }
+        catch (Throwable failure) {
+            aborted.set(true);
+            executor.shutdownNow();
+            if (!executor.awaitTermination(10, SECONDS)) {
+                throw new AssertionError("Test threads did not complete. Leaving test threads behind may violate AbstractTestQueryFramework.checkQueryInfosFinal", failure);
+            }
+            throw failure;
         }
         finally {
             executor.shutdownNow();
@@ -2411,33 +2421,55 @@ public abstract class BaseConnectorTest
     }
 
     @Test
-    public void testAddNotNullColumnToNonEmptyTable()
+    public void testAddNotNullColumnToEmptyTable()
     {
         skipTestUnless(hasBehavior(SUPPORTS_ADD_COLUMN));
 
-        if (!hasBehavior(SUPPORTS_NOT_NULL_CONSTRAINT)) {
-            assertQueryFails(
-                    "ALTER TABLE nation ADD COLUMN test_add_not_null_col bigint NOT NULL",
-                    ".* Catalog '.*' does not support NOT NULL for column '.*'");
-            return;
-        }
+        try (TestTable table = new TestTable(getQueryRunner()::execute, "test_add_nn_to_empty", "(a_varchar varchar)")) {
+            String tableName = table.getName();
+            String addNonNullColumn = "ALTER TABLE " + tableName + " ADD COLUMN b_varchar varchar NOT NULL";
 
-        try (TestTable table = new TestTable(getQueryRunner()::execute, "test_add_notnull_col", "(a_varchar varchar)")) {
+            if (!hasBehavior(SUPPORTS_ADD_COLUMN_NOT_NULL_CONSTRAINT)) {
+                assertQueryFails(
+                        addNonNullColumn,
+                        hasBehavior(SUPPORTS_NOT_NULL_CONSTRAINT)
+                                ? "This connector does not support adding not null columns"
+                                : ".* Catalog '.*' does not support NOT NULL for column '.*'");
+                return;
+            }
+
+            assertUpdate(addNonNullColumn);
+            assertFalse(columnIsNullable(tableName, "b_varchar"));
+            assertUpdate("INSERT INTO " + tableName + " VALUES ('a', 'b')", 1);
+            assertThat(query("TABLE " + tableName))
+                    .skippingTypesCheck()
+                    .matches("VALUES ('a', 'b')");
+        }
+    }
+
+    @Test
+    public void testAddNotNullColumn()
+    {
+        skipTestUnless(hasBehavior(SUPPORTS_ADD_COLUMN_NOT_NULL_CONSTRAINT)); // covered by testAddNotNullColumnToEmptyTable
+
+        try (TestTable table = new TestTable(getQueryRunner()::execute, "test_add_nn_col", "(a_varchar varchar)")) {
             String tableName = table.getName();
 
-            assertUpdate("ALTER TABLE " + tableName + " ADD COLUMN b_varchar varchar NOT NULL");
-            assertFalse(columnIsNullable(tableName, "b_varchar"));
-
-            assertUpdate("INSERT INTO " + tableName + " VALUES ('a', 'b')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES ('a')", 1);
+            boolean success = false;
             try {
-                assertUpdate("ALTER TABLE " + tableName + " ADD COLUMN c_varchar varchar NOT NULL");
-                assertFalse(columnIsNullable(tableName, "c_varchar"));
-                // Remote database might set implicit default values
-                assertNotNull(computeScalar("SELECT c_varchar FROM " + tableName));
+                assertUpdate("ALTER TABLE " + tableName + " ADD COLUMN b_varchar varchar NOT NULL");
+                success = true;
             }
             catch (Throwable e) {
                 verifyAddNotNullColumnToNonEmptyTableFailurePermissible(e);
             }
+            if (success) {
+                throw new AssertionError("Should fail to add not null column without a default value to a non-empty table");
+            }
+            assertThat(query("TABLE " + tableName))
+                    .skippingTypesCheck()
+                    .matches("VALUES 'a'");
         }
     }
 
@@ -2446,12 +2478,16 @@ public abstract class BaseConnectorTest
         String isNullable = (String) computeScalar(
                 "SELECT is_nullable FROM information_schema.columns WHERE " +
                         "table_schema = '" + getSession().getSchema().orElseThrow() + "' AND table_name = '" + tableName + "' AND column_name = '" + columnName + "'");
-        return "YES".equals(isNullable);
+        return switch (requireNonNull(isNullable, "isNullable is null")) {
+            case "YES" -> true;
+            case "NO" -> false;
+            default -> throw new IllegalStateException("Unrecognized is_nullable value: " + isNullable);
+        };
     }
 
     protected void verifyAddNotNullColumnToNonEmptyTableFailurePermissible(Throwable e)
     {
-        throw new AssertionError("Unexpected adding not null columns failure", e);
+        throw new AssertionError("Unexpected failure when adding not null column", e);
     }
 
     @Test
@@ -5203,6 +5239,36 @@ public abstract class BaseConnectorTest
         finally {
             assertUpdate("DROP TABLE " + tableName);
         }
+    }
+
+    @Test
+    public void testMergeDeleteWithCTAS()
+    {
+        skipTestUnless(hasBehavior(SUPPORTS_MERGE) && hasBehavior(SUPPORTS_CREATE_TABLE_WITH_DATA));
+
+        String target = "merge_target_with_ctas_" + randomNameSuffix();
+        String source = "merge_source_with_ctas_" + randomNameSuffix();
+        @Language("SQL") String createTableSql = """
+                CREATE TABLE %s AS
+                SELECT * FROM (
+                        VALUES
+                        (1, 'a', 'aa'),
+                        (2, 'b', 'bb'),
+                        (3, 'c', 'cc'),
+                        (4, 'd', 'dd')
+                ) AS t (id, name, value)
+                """;
+        assertUpdate(createTableSql.formatted(target), 4);
+        assertUpdate(createTableSql.formatted(source), 4);
+
+        assertQuery("SELECT COUNT(*) FROM " + target, "VALUES 4");
+        assertUpdate("DELETE FROM %s WHERE id IN (SELECT id FROM %s WHERE id > 2)".formatted(target, source), 2);
+        assertQuery("SELECT * FROM " + target, "VALUES (1, 'a', 'aa'), (2, 'b', 'bb')");
+        assertUpdate("MERGE INTO %s t USING %s s ON (t.id = s.id) WHEN MATCHED AND s.id > 1 THEN DELETE".formatted(target, source), 1);
+        assertQuery("SELECT * FROM " + target, "VALUES (1, 'a', 'aa')");
+
+        assertUpdate("DROP TABLE " + target);
+        assertUpdate("DROP TABLE " + source);
     }
 
     protected String createTableForWrites(String createTable)
