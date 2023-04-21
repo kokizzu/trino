@@ -18,6 +18,10 @@ import com.google.common.collect.ImmutableMap;
 import io.airlift.log.Logger;
 import io.airlift.stats.Distribution;
 import io.airlift.units.Duration;
+import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.context.Context;
 import io.trino.execution.StateMachine.StateChangeListener;
 import io.trino.execution.scheduler.SplitSchedulerStats;
 import io.trino.operator.BlockedReason;
@@ -29,6 +33,7 @@ import io.trino.spi.eventlistener.StageGcStatistics;
 import io.trino.sql.planner.PlanFragment;
 import io.trino.sql.planner.plan.PlanNodeId;
 import io.trino.sql.planner.plan.TableScanNode;
+import io.trino.tracing.TrinoAttributes;
 import io.trino.util.Failures;
 import io.trino.util.Optionals;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
@@ -82,6 +87,7 @@ public class StageStateMachine
 
     private final StateMachine<StageState> stageState;
     private final StateMachine<Optional<StageInfo>> finalStageInfo;
+    private final Span stageSpan;
     private final AtomicReference<ExecutionFailureInfo> failureCause = new AtomicReference<>();
 
     private final AtomicReference<DateTime> schedulingComplete = new AtomicReference<>();
@@ -98,6 +104,8 @@ public class StageStateMachine
             PlanFragment fragment,
             Map<PlanNodeId, TableInfo> tables,
             Executor executor,
+            Tracer tracer,
+            Span querySpan,
             SplitSchedulerStats schedulerStats)
     {
         this.stageId = requireNonNull(stageId, "stageId is null");
@@ -109,6 +117,20 @@ public class StageStateMachine
         stageState.addStateChangeListener(state -> log.debug("Stage %s is %s", stageId, state));
 
         finalStageInfo = new StateMachine<>("final stage " + stageId, executor, Optional.empty());
+
+        stageSpan = tracer.spanBuilder("stage")
+                .setParent(Context.current().with(querySpan))
+                .setAttribute(TrinoAttributes.QUERY_ID, stageId.getQueryId().toString())
+                .setAttribute(TrinoAttributes.STAGE_ID, stageId.toString())
+                .startSpan();
+
+        stageState.addStateChangeListener(state -> {
+            stageSpan.addEvent("stage_state", Attributes.of(
+                    TrinoAttributes.EVENT_STATE, state.toString()));
+            if (state.isDone()) {
+                stageSpan.end();
+            }
+        });
     }
 
     public StageId getStageId()
@@ -124,6 +146,11 @@ public class StageStateMachine
     public PlanFragment getFragment()
     {
         return fragment;
+    }
+
+    public Span getStageSpan()
+    {
+        return stageSpan;
     }
 
     /**
@@ -323,6 +350,10 @@ public class StageStateMachine
         if (isScheduled && totalDrivers != 0) {
             progressPercentage = OptionalDouble.of(min(100, (completedDrivers * 100.0) / totalDrivers));
         }
+        OptionalDouble runningPercentage = OptionalDouble.empty();
+        if (isScheduled && totalDrivers != 0) {
+            runningPercentage = OptionalDouble.of(min(100, (runningDrivers * 100.0) / totalDrivers));
+        }
 
         return new BasicStageStats(
                 isScheduled,
@@ -357,7 +388,8 @@ public class StageStateMachine
                 fullyBlocked,
                 blockedReasons,
 
-                progressPercentage);
+                progressPercentage,
+                runningPercentage);
     }
 
     public StageInfo getStageInfo(Supplier<Iterable<TaskInfo>> taskInfosSupplier)

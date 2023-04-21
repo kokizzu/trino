@@ -78,7 +78,6 @@ import static io.trino.spi.predicate.Utils.nativeValueToBlock;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.TinyintType.TINYINT;
 import static io.trino.spi.type.VarcharType.VARCHAR;
-import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
 import static java.util.Collections.unmodifiableList;
 import static java.util.Objects.requireNonNull;
@@ -239,7 +238,7 @@ public class DeltaLakeMergeSink
         int updateDeletePositionCount = 0;
 
         for (int position = 0; position < positionCount; position++) {
-            int operation = toIntExact(TINYINT.getLong(operationBlock, position));
+            byte operation = TINYINT.getByte(operationBlock, position);
             switch (operation) {
                 case DELETE_OPERATION_NUMBER:
                     deletePositions[deletePositionCount] = position;
@@ -364,11 +363,10 @@ public class DeltaLakeMergeSink
             Closeable rollbackAction = () -> fileSystem.deleteFile(path);
 
             List<Type> parquetTypes = dataColumns.stream()
-                    .map(column -> toParquetType(typeOperators, column.getType()))
+                    .map(column -> toParquetType(typeOperators, column.getPhysicalType()))
                     .collect(toImmutableList());
-
             List<String> dataColumnNames = dataColumns.stream()
-                    .map(DeltaLakeColumnHandle::getName)
+                    .map(DeltaLakeColumnHandle::getPhysicalName)
                     .collect(toImmutableList());
             ParquetSchemaConverter schemaConverter = new ParquetSchemaConverter(
                     parquetTypes,

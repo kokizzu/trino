@@ -56,8 +56,10 @@ public class QueryManagerConfig
     private int maxConcurrentQueries = 1000;
     private int maxQueuedQueries = 5000;
 
+    private boolean determinePartitionCountForWriteEnabled;
     private int maxHashPartitionCount = 100;
     private int minHashPartitionCount = 4;
+    private int minHashPartitionCountForWrite = 50;
     private int maxWriterTasksCount = 100;
     private Duration minQueryExpireAge = new Duration(15, TimeUnit.MINUTES);
     private int maxQueryHistory = 100;
@@ -120,7 +122,9 @@ public class QueryManagerConfig
     private DataSize faultTolerantExecutionStandardSplitSize = DataSize.of(64, MEGABYTE);
     private int faultTolerantExecutionMaxTaskSplitCount = 256;
     private DataSize faultTolerantExecutionTaskDescriptorStorageMaxMemory = DataSize.ofBytes(Math.round(AVAILABLE_HEAP_MEMORY * 0.15));
-    private int faultTolerantExecutionPartitionCount = 50;
+    private int faultTolerantExecutionMaxPartitionCount = 50;
+    private int faultTolerantExecutionMinPartitionCount = 4;
+    private int faultTolerantExecutionMinPartitionCountForWrite = 50;
     private boolean faultTolerantExecutionForcePreferredWritePartitioningEnabled = true;
 
     @Min(1)
@@ -179,6 +183,19 @@ public class QueryManagerConfig
         return this;
     }
 
+    public boolean isDeterminePartitionCountForWriteEnabled()
+    {
+        return determinePartitionCountForWriteEnabled;
+    }
+
+    @Config("query.determine-partition-count-for-write-enabled")
+    @ConfigDescription("Determine the number of partitions based on amount of data read and processed by the query for write queries")
+    public QueryManagerConfig setDeterminePartitionCountForWriteEnabled(boolean determinePartitionCountForWriteEnabled)
+    {
+        this.determinePartitionCountForWriteEnabled = determinePartitionCountForWriteEnabled;
+        return this;
+    }
+
     @Min(1)
     public int getMaxHashPartitionCount()
     {
@@ -205,6 +222,20 @@ public class QueryManagerConfig
     public QueryManagerConfig setMinHashPartitionCount(int minHashPartitionCount)
     {
         this.minHashPartitionCount = minHashPartitionCount;
+        return this;
+    }
+
+    @Min(1)
+    public int getMinHashPartitionCountForWrite()
+    {
+        return minHashPartitionCountForWrite;
+    }
+
+    @Config("query.min-hash-partition-count-for-write")
+    @ConfigDescription("Minimum number of partitions for distributed joins and aggregations in write queries")
+    public QueryManagerConfig setMinHashPartitionCountForWrite(int minHashPartitionCountForWrite)
+    {
+        this.minHashPartitionCountForWrite = minHashPartitionCountForWrite;
         return this;
     }
 
@@ -860,16 +891,45 @@ public class QueryManagerConfig
     }
 
     @Min(1)
-    public int getFaultTolerantExecutionPartitionCount()
+    public int getFaultTolerantExecutionMaxPartitionCount()
     {
-        return faultTolerantExecutionPartitionCount;
+        return faultTolerantExecutionMaxPartitionCount;
     }
 
-    @Config("fault-tolerant-execution-partition-count")
-    @ConfigDescription("Number of partitions for distributed joins and aggregations executed with fault tolerant execution enabled")
-    public QueryManagerConfig setFaultTolerantExecutionPartitionCount(int faultTolerantExecutionPartitionCount)
+    @Config("fault-tolerant-execution-max-partition-count")
+    @LegacyConfig("fault-tolerant-execution-partition-count")
+    @ConfigDescription("Maximum number of partitions for distributed joins and aggregations executed with fault tolerant execution enabled")
+    public QueryManagerConfig setFaultTolerantExecutionMaxPartitionCount(int faultTolerantExecutionMaxPartitionCount)
     {
-        this.faultTolerantExecutionPartitionCount = faultTolerantExecutionPartitionCount;
+        this.faultTolerantExecutionMaxPartitionCount = faultTolerantExecutionMaxPartitionCount;
+        return this;
+    }
+
+    @Min(1)
+    public int getFaultTolerantExecutionMinPartitionCount()
+    {
+        return faultTolerantExecutionMinPartitionCount;
+    }
+
+    @Config("fault-tolerant-execution-min-partition-count")
+    @ConfigDescription("Minimum number of partitions for distributed joins and aggregations executed with fault tolerant execution enabled")
+    public QueryManagerConfig setFaultTolerantExecutionMinPartitionCount(int faultTolerantExecutionMinPartitionCount)
+    {
+        this.faultTolerantExecutionMinPartitionCount = faultTolerantExecutionMinPartitionCount;
+        return this;
+    }
+
+    @Min(1)
+    public int getFaultTolerantExecutionMinPartitionCountForWrite()
+    {
+        return faultTolerantExecutionMinPartitionCountForWrite;
+    }
+
+    @Config("fault-tolerant-execution-min-partition-count-for-write")
+    @ConfigDescription("Minimum number of partitions for distributed joins and aggregations in write queries executed with fault tolerant execution enabled")
+    public QueryManagerConfig setFaultTolerantExecutionMinPartitionCountForWrite(int faultTolerantExecutionMinPartitionCountForWrite)
+    {
+        this.faultTolerantExecutionMinPartitionCountForWrite = faultTolerantExecutionMinPartitionCountForWrite;
         return this;
     }
 

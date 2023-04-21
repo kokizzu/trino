@@ -205,28 +205,17 @@ public abstract class BaseIcebergConnectorTest
     protected boolean hasBehavior(TestingConnectorBehavior connectorBehavior)
     {
         switch (connectorBehavior) {
+            case SUPPORTS_TRUNCATE:
+                return false;
+
             case SUPPORTS_TOPN_PUSHDOWN:
+                return false;
+
+            case SUPPORTS_RENAME_MATERIALIZED_VIEW_ACROSS_SCHEMAS:
                 return false;
 
             case SUPPORTS_ADD_COLUMN_NOT_NULL_CONSTRAINT:
                 return false;
-
-            case SUPPORTS_COMMENT_ON_VIEW:
-            case SUPPORTS_COMMENT_ON_VIEW_COLUMN:
-                return true;
-
-            case SUPPORTS_CREATE_VIEW:
-                return true;
-
-            case SUPPORTS_CREATE_MATERIALIZED_VIEW:
-                return true;
-            case SUPPORTS_RENAME_MATERIALIZED_VIEW_ACROSS_SCHEMAS:
-                return false;
-
-            case SUPPORTS_DELETE:
-            case SUPPORTS_UPDATE:
-            case SUPPORTS_MERGE:
-                return true;
 
             default:
                 return super.hasBehavior(connectorBehavior);
@@ -5591,7 +5580,7 @@ public abstract class BaseIcebergConnectorTest
                 .matches("VALUES (BIGINT '3', VARCHAR 'one two')");
         List<String> updatedFiles = getAllMetadataFilesFromTableDirectory(tableLocation);
         List<Long> updatedSnapshots = getSnapshotIds(tableName);
-        assertThat(updatedFiles.size()).isEqualTo(initialFiles.size() - 1);
+        assertThat(updatedFiles.size()).isEqualTo(initialFiles.size() - 2);
         assertThat(updatedSnapshots.size()).isLessThan(initialSnapshots.size());
         assertThat(updatedSnapshots.size()).isEqualTo(1);
         assertThat(initialSnapshots).containsAll(updatedSnapshots);

@@ -15,13 +15,11 @@ package io.trino.testing;
 
 import com.google.common.base.Stopwatch;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.UncheckedTimeoutException;
 import io.airlift.log.Logger;
 import io.airlift.units.Duration;
 import io.trino.Session;
-import io.trino.connector.CatalogName;
 import io.trino.connector.MockConnectorFactory;
 import io.trino.connector.MockConnectorPlugin;
 import io.trino.cost.StatsAndCosts;
@@ -31,7 +29,9 @@ import io.trino.execution.QueryManager;
 import io.trino.metadata.FunctionManager;
 import io.trino.metadata.Metadata;
 import io.trino.metadata.QualifiedObjectName;
+import io.trino.security.AllowAllAccessControl;
 import io.trino.server.BasicQueryInfo;
+import io.trino.server.testing.TestingTrinoServer;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.MaterializedViewFreshness;
 import io.trino.spi.security.Identity;
@@ -191,8 +191,8 @@ public abstract class BaseConnectorTest
         MockConnectorFactory connectorFactory = MockConnectorFactory.builder()
                 .withListSchemaNames(session -> ImmutableList.copyOf(mockTableListings.keySet()))
                 .withListTables((session, schemaName) ->
-                    verifyNotNull(mockTableListings.get(schemaName), "No listing function registered for [%s]", schemaName)
-                            .apply(session))
+                        verifyNotNull(mockTableListings.get(schemaName), "No listing function registered for [%s]", schemaName)
+                                .apply(session))
                 .build();
         return new MockConnectorPlugin(connectorFactory);
     }
@@ -816,7 +816,11 @@ public abstract class BaseConnectorTest
         String schemaName = getSession().getSchema().orElseThrow();
         String testView = "test_view_" + randomNameSuffix();
         String testViewWithComment = "test_view_with_comment_" + randomNameSuffix();
+        assertThat(computeActual("SHOW TABLES").getOnlyColumnAsSet()) // prime the cache, if any
+                .doesNotContain(testView);
         assertUpdate("CREATE VIEW " + testView + " AS SELECT 123 x");
+        assertThat(computeActual("SHOW TABLES").getOnlyColumnAsSet())
+                .contains(testView);
         assertUpdate("CREATE OR REPLACE VIEW " + testView + " AS " + query);
 
         assertUpdate("CREATE VIEW " + testViewWithComment + " COMMENT 'orders' AS SELECT 123 x");
@@ -952,6 +956,8 @@ public abstract class BaseConnectorTest
                                 "CROSS JOIN UNNEST(ARRAY['orderkey', 'orderstatus', 'half'])");
 
         assertUpdate("DROP VIEW " + testView);
+        assertThat(computeActual("SHOW TABLES").getOnlyColumnAsSet())
+                .doesNotContain(testView);
     }
 
     @Test
@@ -1667,9 +1673,9 @@ public abstract class BaseConnectorTest
         // test SHOW COLUMNS
         assertThat(query("SHOW COLUMNS FROM " + viewName))
                 .matches(resultBuilder(getSession(), VARCHAR, VARCHAR, VARCHAR, VARCHAR)
-                .row("x", "bigint", "", "")
-                .row("y", "varchar(3)", "", "")
-                .build());
+                        .row("x", "bigint", "", "")
+                        .row("y", "varchar(3)", "", "")
+                        .build());
 
         // test SHOW CREATE VIEW
         String expectedSql = formatSqlText(format(
@@ -2900,13 +2906,19 @@ public abstract class BaseConnectorTest
             return;
         }
 
+        assertThat(computeActual("SHOW TABLES").getOnlyColumnAsSet()) // prime the cache, if any
+                .doesNotContain(tableName);
         assertUpdate("CREATE TABLE " + tableName + " (a bigint, b double, c varchar(50))");
         assertTrue(getQueryRunner().tableExists(getSession(), tableName));
+        assertThat(computeActual("SHOW TABLES").getOnlyColumnAsSet())
+                .contains(tableName);
         assertTableColumnNames(tableName, "a", "b", "c");
         assertNull(getTableComment(getSession().getCatalog().orElseThrow(), getSession().getSchema().orElseThrow(), tableName));
 
         assertUpdate("DROP TABLE " + tableName);
         assertFalse(getQueryRunner().tableExists(getSession(), tableName));
+        assertThat(computeActual("SHOW TABLES").getOnlyColumnAsSet())
+                .doesNotContain(tableName);
 
         assertQueryFails("CREATE TABLE " + tableName + " (a bad_type)", ".* Unknown type 'bad_type' for column 'a'");
         assertFalse(getQueryRunner().tableExists(getSession(), tableName));
@@ -3555,14 +3567,16 @@ public abstract class BaseConnectorTest
         String catalogName = getSession().getCatalog().orElseThrow();
         String schemaName = getSession().getSchema().orElseThrow();
         try (TestTable table = new TestTable(getQueryRunner()::execute, "test_comment_", "(a integer)")) {
+            // comment initially not set
+            assertThat(getTableComment(catalogName, schemaName, table.getName())).isEqualTo(null);
+
             // comment set
             assertUpdate("COMMENT ON TABLE " + table.getName() + " IS 'new comment'");
             assertThat((String) computeScalar("SHOW CREATE TABLE " + table.getName())).contains("COMMENT 'new comment'");
             assertThat(getTableComment(catalogName, schemaName, table.getName())).isEqualTo("new comment");
             assertThat(query(
                     "SELECT table_name, comment FROM system.metadata.table_comments " +
-                            "WHERE catalog_name = '" + catalogName + "' AND " +
-                            "schema_name = '" + schemaName + "'"))
+                            "WHERE catalog_name = '" + catalogName + "' AND schema_name = '" + schemaName + "'")) // without table_name filter
                     .skippingTypesCheck()
                     .containsAll("VALUES ('" + table.getName() + "', 'new comment')");
 
@@ -3927,34 +3941,6 @@ public abstract class BaseConnectorTest
     protected String errorMessageForInsertNegativeDate(String date)
     {
         throw new UnsupportedOperationException("This method should be overridden");
-    }
-
-    protected boolean isReportingWrittenBytesSupported(Session session)
-    {
-        CatalogName catalogName = session.getCatalog()
-                .map(CatalogName::new)
-                .orElseThrow();
-        Metadata metadata = getQueryRunner().getMetadata();
-        metadata.getCatalogHandle(session, catalogName.getCatalogName());
-        QualifiedObjectName fullTableName = new QualifiedObjectName(catalogName.getCatalogName(), "any", "any");
-        return getQueryRunner().getMetadata().supportsReportingWrittenBytes(session, fullTableName, ImmutableMap.of());
-    }
-
-    @Test
-    public void isReportingWrittenBytesSupported()
-    {
-        transaction(getQueryRunner().getTransactionManager(), getQueryRunner().getAccessControl())
-                .singleStatement()
-                .execute(getSession(), (Consumer<Session>) session -> skipTestUnless(isReportingWrittenBytesSupported(session)));
-
-        @Language("SQL")
-        String query = "CREATE TABLE temp AS SELECT * FROM tpch.tiny.nation";
-
-        assertQueryStats(
-                getSession(),
-                query,
-                queryStats -> assertThat(queryStats.getPhysicalWrittenDataSize().toBytes()).isGreaterThan(0L),
-                results -> {});
     }
 
     @Test
@@ -4752,6 +4738,51 @@ public abstract class BaseConnectorTest
             assertEquals(queryInfo.getQueryStats().getOutputPositions(), 1L);
             assertEquals(queryInfo.getQueryStats().getWrittenPositions(), 10L);
             assertTrue(queryInfo.getQueryStats().getLogicalWrittenDataSize().toBytes() > 0L);
+        }
+        finally {
+            assertUpdate("DROP TABLE IF EXISTS " + tableName);
+        }
+    }
+
+    @Test
+    public void testWrittenDataSize()
+    {
+        skipTestUnless(hasBehavior(SUPPORTS_CREATE_TABLE_WITH_DATA));
+
+        AtomicBoolean isReportingWrittenBytesSupported = new AtomicBoolean();
+        transaction(getQueryRunner().getTransactionManager(), getQueryRunner().getAccessControl())
+                .singleStatement()
+                .execute(getSession(), session -> {
+                    String catalogName = session.getCatalog().orElseThrow();
+                    TestingTrinoServer coordinator = getDistributedQueryRunner().getCoordinator();
+                    Map<String, Object> properties = coordinator.getTablePropertyManager().getProperties(
+                            catalogName,
+                            coordinator.getMetadata().getCatalogHandle(session, catalogName).orElseThrow(),
+                            List.of(),
+                            session,
+                            null,
+                            new AllowAllAccessControl(),
+                            Map.of(),
+                            true);
+                    QualifiedObjectName fullTableName = new QualifiedObjectName(catalogName, "any", "any");
+                    isReportingWrittenBytesSupported.set(coordinator.getMetadata().supportsReportingWrittenBytes(session, fullTableName, properties));
+                });
+
+        String tableName = "write_stats_" + randomNameSuffix();
+        try {
+            String query = "CREATE TABLE " + tableName + " AS SELECT * FROM tpch.tiny.nation";
+            assertQueryStats(
+                    getSession(),
+                    query,
+                    queryStats -> {
+                        if (isReportingWrittenBytesSupported.get()) {
+                            assertThat(queryStats.getPhysicalWrittenDataSize().toBytes()).isPositive();
+                        }
+                        else {
+                            assertThat(queryStats.getPhysicalWrittenDataSize().toBytes()).isZero();
+                        }
+                    },
+                    results -> {});
         }
         finally {
             assertUpdate("DROP TABLE IF EXISTS " + tableName);

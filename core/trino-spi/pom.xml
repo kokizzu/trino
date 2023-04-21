@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>414-SNAPSHOT</version>
+        <version>415-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -36,7 +36,17 @@
             <optional>true</optional>
         </dependency>
 
-        <!-- used by slice and must be listed for plugin dependency enforcer -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-context</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
         <dependency>
             <groupId>org.openjdk.jol</groupId>
             <artifactId>jol-core</artifactId>
@@ -225,21 +235,37 @@
                                 <!-- Any exclusions below can be deleted after each release -->
                                 <item>
                                     <ignore>true</ignore>
-                                    <code>java.method.numberOfParametersChanged</code>
-                                    <old>method void io.trino.spi.connector.MaterializedViewFreshness::&lt;init&gt;(boolean)</old>
-                                    <new>method void io.trino.spi.connector.MaterializedViewFreshness::&lt;init&gt;(io.trino.spi.connector.MaterializedViewFreshness.Freshness, java.util.Optional&lt;java.time.Instant&gt;)</new>
+                                    <code>java.class.removed</code>
+                                    <old>interface io.trino.spi.ptf.TableFunctionSplitProcessor</old>
+                                    <justification>It is just marked @Experimental</justification>
                                 </item>
                                 <item>
-                                    <code>java.method.removed</code>
-                                    <old>method java.util.Optional&lt;java.util.Set&lt;io.trino.spi.connector.ColumnHandle&gt;&gt; io.trino.spi.connector.ConnectorTableProperties::getStreamPartitioningColumns()</old>
-                                    <justification>Replaced with the ConnectorTablePartitioning#singleSplitPerPartition. Soft migration is not straightforward.</justification>
+                                    <regex>true</regex>
+                                    <code>java.class.externalClassExposedInAPI</code>
+                                    <newArchive>io.opentelemetry:opentelemetry-(api|context):.*</newArchive>
+                                    <justification>Trino SPI depends on OpenTelemetry</justification>
                                 </item>
                                 <item>
                                     <ignore>true</ignore>
-                                    <code>java.method.numberOfParametersChanged</code>
-                                    <old>method void io.trino.spi.connector.ConnectorTableProperties::&lt;init&gt;(io.trino.spi.predicate.TupleDomain&lt;io.trino.spi.connector.ColumnHandle&gt;, java.util.Optional&lt;io.trino.spi.connector.ConnectorTablePartitioning&gt;, java.util.Optional&lt;java.util.Set&lt;io.trino.spi.connector.ColumnHandle&gt;&gt;, java.util.Optional&lt;io.trino.spi.connector.DiscretePredicates&gt;, java.util.List&lt;io.trino.spi.connector.LocalProperty&lt;io.trino.spi.connector.ColumnHandle&gt;&gt;)</old>
-                                    <new>method void io.trino.spi.connector.ConnectorTableProperties::&lt;init&gt;(io.trino.spi.predicate.TupleDomain&lt;io.trino.spi.connector.ColumnHandle&gt;, java.util.Optional&lt;io.trino.spi.connector.ConnectorTablePartitioning&gt;, java.util.Optional&lt;io.trino.spi.connector.DiscretePredicates&gt;, java.util.List&lt;io.trino.spi.connector.LocalProperty&lt;io.trino.spi.connector.ColumnHandle&gt;&gt;)</new>
-                                    <justification>Replaced with the ConnectorTablePartitioning#singleSplitPerPartition. Soft migration is not straightforward.</justification>
+                                    <code>java.class.removed</code>
+                                    <old>class io.trino.spi.block.Int96ArrayBlock</old>
+                                    <justification>Int96Array renamed to Fixed12 since this is never used as a number</justification>
+                                </item>
+                                <item>
+                                    <ignore>true</ignore>
+                                    <code>java.class.removed</code>
+                                    <old>class io.trino.spi.block.Int96ArrayBlockBuilder</old>
+                                    <justification>Int96Array renamed to Fixed12 since this is never used as a number</justification>
+                                </item>
+                                <item>
+                                    <ignore>true</ignore>
+                                    <code>java.class.removed</code>
+                                    <old>class io.trino.spi.block.Int96ArrayBlockEncoding</old>
+                                    <justification>Int96Array renamed to Fixed12 since this is never used as a number</justification>
+                                </item>
+                                <item>
+                                    <code>java.method.finalMethodAddedToNonFinalClass</code>
+                                    <new>method int io.trino.spi.type.AbstractIntType::getInt(io.trino.spi.block.Block, int)</new>
                                 </item>
                             </differences>
                         </revapi.differences>
