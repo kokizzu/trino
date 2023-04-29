@@ -11,23 +11,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.json.ir;
+package io.trino.filesystem.memory;
 
-import io.trino.spi.type.Type;
+import io.trino.filesystem.TrinoFileSystem;
+import io.trino.filesystem.TrinoFileSystemFactory;
+import io.trino.spi.security.ConnectorIdentity;
 
-import java.util.Optional;
-
-public abstract class IrMethod
-        extends IrAccessor
+/**
+ * A blob file system for testing.
+ */
+public class MemoryFileSystemFactory
+        implements TrinoFileSystemFactory
 {
-    IrMethod(IrPathNode base, Optional<Type> type)
-    {
-        super(base, type);
-    }
-
     @Override
-    protected <R, C> R accept(IrJsonPathVisitor<R, C> visitor, C context)
+    public TrinoFileSystem create(ConnectorIdentity identity)
     {
-        return visitor.visitIrMethod(this, context);
+        return new MemoryFileSystem();
     }
 }

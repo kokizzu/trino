@@ -262,6 +262,15 @@ public class TracingMetadata
     }
 
     @Override
+    public CatalogSchemaTableName getTableName(Session session, TableHandle tableHandle)
+    {
+        Span span = startSpan("getTableName", tableHandle);
+        try (var ignored = scopedSpan(span)) {
+            return delegate.getTableName(session, tableHandle);
+        }
+    }
+
+    @Override
     public TableSchema getTableSchema(Session session, TableHandle tableHandle)
     {
         Span span = startSpan("getTableSchema", tableHandle);
@@ -902,8 +911,7 @@ public class TracingMetadata
     {
         Span span = startSpan("applyTableFunction")
                 .setAttribute(TrinoAttributes.CATALOG, handle.getCatalogHandle().getCatalogName())
-                .setAttribute(TrinoAttributes.SCHEMA, handle.getSchemaFunctionName().getSchemaName())
-                .setAttribute(TrinoAttributes.FUNCTION, handle.getSchemaFunctionName().getFunctionName());
+                .setAttribute(TrinoAttributes.HANDLE, handle.getFunctionHandle().toString());
         try (var ignored = scopedSpan(span)) {
             return delegate.applyTableFunction(session, handle);
         }

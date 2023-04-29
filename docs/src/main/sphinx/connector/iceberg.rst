@@ -809,20 +809,7 @@ These metadata tables contain information about the internal structure
 of the Iceberg table. You can query each metadata table by appending the
 metadata table name to the table name::
 
-   SELECT * FROM "test_table$data"
-
-``$data`` table
-~~~~~~~~~~~~~~~
-
-The ``$data`` table is an alias for the Iceberg table itself.
-
-The statement::
-
-    SELECT * FROM "test_table$data"
-
-is equivalent to::
-
-    SELECT * FROM test_table
+   SELECT * FROM "test_table$properties"
 
 ``$properties`` table
 ~~~~~~~~~~~~~~~~~~~~~
@@ -1520,4 +1507,10 @@ with Parquet files performed by the Iceberg connector.
         property to ``false`` to disable the optimized parquet reader by default
         for structural data types. The equivalent catalog session property is
         ``parquet_optimized_nested_reader_enabled``.
+      - ``true``
+    * - ``parquet.use-bloom-filter``
+      - Whether bloom filters are used for predicate pushdown when reading
+        Parquet files. Set this property to ``false`` to disable the usage of
+        bloom filters by default. The equivalent catalog session property is
+        ``parquet_use_bloom_filter``.
       - ``true``

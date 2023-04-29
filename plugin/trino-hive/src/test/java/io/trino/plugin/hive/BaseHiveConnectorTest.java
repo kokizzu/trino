@@ -112,7 +112,6 @@ import static io.trino.SystemSessionProperties.FAULT_TOLERANT_EXECUTION_ARBITRAR
 import static io.trino.SystemSessionProperties.FAULT_TOLERANT_EXECUTION_HASH_DISTRIBUTION_COMPUTE_TASK_TARGET_SIZE;
 import static io.trino.SystemSessionProperties.FAULT_TOLERANT_EXECUTION_HASH_DISTRIBUTION_WRITE_TASK_TARGET_SIZE;
 import static io.trino.SystemSessionProperties.MAX_WRITER_TASKS_COUNT;
-import static io.trino.SystemSessionProperties.PREFERRED_WRITE_PARTITIONING_MIN_NUMBER_OF_PARTITIONS;
 import static io.trino.SystemSessionProperties.REDISTRIBUTE_WRITES;
 import static io.trino.SystemSessionProperties.SCALE_WRITERS;
 import static io.trino.SystemSessionProperties.TASK_SCALE_WRITERS_ENABLED;
@@ -4112,30 +4111,30 @@ public abstract class BaseHiveConnectorTest
     @Test(dataProvider = "taskWritersLimitParams")
     public void testWriterTasksCountLimitUnpartitioned(boolean scaleWriters, boolean redistributeWrites, int expectedFilesCount)
     {
-        testLimitWriterTasks(2, expectedFilesCount, scaleWriters, redistributeWrites, false);
+        testLimitWriterTasks(2, expectedFilesCount, scaleWriters, redistributeWrites, false, DataSize.of(1, MEGABYTE));
     }
 
     @Test
     public void testWriterTasksCountLimitPartitionedScaleWritersDisabled()
     {
-        testLimitWriterTasks(2, 2, false, true, true);
+        testLimitWriterTasks(2, 2, false, true, true, DataSize.of(1, MEGABYTE));
     }
 
     @Test
     public void testWriterTasksCountLimitPartitionedScaleWritersEnabled()
     {
-        testLimitWriterTasks(2, 2, true, true, true);
+        testLimitWriterTasks(2, 4, true, true, true, DataSize.of(1, MEGABYTE));
+        testLimitWriterTasks(2, 2, true, true, true, DataSize.of(32, MEGABYTE));
     }
 
-    private void testLimitWriterTasks(int maxWriterTasks, int expectedFilesCount, boolean scaleWritersEnabled, boolean redistributeWrites, boolean partitioned)
+    private void testLimitWriterTasks(int maxWriterTasks, int expectedFilesCount, boolean scaleWritersEnabled, boolean redistributeWrites, boolean partitioned, DataSize writerMinSize)
     {
         Session session = Session.builder(getSession())
                 .setSystemProperty(SCALE_WRITERS, Boolean.toString(scaleWritersEnabled))
                 .setSystemProperty(MAX_WRITER_TASKS_COUNT, Integer.toString(maxWriterTasks))
                 .setSystemProperty(REDISTRIBUTE_WRITES, Boolean.toString(redistributeWrites))
                 .setSystemProperty(TASK_WRITER_COUNT, "1")
-                .setSystemProperty(PREFERRED_WRITE_PARTITIONING_MIN_NUMBER_OF_PARTITIONS, "1")
-                .setSystemProperty(WRITER_MIN_SIZE, "1MB")
+                .setSystemProperty(WRITER_MIN_SIZE, writerMinSize.toString())
                 .setSystemProperty(TASK_SCALE_WRITERS_ENABLED, "false")
                 .build();
         String tableName = "writing_tasks_limit_%s".formatted(randomNameSuffix());
@@ -5287,41 +5286,6 @@ public abstract class BaseHiveConnectorTest
         assertUpdate(session, "CREATE TABLE " + tableName + " (n BIGINT) WITH (format = 'PARQUET')");
         assertUpdate(session, "INSERT INTO " + tableName + " VALUES 1, 1, 2, 2, 4, 4, 5, 5", 8);
         assertNoDataRead("SELECT * FROM " + tableName + " WHERE n = 3");
-    }
-
-    @Test
-    public void testParquetOnlyNullsRowGroupPruning()
-    {
-        String tableName = "test_primitive_column_nulls_pruning_" + randomNameSuffix();
-        assertUpdate("CREATE TABLE " + tableName + " (col BIGINT) WITH (format = 'PARQUET')");
-        assertUpdate("INSERT INTO " + tableName + " SELECT * FROM unnest(repeat(NULL, 4096))", 4096);
-        assertNoDataRead("SELECT * FROM " + tableName + " WHERE col IS NOT NULL");
-
-        tableName = "test_nested_column_nulls_pruning_" + randomNameSuffix();
-        // Nested column `a` has nulls count of 4096 and contains only nulls
-        // Nested column `b` also has nulls count of 4096, but it contains non nulls as well
-        assertUpdate("CREATE TABLE " + tableName + " (col ROW(a BIGINT, b ARRAY(DOUBLE))) WITH (format = 'PARQUET')");
-        assertUpdate("INSERT INTO " + tableName + " SELECT * FROM unnest(transform(repeat(1, 4096), x -> ROW(ROW(NULL, ARRAY [NULL, rand()]))))", 4096);
-        // TODO replace with assertNoDataRead after nested column predicate pushdown
-        assertQueryStats(
-                getSession(),
-                "SELECT * FROM " + tableName + " WHERE col.a IS NOT NULL",
-                queryStats -> assertThat(queryStats.getProcessedInputDataSize().toBytes()).isGreaterThan(0),
-                results -> assertThat(results.getRowCount()).isEqualTo(0));
-        assertQueryStats(
-                getSession(),
-                "SELECT * FROM " + tableName + " WHERE col.b IS NOT NULL",
-                queryStats -> assertThat(queryStats.getProcessedInputDataSize().toBytes()).isGreaterThan(0),
-                results -> assertThat(results.getRowCount()).isEqualTo(4096));
-    }
-
-    private void assertNoDataRead(@Language("SQL") String sql)
-    {
-        assertQueryStats(
-                getSession(),
-                sql,
-                queryStats -> assertThat(queryStats.getProcessedInputDataSize().toBytes()).isEqualTo(0),
-                results -> assertThat(results.getRowCount()).isEqualTo(0));
     }
 
     private QueryInfo getQueryInfo(DistributedQueryRunner queryRunner, MaterializedResultWithQueryId queryResult)

@@ -127,6 +127,7 @@ import io.trino.operator.join.PartitionedLookupSourceFactory;
 import io.trino.operator.join.unspilled.HashBuilderOperator;
 import io.trino.operator.output.PartitionedOutputOperator.PartitionedOutputFactory;
 import io.trino.operator.output.PositionsAppenderFactory;
+import io.trino.operator.output.SkewedPartitionRebalancer;
 import io.trino.operator.output.TaskOutputOperator.TaskOutputFactory;
 import io.trino.operator.project.CursorProcessor;
 import io.trino.operator.project.PageProcessor;
@@ -295,7 +296,6 @@ import static com.google.common.collect.Iterables.concat;
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static com.google.common.collect.Range.closedOpen;
 import static com.google.common.collect.Sets.difference;
-import static io.trino.SystemSessionProperties.getAdaptivePartialAggregationMinRows;
 import static io.trino.SystemSessionProperties.getAdaptivePartialAggregationUniqueRowsRatioThreshold;
 import static io.trino.SystemSessionProperties.getAggregationOperatorUnspillMemoryLimit;
 import static io.trino.SystemSessionProperties.getFilterAndProjectMinOutputPageRowCount;
@@ -329,6 +329,10 @@ import static io.trino.operator.aggregation.AccumulatorCompiler.generateAccumula
 import static io.trino.operator.join.JoinUtils.isBuildSideReplicated;
 import static io.trino.operator.join.NestedLoopBuildOperator.NestedLoopBuildOperatorFactory;
 import static io.trino.operator.join.NestedLoopJoinOperator.NestedLoopJoinOperatorFactory;
+import static io.trino.operator.output.SkewedPartitionRebalancer.checkCanScalePartitionsRemotely;
+import static io.trino.operator.output.SkewedPartitionRebalancer.createPartitionFunction;
+import static io.trino.operator.output.SkewedPartitionRebalancer.createSkewedPartitionRebalancer;
+import static io.trino.operator.output.SkewedPartitionRebalancer.getTaskCount;
 import static io.trino.operator.window.pattern.PhysicalValuePointer.CLASSIFIER;
 import static io.trino.operator.window.pattern.PhysicalValuePointer.MATCH_NUMBER;
 import static io.trino.spi.StandardErrorCode.COMPILER_ERROR;
@@ -567,7 +571,20 @@ public class LocalExecutionPlanner
                     .collect(toImmutableList());
         }
 
-        PartitionFunction partitionFunction = nodePartitioningManager.getPartitionFunction(taskContext.getSession(), partitioningScheme, partitionChannelTypes);
+        PartitionFunction partitionFunction;
+        Optional<SkewedPartitionRebalancer> skewedPartitionRebalancer = Optional.empty();
+        int taskCount = getTaskCount(partitioningScheme);
+        if (checkCanScalePartitionsRemotely(taskContext.getSession(), taskCount, partitioningScheme.getPartitioning().getHandle(), nodePartitioningManager)) {
+            partitionFunction = createPartitionFunction(taskContext.getSession(), nodePartitioningManager, partitioningScheme, partitionChannelTypes);
+            skewedPartitionRebalancer = Optional.of(createSkewedPartitionRebalancer(
+                    partitionFunction.getPartitionCount(),
+                    taskCount,
+                    getTaskPartitionedWriterCount(taskContext.getSession()),
+                    getWriterMinSize(taskContext.getSession()).toBytes()));
+        }
+        else {
+            partitionFunction = nodePartitioningManager.getPartitionFunction(taskContext.getSession(), partitioningScheme, partitionChannelTypes);
+        }
         OptionalInt nullChannel = OptionalInt.empty();
         Set<Symbol> partitioningColumns = partitioningScheme.getPartitioning().getColumns();
 
@@ -594,7 +611,8 @@ public class LocalExecutionPlanner
                         positionsAppenderFactory,
                         taskContext.getSession().getExchangeEncryptionKey(),
                         taskContext.newAggregateMemoryContext(),
-                        getPagePartitioningBufferPoolSize(taskContext.getSession())));
+                        getPagePartitioningBufferPoolSize(taskContext.getSession()),
+                        skewedPartitionRebalancer));
     }
 
     public LocalExecutionPlan plan(
@@ -3267,7 +3285,7 @@ public class LocalExecutionPlanner
         public PhysicalOperation visitTableWriter(TableWriterNode node, LocalExecutionPlanContext context)
         {
             // Set table writer count
-            int maxWriterCount = getWriterCount(session, node.getPartitioningScheme(), node.getPreferredPartitioningScheme(), node.getSource());
+            int maxWriterCount = getWriterCount(session, node.getPartitioningScheme(), node.getSource());
             context.setDriverInstanceCount(maxWriterCount);
             context.taskContext.setMaxWriterCount(maxWriterCount);
 
@@ -3425,7 +3443,7 @@ public class LocalExecutionPlanner
         public PhysicalOperation visitTableExecute(TableExecuteNode node, LocalExecutionPlanContext context)
         {
             // Set table writer count
-            int maxWriterCount = getWriterCount(session, node.getPartitioningScheme(), node.getPreferredPartitioningScheme(), node.getSource());
+            int maxWriterCount = getWriterCount(session, node.getPartitioningScheme(), node.getSource());
             context.setDriverInstanceCount(maxWriterCount);
             context.taskContext.setMaxWriterCount(maxWriterCount);
 
@@ -3452,7 +3470,7 @@ public class LocalExecutionPlanner
             return new PhysicalOperation(operatorFactory, outputMapping.buildOrThrow(), context, source);
         }
 
-        private int getWriterCount(Session session, Optional<PartitioningScheme> partitioningScheme, Optional<PartitioningScheme> preferredPartitioningScheme, PlanNode source)
+        private int getWriterCount(Session session, Optional<PartitioningScheme> partitioningScheme, PlanNode source)
         {
             // This check is required because we don't know which writer count to use when exchange is
             // single distribution. It could be possible that when scaling is enabled, a single distribution is
@@ -3462,18 +3480,12 @@ public class LocalExecutionPlanner
                 return 1;
             }
 
-            if (isLocalScaledWriterExchange(source)) {
-                return partitioningScheme.or(() -> preferredPartitioningScheme)
-                        // The default value of partitioned writer count is 32 which is high enough to use it
-                        // for both cases when scaling is enabled or not. Additionally, it doesn't lead to too many
-                        // small files since when scaling is disabled only single writer will handle a single partition.
-                        .map(scheme -> getTaskPartitionedWriterCount(session))
-                        .orElseGet(() -> getTaskScaleWritersMaxWriterCount(session));
-            }
-
+            // The default value of partitioned writer count is 32 which is high enough to use it
+            // for both cases when scaling is enabled or not. Additionally, it doesn't lead to too many
+            // small files since when scaling is disabled only single writer will handle a single partition.
             return partitioningScheme
                     .map(scheme -> getTaskPartitionedWriterCount(session))
-                    .orElseGet(() -> getTaskWriterCount(session));
+                    .orElseGet(() -> isLocalScaledWriterExchange(source) ? getTaskScaleWritersMaxWriterCount(session) : getTaskWriterCount(session));
         }
 
         private boolean isSingleGatheringExchange(PlanNode node)
@@ -4045,15 +4057,15 @@ public class LocalExecutionPlanner
                     spillerFactory,
                     joinCompiler,
                     blockTypeOperators,
-                    createPartialAggregationController(step, session));
+                    createPartialAggregationController(maxPartialAggregationMemorySize, step, session));
         }
     }
 
-    private static Optional<PartialAggregationController> createPartialAggregationController(AggregationNode.Step step, Session session)
+    private static Optional<PartialAggregationController> createPartialAggregationController(Optional<DataSize> maxPartialAggregationMemorySize, AggregationNode.Step step, Session session)
     {
-        return step.isOutputPartial() && isAdaptivePartialAggregationEnabled(session) ?
+        return maxPartialAggregationMemorySize.isPresent() && step.isOutputPartial() && isAdaptivePartialAggregationEnabled(session) ?
                 Optional.of(new PartialAggregationController(
-                        getAdaptivePartialAggregationMinRows(session),
+                        maxPartialAggregationMemorySize.get(),
                         getAdaptivePartialAggregationUniqueRowsRatioThreshold(session))) :
                 Optional.empty();
     }

@@ -1640,6 +1640,10 @@ class StatementAnalyzer
                         .ifPresent(column -> {
                             throw new TrinoException(FUNCTION_IMPLEMENTATION_ERROR, format("Invalid index: %s of required column from table argument %s", column, name));
                         });
+                // record the required columns for access control
+                columns.stream()
+                        .map(inputScope.getRelationType()::getFieldByIndex)
+                        .forEach(this::recordColumnAccess);
             });
             Set<String> requiredInputs = ImmutableSet.copyOf(requiredColumns.keySet());
             allInputs.stream()
@@ -1690,7 +1694,6 @@ class StatementAnalyzer
 
             analysis.setTableFunctionAnalysis(node, new TableFunctionInvocationAnalysis(
                     catalogHandle,
-                    function.getSchema(),
                     function.getName(),
                     argumentsAnalysis.getPassedArguments(),
                     orderedTableArguments.build(),

@@ -11,10 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.spi.ptf;
+package io.trino.plugin.deltalake.statistics;
 
-public enum EmptyTableFunctionHandle
-        implements ConnectorTableFunctionHandle
+import io.trino.plugin.deltalake.DeltaLakeTableHandle;
+import io.trino.plugin.deltalake.transactionlog.TableSnapshot;
+import io.trino.spi.connector.ConnectorSession;
+import io.trino.spi.statistics.TableStatistics;
+
+public interface DeltaLakeTableStatisticsProvider
 {
-    EMPTY_HANDLE
+    TableStatistics getTableStatistics(ConnectorSession session, DeltaLakeTableHandle tableHandle, TableSnapshot tableSnapshot);
 }
