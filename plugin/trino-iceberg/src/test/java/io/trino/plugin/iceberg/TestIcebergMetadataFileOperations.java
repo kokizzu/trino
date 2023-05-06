@@ -40,7 +40,7 @@ import static io.trino.filesystem.TrackingFileSystemFactory.OperationType.OUTPUT
 import static io.trino.filesystem.TrackingFileSystemFactory.OperationType.OUTPUT_FILE_CREATE_OR_OVERWRITE;
 import static io.trino.filesystem.TrackingFileSystemFactory.OperationType.OUTPUT_FILE_LOCATION;
 import static io.trino.plugin.hive.HiveTestUtils.HDFS_ENVIRONMENT;
-import static io.trino.plugin.hive.metastore.file.FileHiveMetastore.createTestingFileHiveMetastore;
+import static io.trino.plugin.hive.metastore.file.TestingFileHiveMetastore.createTestingFileHiveMetastore;
 import static io.trino.plugin.iceberg.IcebergSessionProperties.COLLECT_EXTENDED_STATISTICS_ON_WRITE;
 import static io.trino.plugin.iceberg.TestIcebergMetadataFileOperations.FileType.DATA;
 import static io.trino.plugin.iceberg.TestIcebergMetadataFileOperations.FileType.MANIFEST;
@@ -459,7 +459,7 @@ public class TestIcebergMetadataFileOperations
         return trackingFileSystemFactory.getOperationCounts()
                 .entrySet().stream()
                 .flatMap(entry -> nCopies(entry.getValue(), new FileOperation(
-                        fromFilePath(entry.getKey().getFilePath()),
+                        fromFilePath(entry.getKey().getLocation().toString()),
                         entry.getKey().getOperationType())).stream())
                 .collect(toCollection(HashMultiset::create));
     }

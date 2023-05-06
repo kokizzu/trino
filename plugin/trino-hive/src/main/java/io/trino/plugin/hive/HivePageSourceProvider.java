@@ -18,6 +18,7 @@ import com.google.common.collect.BiMap;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import io.trino.filesystem.Location;
 import io.trino.hdfs.HdfsContext;
 import io.trino.hdfs.HdfsEnvironment;
 import io.trino.plugin.hive.HivePageSource.BucketValidator;
@@ -71,6 +72,7 @@ import static io.trino.plugin.hive.HiveColumnHandle.ColumnType.SYNTHESIZED;
 import static io.trino.plugin.hive.HiveColumnHandle.isRowIdColumnHandle;
 import static io.trino.plugin.hive.HivePageSourceProvider.ColumnMapping.toColumnHandles;
 import static io.trino.plugin.hive.HivePageSourceProvider.ColumnMappingKind.PREFILLED;
+import static io.trino.plugin.hive.HiveSessionProperties.getTimestampPrecision;
 import static io.trino.plugin.hive.util.HiveBucketing.HiveBucketFilter;
 import static io.trino.plugin.hive.util.HiveBucketing.getHiveBucketFilter;
 import static io.trino.plugin.hive.util.HiveUtil.getPrefilledColumnValue;
@@ -126,8 +128,7 @@ public class HivePageSourceProvider
                 .map(HiveColumnHandle.class::cast)
                 .collect(toList());
 
-        Path path = new Path(hiveSplit.getPath());
-        boolean originalFile = ORIGINAL_FILE_PATH_MATCHER.matcher(path.toString()).matches();
+        boolean originalFile = ORIGINAL_FILE_PATH_MATCHER.matcher(hiveSplit.getPath()).matches();
 
         List<ColumnMapping> columnMappings = ColumnMapping.buildColumnMappings(
                 hiveSplit.getPartitionName(),
@@ -135,7 +136,7 @@ public class HivePageSourceProvider
                 hiveColumns,
                 hiveSplit.getBucketConversion().map(BucketConversion::getBucketColumnHandles).orElse(ImmutableList.of()),
                 hiveSplit.getTableToPartitionMapping(),
-                path,
+                hiveSplit.getPath(),
                 hiveSplit.getTableBucketNumber(),
                 hiveSplit.getEstimatedFileSize(),
                 hiveSplit.getFileModifiedTime());
@@ -146,7 +147,7 @@ public class HivePageSourceProvider
             return new EmptyPageSource();
         }
 
-        Configuration configuration = hdfsEnvironment.getConfiguration(new HdfsContext(session), path);
+        Configuration configuration = hdfsEnvironment.getConfiguration(new HdfsContext(session), new Path(hiveSplit.getPath()));
 
         TupleDomain<HiveColumnHandle> simplifiedDynamicFilter = dynamicFilter
                 .getCurrentPredicate()
@@ -156,7 +157,7 @@ public class HivePageSourceProvider
                 cursorProviders,
                 configuration,
                 session,
-                path,
+                Location.of(hiveSplit.getPath()),
                 hiveSplit.getTableBucketNumber(),
                 hiveSplit.getStart(),
                 hiveSplit.getLength(),
@@ -184,7 +185,7 @@ public class HivePageSourceProvider
             Set<HiveRecordCursorProvider> cursorProviders,
             Configuration configuration,
             ConnectorSession session,
-            Path path,
+            Location path,
             OptionalInt tableBucketNumber,
             long start,
             long length,
@@ -243,15 +244,13 @@ public class HivePageSourceProvider
                         bucketValidator,
                         adapter,
                         typeManager,
+                        getTimestampPrecision(session),
                         pageSource));
             }
         }
 
         for (HiveRecordCursorProvider provider : cursorProviders) {
-            // GenericHiveRecordCursor will automatically do the coercion without HiveCoercionRecordCursor
-            boolean doCoercion = !(provider instanceof GenericHiveRecordCursorProvider);
-
-            List<HiveColumnHandle> desiredColumns = toColumnHandles(regularAndInterimColumnMappings, doCoercion, typeManager);
+            List<HiveColumnHandle> desiredColumns = toColumnHandles(regularAndInterimColumnMappings, false, typeManager);
             Optional<ReaderRecordCursorWithProjections> readerWithProjections = provider.createRecordCursor(
                     configuration,
                     session,
@@ -286,11 +285,6 @@ public class HivePageSourceProvider
                             bucketAdaptation.get().getBucketToKeep(),
                             typeManager,
                             delegate);
-                }
-
-                // Need to wrap RcText and RcBinary into a wrapper, which will do the coercion for mismatch columns
-                if (doCoercion) {
-                    delegate = new HiveCoercionRecordCursor(regularAndInterimColumnMappings, typeManager, delegate);
                 }
 
                 // bucket adaptation already validates that data is in the right bucket
@@ -459,7 +453,7 @@ public class HivePageSourceProvider
                 List<HiveColumnHandle> columns,
                 List<HiveColumnHandle> requiredInterimColumns,
                 TableToPartitionMapping tableToPartitionMapping,
-                Path path,
+                String path,
                 OptionalInt bucketNumber,
                 long estimatedFileSize,
                 long fileModifiedTime)
@@ -673,7 +667,7 @@ public class HivePageSourceProvider
         }
     }
 
-    private static Optional<BucketValidator> createBucketValidator(Path path, Optional<BucketValidation> bucketValidation, OptionalInt bucketNumber, List<ColumnMapping> columnMappings)
+    private static Optional<BucketValidator> createBucketValidator(Location path, Optional<BucketValidation> bucketValidation, OptionalInt bucketNumber, List<ColumnMapping> columnMappings)
     {
         return bucketValidation.flatMap(validation -> {
             Map<Integer, ColumnMapping> baseHiveColumnToBlockIndex = columnMappings.stream()

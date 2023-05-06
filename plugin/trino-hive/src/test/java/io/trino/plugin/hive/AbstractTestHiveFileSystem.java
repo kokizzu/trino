@@ -16,13 +16,13 @@ package io.trino.plugin.hive;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterators;
-import com.google.common.collect.Lists;
+import com.google.common.collect.Streams;
 import com.google.common.net.HostAndPort;
 import io.airlift.concurrent.BoundedExecutor;
 import io.airlift.json.JsonCodec;
 import io.airlift.slice.Slice;
 import io.airlift.stats.CounterStat;
+import io.trino.filesystem.Location;
 import io.trino.filesystem.hdfs.HdfsFileSystemFactory;
 import io.trino.hdfs.HdfsConfig;
 import io.trino.hdfs.HdfsConfiguration;
@@ -476,7 +476,10 @@ public abstract class AbstractTestHiveFileSystem
                 HiveFileIterator.NestedDirectoryPolicy.RECURSE,
                 false); // ignoreAbsentPartitions
 
-        List<Path> recursiveListing = Lists.newArrayList(Iterators.transform(recursiveIterator, TrinoFileStatus::getPath));
+        List<Path> recursiveListing = Streams.stream(recursiveIterator)
+                .map(TrinoFileStatus::getPath)
+                .map(Path::new)
+                .toList();
         // Should not include directories, or files underneath hidden directories
         assertEqualsIgnoreOrder(recursiveListing, ImmutableList.of(nestedFile, baseFile));
 
@@ -488,7 +491,10 @@ public abstract class AbstractTestHiveFileSystem
                 new NamenodeStats(),
                 HiveFileIterator.NestedDirectoryPolicy.IGNORED,
                 false); // ignoreAbsentPartitions
-        List<Path> shallowListing = Lists.newArrayList(Iterators.transform(shallowIterator, TrinoFileStatus::getPath));
+        List<Path> shallowListing = Streams.stream(shallowIterator)
+                .map(TrinoFileStatus::getPath)
+                .map(Path::new)
+                .toList();
         // Should not include any hidden files, folders, or nested files
         assertEqualsIgnoreOrder(shallowListing, ImmutableList.of(baseFile));
     }
@@ -567,10 +573,8 @@ public abstract class AbstractTestHiveFileSystem
             // table, which fails without explicit configuration for file system.
             // We work around that by using a dummy location when creating the
             // table and update it here to the correct location.
-            metastoreClient.updateTableLocation(
-                    database,
-                    tableName.getTableName(),
-                    locationService.getTableWriteInfo(((HiveOutputTableHandle) outputHandle).getLocationHandle(), false).getTargetPath().toString());
+            Location location = locationService.getTableWriteInfo(((HiveOutputTableHandle) outputHandle).getLocationHandle(), false).targetPath();
+            metastoreClient.updateTableLocation(database, tableName.getTableName(), location.toString());
         }
 
         try (Transaction transaction = newTransaction()) {
