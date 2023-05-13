@@ -105,7 +105,7 @@ a few caveats:
   it, set the ``bigquery.experimental.arrow-serialization.enabled``
   configuration property to ``true`` and add
   ``--add-opens=java.base/java.nio=ALL-UNNAMED`` to the Trino
-  :ref:`jvm_config`.
+  :ref:`jvm-config`.
 
 Reading from views
 ^^^^^^^^^^^^^^^^^^
@@ -279,7 +279,7 @@ which exposes BigQuery view definition. Given a BigQuery view ``example_view``
 you can send query ``SELECT * example_view$view_definition`` to see the SQL
 which defines view in BigQuery.
 
-.. _bigquery_special_columns:
+.. _bigquery-special-columns:
 
 Special columns
 ---------------
@@ -328,6 +328,14 @@ the following features:
 * :doc:`/sql/drop-schema`
 * :doc:`/sql/comment`
 
+.. _bigquery-fte-support:
+
+Fault-tolerant execution support
+--------------------------------
+
+The connector supports :doc:`/admin/fault-tolerant-execution` of query
+processing. Read and write operations are both supported with any retry policy.
+
 Table functions
 ---------------
 
@@ -347,8 +355,6 @@ running a query natively may be faster.
 
 .. include:: query-passthrough-warning.fragment
 
-.. include:: polymorphic-table-function-ordering.fragment
-
 For example, query the ``example`` catalog and group and concatenate all
 employee IDs by manager ID::
 
@@ -365,6 +371,8 @@ employee IDs by manager ID::
             manager_id'
         )
       );
+
+.. include:: query-table-function-ordering.fragment
 
 FAQ
 ---

@@ -150,6 +150,7 @@ import static io.trino.util.Failures.toFailure;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.lang.Math.round;
+import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -883,12 +884,12 @@ public class EventDrivenFaultTolerantQueryScheduler
             long tasksWaitingForNode = preSchedulingTaskContexts.values().stream().filter(context -> !context.getNodeLease().getNode().isDone()).count();
 
             while (tasksWaitingForNode < maxTasksWaitingForNode && !schedulingQueue.isEmpty()) {
-                ScheduledTask scheduledTask = schedulingQueue.pollOrThrow();
-                StageExecution stageExecution = getStageExecution(scheduledTask.stageId());
+                PrioritizedScheduledTask scheduledTask = schedulingQueue.pollOrThrow();
+                StageExecution stageExecution = getStageExecution(scheduledTask.task().stageId());
                 if (stageExecution.getState().isDone()) {
                     continue;
                 }
-                int partitionId = scheduledTask.partitionId();
+                int partitionId = scheduledTask.task().partitionId();
                 Optional<NodeRequirements> nodeRequirements = stageExecution.getNodeRequirements(partitionId);
                 if (nodeRequirements.isEmpty()) {
                     // execution finished
@@ -897,7 +898,7 @@ public class EventDrivenFaultTolerantQueryScheduler
                 MemoryRequirements memoryRequirements = stageExecution.getMemoryRequirements(partitionId);
                 NodeLease lease = nodeAllocator.acquire(nodeRequirements.get(), memoryRequirements.getRequiredMemory());
                 lease.getNode().addListener(() -> eventQueue.add(Event.WAKE_UP), queryExecutor);
-                preSchedulingTaskContexts.put(scheduledTask, new PreSchedulingTaskContext(lease));
+                preSchedulingTaskContexts.put(scheduledTask.task(), new PreSchedulingTaskContext(lease, scheduledTask.isSpeculative()));
                 tasksWaitingForNode++;
             }
         }
@@ -964,7 +965,7 @@ public class EventDrivenFaultTolerantQueryScheduler
 
             try {
                 InternalNode node = getDone(nodeLease.getNode());
-                Optional<RemoteTask> remoteTask = stageExecution.schedule(partitionId, sinkInstanceHandle, attempt, node);
+                Optional<RemoteTask> remoteTask = stageExecution.schedule(partitionId, sinkInstanceHandle, attempt, node, context.isSpeculative());
                 remoteTask.ifPresent(task -> {
                     task.addStateChangeListener(createExchangeSinkInstanceHandleUpdateRequiredListener());
                     task.addStateChangeListener(taskStatus -> {
@@ -1111,8 +1112,10 @@ public class EventDrivenFaultTolerantQueryScheduler
             assignment.sealedPartitions().forEach(partitionId -> {
                 Optional<PrioritizedScheduledTask> scheduledTask = stageExecution.sealPartition(partitionId);
                 scheduledTask.ifPresent(prioritizedTask -> {
-                    if (preSchedulingTaskContexts.containsKey(prioritizedTask.task())) {
+                    PreSchedulingTaskContext context = preSchedulingTaskContexts.get(prioritizedTask.task());
+                    if (context != null) {
                         // task is already waiting for node or for sink instance handle
+                        context.setSpeculative(prioritizedTask.isSpeculative()); // update speculative flag
                         return;
                     }
                     schedulingQueue.addOrUpdate(prioritizedTask);
@@ -1362,7 +1365,7 @@ public class EventDrivenFaultTolerantQueryScheduler
                     attempt));
         }
 
-        public Optional<RemoteTask> schedule(int partitionId, ExchangeSinkInstanceHandle exchangeSinkInstanceHandle, int attempt, InternalNode node)
+        public Optional<RemoteTask> schedule(int partitionId, ExchangeSinkInstanceHandle exchangeSinkInstanceHandle, int attempt, InternalNode node, boolean speculative)
         {
             if (getState().isDone()) {
                 return Optional.empty();
@@ -1403,7 +1406,8 @@ public class EventDrivenFaultTolerantQueryScheduler
                     outputBuffers,
                     splits,
                     noMoreSplits,
-                    Optional.of(partition.getMemoryRequirements().getRequiredMemory()));
+                    Optional.of(partition.getMemoryRequirements().getRequiredMemory()),
+                    speculative);
             task.ifPresent(remoteTask -> {
                 partition.addTask(remoteTask, outputBuffers);
                 runningPartitions.add(partitionId);
@@ -2014,9 +2018,9 @@ public class EventDrivenFaultTolerantQueryScheduler
             return new PrioritizedScheduledTask(new ScheduledTask(stageId, partitionId), priority + SPECULATIVE_EXECUTION_PRIORITY);
         }
 
-        public boolean isNonSpeculative()
+        public boolean isSpeculative()
         {
-            return priority < SPECULATIVE_EXECUTION_PRIORITY;
+            return priority >= SPECULATIVE_EXECUTION_PRIORITY;
         }
 
         @Override
@@ -2041,24 +2045,38 @@ public class EventDrivenFaultTolerantQueryScheduler
             return nonSpeculativeTaskCount;
         }
 
-        public ScheduledTask pollOrThrow()
+        public PrioritizedScheduledTask pollOrThrow()
         {
-            ScheduledTask task = queue.poll();
+            IndexedPriorityQueue.Prioritized<ScheduledTask> task = queue.pollPrioritized();
             checkState(task != null, "queue is empty");
-            if (nonSpeculativeTaskCount > 0) {
-                // non speculative tasks are always pooled first
+            PrioritizedScheduledTask prioritizedTask = getPrioritizedTask(task);
+            if (!prioritizedTask.isSpeculative()) {
                 nonSpeculativeTaskCount--;
             }
-            return task;
+            return prioritizedTask;
         }
 
         public void addOrUpdate(PrioritizedScheduledTask prioritizedTask)
         {
-            if (prioritizedTask.isNonSpeculative()) {
+            IndexedPriorityQueue.Prioritized<ScheduledTask> previousTask = queue.getPrioritized(prioritizedTask.task());
+            PrioritizedScheduledTask previousPrioritizedTask = null;
+            if (previousTask != null) {
+                previousPrioritizedTask = getPrioritizedTask(previousTask);
+            }
+
+            if (!prioritizedTask.isSpeculative() && (previousPrioritizedTask == null || previousPrioritizedTask.isSpeculative())) {
+                // number of non-speculative tasks increased
                 nonSpeculativeTaskCount++;
             }
-            // using negative priority here as will return entries with lowest pririty first and here we use bigger number for tasks with lower priority
+
+            // using negative priority here as will return entries with the lowest priority first and here we use bigger number for tasks with lower priority
             queue.addOrUpdate(prioritizedTask.task(), -prioritizedTask.priority());
+        }
+
+        private static PrioritizedScheduledTask getPrioritizedTask(IndexedPriorityQueue.Prioritized<ScheduledTask> task)
+        {
+            // negate priority to reverse operation we do in addOrUpdate
+            return new PrioritizedScheduledTask(task.getValue(), toIntExact(-task.getPriority()));
         }
     }
 
@@ -2331,16 +2349,29 @@ public class EventDrivenFaultTolerantQueryScheduler
     private static class PreSchedulingTaskContext
     {
         private final NodeLease nodeLease;
+        private boolean speculative;
         private boolean waitingForSinkInstanceHandle;
 
-        public PreSchedulingTaskContext(NodeLease nodeLease)
+        public PreSchedulingTaskContext(NodeLease nodeLease, boolean speculative)
         {
             this.nodeLease = requireNonNull(nodeLease, "nodeLease is null");
+            this.speculative = speculative;
         }
 
         public NodeLease getNodeLease()
         {
             return nodeLease;
+        }
+
+        public boolean isSpeculative()
+        {
+            return speculative;
+        }
+
+        public void setSpeculative(boolean speculative)
+        {
+            checkArgument(!speculative || this.speculative, "cannot change speculative flag false -> true");
+            this.speculative = speculative;
         }
 
         public boolean isWaitingForSinkInstanceHandle()

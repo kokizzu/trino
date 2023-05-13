@@ -72,6 +72,7 @@ import io.trino.spi.connector.ConnectorViewDefinition;
 import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.ConstraintApplicationResult;
 import io.trino.spi.connector.DiscretePredicates;
+import io.trino.spi.connector.LimitApplicationResult;
 import io.trino.spi.connector.MaterializedViewFreshness;
 import io.trino.spi.connector.ProjectionApplicationResult;
 import io.trino.spi.connector.RetryMode;
@@ -402,13 +403,11 @@ public class IcebergMetadata
                 DATA,
                 tableSnapshotId,
                 SchemaParser.toJson(tableSchema),
-                table.sortOrder().fields().stream()
-                        .map(TrinoSortField::fromIceberg)
-                        .collect(toImmutableList()),
                 partitionSpec.map(PartitionSpecParser::toJson),
                 table.operations().current().formatVersion(),
                 TupleDomain.all(),
                 TupleDomain.all(),
+                OptionalLong.empty(),
                 ImmutableSet.of(),
                 Optional.ofNullable(nameMappingJson),
                 table.location(),
@@ -1046,14 +1045,18 @@ public class IcebergMetadata
         }
 
         return switch (procedureId) {
-            case OPTIMIZE -> getTableHandleForOptimize(tableHandle, executeProperties, retryMode);
+            case OPTIMIZE -> getTableHandleForOptimize(tableHandle, icebergTable, executeProperties, retryMode);
             case DROP_EXTENDED_STATS -> getTableHandleForDropExtendedStats(session, tableHandle);
             case EXPIRE_SNAPSHOTS -> getTableHandleForExpireSnapshots(session, tableHandle, executeProperties);
             case REMOVE_ORPHAN_FILES -> getTableHandleForRemoveOrphanFiles(session, tableHandle, executeProperties);
         };
     }
 
-    private Optional<ConnectorTableExecuteHandle> getTableHandleForOptimize(IcebergTableHandle tableHandle, Map<String, Object> executeProperties, RetryMode retryMode)
+    private Optional<ConnectorTableExecuteHandle> getTableHandleForOptimize(
+            IcebergTableHandle tableHandle,
+            Table icebergTable,
+            Map<String, Object> executeProperties,
+            RetryMode retryMode)
     {
         DataSize maxScannedFileSize = (DataSize) executeProperties.get("file_size_threshold");
 
@@ -1065,7 +1068,9 @@ public class IcebergMetadata
                         tableHandle.getTableSchemaJson(),
                         tableHandle.getPartitionSpecJson().orElseThrow(() -> new VerifyException("Partition spec missing in the table handle")),
                         getColumns(SchemaParser.fromJson(tableHandle.getTableSchemaJson()), typeManager),
-                        tableHandle.getSortOrder(),
+                        icebergTable.sortOrder().fields().stream()
+                                .map(TrinoSortField::fromIceberg)
+                                .collect(toImmutableList()),
                         getFileFormat(tableHandle.getStorageProperties()),
                         tableHandle.getStorageProperties(),
                         maxScannedFileSize,
@@ -2005,10 +2010,8 @@ public class IcebergMetadata
 
         beginTransaction(icebergTable);
 
-        IcebergTableHandle newTableHandle = table.withRetryMode(retryMode);
         IcebergWritableTableHandle insertHandle = newWritableTableHandle(table.getSchemaTableName(), icebergTable, retryMode);
-
-        return new IcebergMergeTableHandle(newTableHandle, insertHandle);
+        return new IcebergMergeTableHandle(table, insertHandle);
     }
 
     @Override
@@ -2266,12 +2269,50 @@ public class IcebergMetadata
     }
 
     @Override
+    public Optional<LimitApplicationResult<ConnectorTableHandle>> applyLimit(ConnectorSession session, ConnectorTableHandle handle, long limit)
+    {
+        IcebergTableHandle table = (IcebergTableHandle) handle;
+
+        if (table.getLimit().isPresent() && table.getLimit().getAsLong() <= limit) {
+            return Optional.empty();
+        }
+        if (!table.getUnenforcedPredicate().isAll()) {
+            return Optional.empty();
+        }
+
+        table = new IcebergTableHandle(
+                table.getSchemaName(),
+                table.getTableName(),
+                table.getTableType(),
+                table.getSnapshotId(),
+                table.getTableSchemaJson(),
+                table.getPartitionSpecJson(),
+                table.getFormatVersion(),
+                table.getUnenforcedPredicate(), // known to be ALL
+                table.getEnforcedPredicate(),
+                OptionalLong.of(limit),
+                table.getProjectedColumns(),
+                table.getNameMappingJson(),
+                table.getTableLocation(),
+                table.getStorageProperties(),
+                table.isRecordScannedFiles(),
+                table.getMaxScannedFileSize());
+
+        return Optional.of(new LimitApplicationResult<>(table, false, false));
+    }
+
+    @Override
     public Optional<ConstraintApplicationResult<ConnectorTableHandle>> applyFilter(ConnectorSession session, ConnectorTableHandle handle, Constraint constraint)
     {
         IcebergTableHandle table = (IcebergTableHandle) handle;
         ConstraintExtractor.ExtractionResult extractionResult = extractTupleDomain(constraint);
         TupleDomain<IcebergColumnHandle> predicate = extractionResult.tupleDomain();
         if (predicate.isAll()) {
+            return Optional.empty();
+        }
+        if (table.getLimit().isPresent()) {
+            // TODO we probably can allow predicate pushdown after we accepted limit. Currently, this is theoretical because we don't enforce limit, so
+            //  LimitNode remains above TableScan, and there is no "push filter through limit" optimization.
             return Optional.empty();
         }
 
@@ -2338,11 +2379,11 @@ public class IcebergMetadata
                         table.getTableType(),
                         table.getSnapshotId(),
                         table.getTableSchemaJson(),
-                        table.getSortOrder(),
                         table.getPartitionSpecJson(),
                         table.getFormatVersion(),
                         newUnenforcedConstraint,
                         newEnforcedConstraint,
+                        table.getLimit(),
                         table.getProjectedColumns(),
                         table.getNameMappingJson(),
                         table.getTableLocation(),
@@ -2485,11 +2526,11 @@ public class IcebergMetadata
                         originalHandle.getTableType(),
                         originalHandle.getSnapshotId(),
                         originalHandle.getTableSchemaJson(),
-                        originalHandle.getSortOrder(),
                         originalHandle.getPartitionSpecJson(),
                         originalHandle.getFormatVersion(),
                         originalHandle.getUnenforcedPredicate(),
                         originalHandle.getEnforcedPredicate(),
+                        OptionalLong.empty(), // limit is currently not included in stats and is not enforced by the connector
                         ImmutableSet.of(), // projectedColumns don't affect stats
                         originalHandle.getNameMappingJson(),
                         originalHandle.getTableLocation(),

@@ -406,6 +406,9 @@ this table:
   * - ``Double``
     - ``DOUBLE``
     -
+  * - ``Decimal128``
+    - ``DECIMAL(p, s)``
+    -
   * - ``Date``
     - ``TIMESTAMP(3)``
     -
@@ -448,6 +451,8 @@ this table:
     - ``Int64``
   * - ``DOUBLE``
     - ``Double``
+  * - ``DECIMAL(p, s)``
+    - ``Decimal128``
   * - ``TIMESTAMP(3)``
     - ``Date``
   * - ``VARCHAR``
@@ -489,6 +494,14 @@ ALTER TABLE
 The connector supports ``ALTER TABLE RENAME TO``, ``ALTER TABLE ADD COLUMN``
 and ``ALTER TABLE DROP COLUMN`` operations.
 Other uses of ``ALTER TABLE`` are not supported.
+
+.. _mongodb-fte-support:
+
+Fault-tolerant execution support
+--------------------------------
+
+The connector supports :doc:`/admin/fault-tolerant-execution` of query
+processing. Read and write operations are both supported with any retry policy.
 
 Table functions
 ---------------

@@ -40,6 +40,12 @@ import static com.google.common.base.Strings.isNullOrEmpty;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.trino.plugin.base.session.PropertyMetadataUtil.dataSizeProperty;
 import static io.trino.plugin.base.session.PropertyMetadataUtil.durationProperty;
+import static io.trino.plugin.base.session.PropertyMetadataUtil.validateMaxDataSize;
+import static io.trino.plugin.base.session.PropertyMetadataUtil.validateMinDataSize;
+import static io.trino.plugin.hive.parquet.ParquetWriterConfig.PARQUET_WRITER_MAX_BLOCK_SIZE;
+import static io.trino.plugin.hive.parquet.ParquetWriterConfig.PARQUET_WRITER_MAX_PAGE_SIZE;
+import static io.trino.plugin.hive.parquet.ParquetWriterConfig.PARQUET_WRITER_MIN_BLOCK_SIZE;
+import static io.trino.plugin.hive.parquet.ParquetWriterConfig.PARQUET_WRITER_MIN_PAGE_SIZE;
 import static io.trino.spi.StandardErrorCode.INVALID_SESSION_PROPERTY;
 import static io.trino.spi.session.PropertyMetadata.booleanProperty;
 import static io.trino.spi.session.PropertyMetadata.doubleProperty;
@@ -116,8 +122,6 @@ public final class HiveSessionProperties
     private static final String COLLECT_COLUMN_STATISTICS_ON_WRITE = "collect_column_statistics_on_write";
     private static final String OPTIMIZE_MISMATCHED_BUCKET_COUNT = "optimize_mismatched_bucket_count";
     private static final String S3_SELECT_PUSHDOWN_ENABLED = "s3_select_pushdown_enabled";
-    private static final String TEMPORARY_STAGING_DIRECTORY_ENABLED = "temporary_staging_directory_enabled";
-    private static final String TEMPORARY_STAGING_DIRECTORY_PATH = "temporary_staging_directory_path";
     private static final String DELEGATE_TRANSACTIONAL_MANAGED_TABLE_LOCATION_TO_METASTORE = "delegate_transactional_managed_table_location_to_metastore";
     private static final String IGNORE_ABSENT_PARTITIONS = "ignore_absent_partitions";
     private static final String QUERY_PARTITION_FILTER_REQUIRED = "query_partition_filter_required";
@@ -393,7 +397,7 @@ public final class HiveSessionProperties
                         false),
                 booleanProperty(
                         PARQUET_USE_BLOOM_FILTER,
-                        "Use Parquet bloomfilter",
+                        "Use Parquet Bloom filters",
                         parquetReaderConfig.isUseBloomFilter(),
                         false),
                 dataSizeProperty(
@@ -427,11 +431,19 @@ public final class HiveSessionProperties
                         PARQUET_WRITER_BLOCK_SIZE,
                         "Parquet: Writer block size",
                         parquetWriterConfig.getBlockSize(),
+                        value -> {
+                            validateMinDataSize(PARQUET_WRITER_BLOCK_SIZE, value, DataSize.valueOf(PARQUET_WRITER_MIN_BLOCK_SIZE));
+                            validateMaxDataSize(PARQUET_WRITER_BLOCK_SIZE, value, DataSize.valueOf(PARQUET_WRITER_MAX_BLOCK_SIZE));
+                        },
                         false),
                 dataSizeProperty(
                         PARQUET_WRITER_PAGE_SIZE,
                         "Parquet: Writer page size",
                         parquetWriterConfig.getPageSize(),
+                        value -> {
+                            validateMinDataSize(PARQUET_WRITER_PAGE_SIZE, value, DataSize.valueOf(PARQUET_WRITER_MIN_PAGE_SIZE));
+                            validateMaxDataSize(PARQUET_WRITER_PAGE_SIZE, value, DataSize.valueOf(PARQUET_WRITER_MAX_PAGE_SIZE));
+                        },
                         false),
                 integerProperty(
                         PARQUET_WRITER_BATCH_SIZE,
@@ -509,16 +521,6 @@ public final class HiveSessionProperties
                         S3_SELECT_PUSHDOWN_ENABLED,
                         "S3 Select pushdown enabled",
                         hiveConfig.isS3SelectPushdownEnabled(),
-                        false),
-                booleanProperty(
-                        TEMPORARY_STAGING_DIRECTORY_ENABLED,
-                        "Should use temporary staging directory for write operations",
-                        hiveConfig.isTemporaryStagingDirectoryEnabled(),
-                        false),
-                stringProperty(
-                        TEMPORARY_STAGING_DIRECTORY_PATH,
-                        "Temporary staging directory location",
-                        hiveConfig.getTemporaryStagingDirectoryPath(),
                         false),
                 booleanProperty(
                         DELEGATE_TRANSACTIONAL_MANAGED_TABLE_LOCATION_TO_METASTORE,
@@ -948,16 +950,6 @@ public final class HiveSessionProperties
     public static boolean isOptimizedMismatchedBucketCount(ConnectorSession session)
     {
         return session.getProperty(OPTIMIZE_MISMATCHED_BUCKET_COUNT, Boolean.class);
-    }
-
-    public static boolean isTemporaryStagingDirectoryEnabled(ConnectorSession session)
-    {
-        return session.getProperty(TEMPORARY_STAGING_DIRECTORY_ENABLED, Boolean.class);
-    }
-
-    public static String getTemporaryStagingDirectoryPath(ConnectorSession session)
-    {
-        return session.getProperty(TEMPORARY_STAGING_DIRECTORY_PATH, String.class);
     }
 
     public static boolean isDelegateTransactionalManagedTableLocationToMetastore(ConnectorSession session)

@@ -139,6 +139,10 @@ values. Typical usage does not require you to configure them.
       - Enables :ref:`Table statistics <delta-lake-table-statistics>` for
         performance improvements.
       - ``true``
+    * - ``delta.extended-statistics.enabled``
+      - Enable statistics collection with :doc:`/sql/analyze` and
+        use of extended statistics.
+      - ``false``
     * - ``delta.per-transaction-metastore-cache-maximum-size``
       - Maximum number of metastore data objects per transaction in
         the Hive metastore cache.
@@ -159,6 +163,10 @@ values. Typical usage does not require you to configure them.
     * - ``delta.register-table-procedure.enabled``
       - Enable to allow users to call the ``register_table`` procedure.
       - ``false``
+    * - ``delta.vacuum.min-retention``
+      - Minimum retention threshold for the files taken into account
+        for removal by the :ref:`VACUUM<delta-lake-vacuum>` procedure.
+      - ``7 DAYS``
 
 Catalog session properties
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -190,6 +198,9 @@ configure processing of Parquet files.
     * - ``parquet_writer_batch_size``
       - Maximum number of rows processed by the Parquet writer in a batch.
       - ``10000``
+    * - ``projection_pushdown_enabled``
+      - Read only projected fields from row columns while performing ``SELECT`` queries
+      - ``true``
 
 .. _delta-lake-type-mapping:
 
@@ -713,6 +724,14 @@ directly or used in conditional statements.
 * ``$file_size``
     Size of the file for this row.
 
+.. _delta-lake-fte-support:
+
+Fault-tolerant execution support
+--------------------------------
+
+The connector supports :doc:`/admin/fault-tolerant-execution` of query
+processing. Read and write operations are both supported with any retry policy.
+
 Performance
 -----------
 
@@ -929,4 +948,7 @@ connector.
         property to ``false`` to disable the optimized parquet reader by default
         for structural data types. The equivalent catalog session property is
         ``parquet_optimized_nested_reader_enabled``.
+      - ``true``
+    * - ``delta.projection-pushdown-enabled``
+      - Read only projected fields from row columns while performing ``SELECT`` queries
       - ``true``

@@ -1142,7 +1142,7 @@ The output of the query has the following columns:
     - ``bigint``
     - For branch only, the max snapshot age allowed in a branch. Older snapshots in the branch will be expired.
 
-.. _iceberg_metadata_columns:
+.. _iceberg-metadata-columns:
 
 Metadata columns
 """"""""""""""""
@@ -1408,6 +1408,14 @@ underlying non-Iceberg tables have changed.
 Dropping a materialized view with :doc:`/sql/drop-materialized-view` removes
 the definition and the storage table.
 
+.. _iceberg-fte-support:
+
+Fault-tolerant execution support
+--------------------------------
+
+The connector supports :doc:`/admin/fault-tolerant-execution` of query
+processing. Read and write operations are both supported with any retry policy.
+
 Performance
 -----------
 
@@ -1422,7 +1430,7 @@ statement. This can be disabled using ``iceberg.extended-statistics.enabled``
 catalog configuration property, or the corresponding
 ``extended_statistics_enabled`` session property.
 
-.. _iceberg_analyze:
+.. _iceberg-analyze:
 
 Updating table statistics
 """""""""""""""""""""""""

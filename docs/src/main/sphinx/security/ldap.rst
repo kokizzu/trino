@@ -3,7 +3,7 @@ LDAP authentication
 ===================
 
 Trino can be configured to enable frontend LDAP authentication over
-HTTPS for clients, such as the :ref:`cli_ldap`, or the JDBC and ODBC
+HTTPS for clients, such as the :ref:`cli-ldap`, or the JDBC and ODBC
 drivers. At present, only simple LDAP authentication mechanism involving
 username and password is supported. The Trino client sends a username
 and password to the coordinator, and the coordinator validates these
@@ -97,7 +97,7 @@ Property                           Description
                                    or :doc:`JKS </security/inspect-jks>` keystore file.
 ``ldap.ssl.keystore.password``     Password for the key store.
 ``ldap.ssl.truststore.path``       The path to the :doc:`PEM </security/inspect-pem>`
-                                   or :doc:`JKS </security/inspect-jks>` keystore file.
+                                   or :doc:`JKS </security/inspect-jks>` truststore file.
 ``ldap.ssl.truststore.password``   Password for the truststore.
 ``ldap.user-bind-pattern``         This property can be used to specify the LDAP user
                                    bind string for password authentication. This property
@@ -238,7 +238,7 @@ property may be set as follows:
 
     ldap.group-auth-pattern=(&(|(memberOf=CN=normal_group,DC=corp,DC=com)(memberOf=CN=another_group,DC=com))(objectClass=inetOrgPerson)(uid=${USER}))
 
-.. _cli_ldap:
+.. _cli-ldap:
 
 Trino CLI
 ----------
@@ -287,7 +287,7 @@ Java keystore file verification
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Verify the password for a keystore file and view its contents using
-:ref:`troubleshooting_keystore`.
+:ref:`troubleshooting-keystore`.
 
 Debug Trino to LDAP server issues
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

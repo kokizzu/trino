@@ -45,6 +45,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
 import static io.trino.plugin.hive.HiveTestUtils.HDFS_ENVIRONMENT;
+import static io.trino.plugin.hive.HiveTestUtils.HDFS_FILE_SYSTEM_FACTORY;
+import static io.trino.plugin.hive.HiveTestUtils.HDFS_FILE_SYSTEM_STATS;
 import static org.testng.Assert.assertEquals;
 
 public class TestDeltaLakeSplitManager
@@ -163,7 +165,7 @@ public class TestDeltaLakeSplitManager
                         new CheckpointSchemaManager(typeManager),
                         deltaLakeConfig,
                         new FileFormatDataSourceStats(),
-                        new HdfsFileSystemFactory(HDFS_ENVIRONMENT),
+                        new HdfsFileSystemFactory(HDFS_ENVIRONMENT, HDFS_FILE_SYSTEM_STATS),
                         new ParquetReaderConfig())
                 {
                     @Override
@@ -173,7 +175,8 @@ public class TestDeltaLakeSplitManager
                     }
                 },
                 MoreExecutors.newDirectExecutorService(),
-                deltaLakeConfig);
+                deltaLakeConfig,
+                HDFS_FILE_SYSTEM_FACTORY);
     }
 
     private AddFileEntry addFileEntryOfSize(long fileSize)

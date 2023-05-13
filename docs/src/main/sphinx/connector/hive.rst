@@ -13,7 +13,7 @@ Hive connector
     Security <hive-security>
     Amazon S3 <hive-s3>
     Azure Storage <hive-azure>
-    GCS Tutorial <hive-gcs-tutorial>
+    Google Cloud Storage <hive-gcs-tutorial>
     IBM Cloud Object Storage <hive-cos>
     Storage Caching <hive-caching>
     Alluxio <hive-alluxio>
@@ -111,7 +111,7 @@ When not using Kerberos with HDFS, Trino accesses HDFS using the
 OS user of the Trino process. For example, if Trino is running as
 ``nobody``, it accesses HDFS as ``nobody``. You can override this
 username by setting the ``HADOOP_USER_NAME`` system property in the
-Trino :ref:`jvm_config`, replacing ``hdfs_user`` with the
+Trino :ref:`jvm-config`, replacing ``hdfs_user`` with the
 appropriate username:
 
 .. code-block:: text
@@ -125,7 +125,7 @@ Whenever you change the user Trino is using to access HDFS, remove
 ``/tmp/presto-*`` on HDFS, as the new user may not have access to
 the existing temporary directories.
 
-.. _hive_configuration_properties:
+.. _hive-configuration-properties:
 
 Hive general configuration properties
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -247,12 +247,15 @@ Hive connector documentation.
               in schemas ``fruit`` and ``vegetable``
             * ``*`` to cache listings for all tables in all schemas
       -
-    * - ``hive.file-status-cache-size``
-      - Maximum total number of cached file status entries.
-      - 1,000,000
+    * - ``hive.file-status-cache.max-retained-size``
+      - Maximum retained size of cached file status entries.
+      - ``1GB``
     * - ``hive.file-status-cache-expire-time``
       - How long a cached directory listing is considered valid.
       - ``1m``
+    * - ``hive.per-transaction-file-status-cache.max-retained-size``
+      - Maximum retained size of cached file status entries per transaction
+      - ``100MB``
     * - ``hive.rcfile.time-zone``
       - Adjusts binary encoded timestamp values to a specific time zone. For
         Hive 3.1+, this must be set to UTC.
@@ -313,7 +316,7 @@ Hive connector documentation.
       - ``true``
     * - ``hive.auto-purge``
       - Set the default value for the auto_purge table property for managed
-        tables. See the :ref:`hive_table_properties` for more information on
+        tables. See the :ref:`hive-table-properties` for more information on
         auto_purge.
       - ``false``
     * - ``hive.partition-projection-enabled``
@@ -578,7 +581,7 @@ properties:
       - Number of threads for parallel statistic writes to Glue.
       - ``5``
 
-.. _partition_projection:
+.. _partition-projection:
 
 Accessing tables with Athena partition projection metadata
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -597,7 +600,7 @@ you have partition projection enabled, you can set the
 ``partition_projection_ignore`` table property to ``true`` for a table to bypass
 any errors.
 
-Refer to :ref:`hive_table_properties` and :ref:`hive_column_properties` for
+Refer to :ref:`hive-table-properties` and :ref:`hive-column-properties` for
 configuration of partition projection.
 
 Metastore configuration for Avro
@@ -622,37 +625,10 @@ The Hive connector supports the following storage options:
 
 * :doc:`Amazon S3 <hive-s3>`
 * :doc:`Azure Storage <hive-azure>`
-* Google Cloud Storage
-
-  * :ref:`properties <hive-google-cloud-storage-configuration>`
-  * :doc:`tutorial <hive-gcs-tutorial>`
-
+* :doc:`Google Cloud Storage <hive-gcs-tutorial>`
 * :doc:`IBM Cloud Object Storage <hive-cos>`
 
 The Hive connector also supports :doc:`storage caching <hive-caching>`.
-
-.. _hive-google-cloud-storage-configuration:
-
-Google Cloud Storage configuration
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-The Hive connector can access data stored in GCS, using the ``gs://`` URI prefix.
-Please refer to the :doc:`hive-gcs-tutorial` for step-by-step instructions.
-
-GCS configuration properties
-""""""""""""""""""""""""""""
-
-.. list-table:: Google Cloud Storage configuration properties
-    :widths: 35, 65
-    :header-rows: 1
-
-    * - Property Name
-      - Description
-    * - ``hive.gcs.json-key-file-path``
-      - JSON key file used to authenticate with Google Cloud Storage.
-    * - ``hive.gcs.use-access-token``
-      - Use client-provided OAuth token to access Google Cloud Storage. This is
-        mutually exclusive with a global JSON key file.
 
 Security
 --------
@@ -689,7 +665,7 @@ on migrating from Hive to Trino.
 
 The following sections provide Hive-specific information regarding SQL support.
 
-.. _hive_examples:
+.. _hive-examples:
 
 Basic usage examples
 ^^^^^^^^^^^^^^^^^^^^
@@ -825,7 +801,7 @@ The following procedures are available:
   ``create_empty_partition``). If ``partition_values`` argument is omitted, stats are dropped for the
   entire table.
 
-.. _register_partition:
+.. _register-partition:
 
 * ``system.register_partition(schema_name, table_name, partition_columns, partition_values, location)``
 
@@ -837,14 +813,14 @@ The following procedures are available:
   Due to security reasons, the procedure is enabled only when ``hive.allow-register-partition-procedure``
   is set to ``true``.
 
-.. _unregister_partition:
+.. _unregister-partition:
 
 * ``system.unregister_partition(schema_name, table_name, partition_columns, partition_values)``
 
   Unregisters given, existing partition in the metastore for the specified table.
   The partition data is not deleted.
 
-.. _hive_flush_metadata_cache:
+.. _hive-flush-metadata-cache:
 
 * ``system.flush_metadata_cache()``
 
@@ -917,7 +893,7 @@ as Hive. For example, converting the string ``'foo'`` to a number,
 or converting the string ``'1234'`` to a ``tinyint`` (which has a
 maximum value of ``127``).
 
-.. _hive_avro_schema:
+.. _hive-avro-schema:
 
 Avro schema evolution
 """""""""""""""""""""
@@ -1047,7 +1023,7 @@ session property:
     to the Trino logs and query failure messages to see which files must be
     deleted.
 
-.. _hive_table_properties:
+.. _hive-table-properties:
 
 Table properties
 """"""""""""""""
@@ -1072,7 +1048,7 @@ to the connector using a :doc:`WITH </sql/create-table-as>` clause::
       partition is deleted instead of a soft deletion using the trash.
     -
   * - ``avro_schema_url``
-    - The URI pointing to :ref:`hive_avro_schema` for the table.
+    - The URI pointing to :ref:`hive-avro-schema` for the table.
     -
   * - ``bucket_count``
     - The number of buckets to group data into. Only valid if used with
@@ -1099,7 +1075,7 @@ to the connector using a :doc:`WITH </sql/create-table-as>` clause::
     - ``,``
   * - ``external_location``
     - The URI for an external Hive table on S3, Azure Blob Storage, etc. See the
-      :ref:`hive_examples` for more information.
+      :ref:`hive-examples` for more information.
     -
   * - ``format``
     - The table file format. Valid values include ``ORC``, ``PARQUET``,
@@ -1165,8 +1141,13 @@ to the connector using a :doc:`WITH </sql/create-table-as>` clause::
       ``s3a://test/name=${name}/``. Mapped from the AWS Athena table property
       `storage.location.template <https://docs.aws.amazon.com/athena/latest/ug/partition-projection-setting-up.html#partition-projection-specifying-custom-s3-storage-locations>`_
     - ``${table_location}/${partition_name}``
+  * - ``extra_properties``
+    - Additional properties added to a Hive table. The properties are not used by Trino,
+      and are available in the ``$properties`` metadata table.
+      The properties are not included in the output of ``SHOW CREATE TABLE`` statements.
+    -
 
-.. _hive_special_tables:
+.. _hive-special-tables:
 
 Metadata tables
 """""""""""""""
@@ -1180,7 +1161,7 @@ You can inspect the property names and values with a simple query::
 
     SELECT * FROM example.web."page_views$properties";
 
-.. _hive_column_properties:
+.. _hive-column-properties:
 
 Column properties
 """""""""""""""""
@@ -1246,7 +1227,7 @@ Column properties
       `projection.${columnName}.interval.unit <https://docs.aws.amazon.com/athena/latest/ug/partition-projection-supported-types.html>`_.
     -
 
-.. _hive_special_columns:
+.. _hive-special-columns:
 
 Metadata columns
 """"""""""""""""
@@ -1370,6 +1351,19 @@ functionality:
 * Support all Hive data types and correct mapping to Trino types
 * Ability to process custom UDFs
 
+.. _hive-fte-support:
+
+Fault-tolerant execution support
+--------------------------------
+
+The connector supports :doc:`/admin/fault-tolerant-execution` of query
+processing. Read and write operations are both supported with any retry policy
+on non-transactional tables.
+
+Read operations are supported with any retry policy on transactional tables.
+Write operations and ``CREATE TABLE ... AS`` operations are not supported with
+any retry policy on transactional tables.
+
 Performance
 -----------
 
@@ -1419,7 +1413,7 @@ and by default will also collect column level statistics:
     * - ``BOOLEAN``
       - Number of nulls, number of true/false values
 
-.. _hive_analyze:
+.. _hive-analyze:
 
 Updating table and partition statistics
 """""""""""""""""""""""""""""""""""""""
@@ -1464,7 +1458,7 @@ You can also drop statistics for selected partitions only::
         table_name => 'table',
         partition_values => ARRAY[ARRAY['p2_value1', 'p2_value2']])
 
-.. _hive_dynamic_filtering:
+.. _hive-dynamic-filtering:
 
 Dynamic filtering
 ^^^^^^^^^^^^^^^^^
@@ -1634,10 +1628,10 @@ with Parquet files performed by the Hive connector.
       - ``true``
     * - ``parquet.optimized-writer.enabled``
       - Whether the optimized writer is used when writing Parquet files.
-        Set this property to ``true`` to use the optimized parquet writer by
+        Set this property to ``false`` to disable the optimized parquet writer by
         default. The equivalent catalog session property is
         ``parquet_optimized_writer_enabled``.
-      - ``false``
+      - ``true``
     * - ``parquet.optimized-writer.validation-percentage``
       - Percentage of parquet files to validate after write by re-reading the whole file
         when ``parquet.optimized-writer.enabled`` is set to ``true``.

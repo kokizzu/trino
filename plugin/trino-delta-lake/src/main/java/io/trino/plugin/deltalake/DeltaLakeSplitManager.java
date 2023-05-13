@@ -15,7 +15,10 @@ package io.trino.plugin.deltalake;
 
 import com.google.common.collect.ImmutableList;
 import io.airlift.units.DataSize;
+import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.plugin.base.classloader.ClassLoaderSafeConnectorSplitSource;
+import io.trino.plugin.deltalake.functions.tablechanges.TableChangesSplitSource;
+import io.trino.plugin.deltalake.functions.tablechanges.TableChangesTableFunctionHandle;
 import io.trino.plugin.deltalake.transactionlog.AddFileEntry;
 import io.trino.plugin.deltalake.transactionlog.TableSnapshot;
 import io.trino.plugin.deltalake.transactionlog.TransactionLogAccess;
@@ -33,6 +36,7 @@ import io.trino.spi.connector.FixedSplitSource;
 import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.NullableValue;
 import io.trino.spi.predicate.TupleDomain;
+import io.trino.spi.ptf.ConnectorTableFunctionHandle;
 import io.trino.spi.type.TypeManager;
 
 import javax.inject.Inject;
@@ -76,13 +80,15 @@ public class DeltaLakeSplitManager
     private final int maxSplitsPerSecond;
     private final int maxOutstandingSplits;
     private final double minimumAssignedSplitWeight;
+    private final TrinoFileSystemFactory fileSystemFactory;
 
     @Inject
     public DeltaLakeSplitManager(
             TypeManager typeManager,
             TransactionLogAccess transactionLogAccess,
             ExecutorService executor,
-            DeltaLakeConfig config)
+            DeltaLakeConfig config,
+            TrinoFileSystemFactory fileSystemFactory)
     {
         this.typeManager = requireNonNull(typeManager, "typeManager is null");
         this.transactionLogAccess = requireNonNull(transactionLogAccess, "transactionLogAccess is null");
@@ -91,6 +97,7 @@ public class DeltaLakeSplitManager
         this.maxSplitsPerSecond = config.getMaxSplitsPerSecond();
         this.maxOutstandingSplits = config.getMaxOutstandingSplits();
         this.minimumAssignedSplitWeight = config.getMinimumAssignedSplitWeight();
+        this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
     }
 
     @Override
@@ -120,6 +127,15 @@ public class DeltaLakeSplitManager
                 deltaLakeTableHandle.isRecordScannedFiles());
 
         return new ClassLoaderSafeConnectorSplitSource(splitSource, DeltaLakeSplitManager.class.getClassLoader());
+    }
+
+    @Override
+    public ConnectorSplitSource getSplits(ConnectorTransactionHandle transaction, ConnectorSession session, ConnectorTableFunctionHandle function)
+    {
+        if (function instanceof TableChangesTableFunctionHandle tableFunctionHandle) {
+            return new TableChangesSplitSource(session, fileSystemFactory, tableFunctionHandle);
+        }
+        throw new UnsupportedOperationException("Unrecognized function: " + function);
     }
 
     private Stream<DeltaLakeSplit> getSplits(
@@ -155,7 +171,7 @@ public class DeltaLakeSplitManager
                 nonPartitionConstraint.getDomains().orElseThrow().keySet().stream(),
                 columnsCoveredByDynamicFilter.stream()
                         .map(DeltaLakeColumnHandle.class::cast))
-                .map(column -> column.getName().toLowerCase(ENGLISH)) // TODO is DeltaLakeColumnHandle.name normalized?
+                .map(column -> column.getBaseColumnName().toLowerCase(ENGLISH)) // TODO is DeltaLakeColumnHandle.name normalized?
                 .collect(toImmutableSet());
         List<DeltaLakeColumnMetadata> schema = extractSchema(tableHandle.getMetadataEntry(), typeManager);
         List<DeltaLakeColumnMetadata> predicatedColumns = schema.stream()
@@ -199,10 +215,10 @@ public class DeltaLakeSplitManager
                         Map<String, Optional<String>> partitionValues = addAction.getCanonicalPartitionValues();
                         Map<ColumnHandle, NullableValue> deserializedValues = constraint.getPredicateColumns().orElseThrow().stream()
                                 .map(DeltaLakeColumnHandle.class::cast)
-                                .filter(column -> partitionValues.containsKey(column.getName()))
+                                .filter(column -> column.isBaseColumn() && partitionValues.containsKey(column.getBaseColumnName()))
                                 .collect(toImmutableMap(identity(), column -> new NullableValue(
-                                        column.getType(),
-                                        deserializePartitionValue(column, partitionValues.get(column.getName())))));
+                                        column.getBaseType(),
+                                        deserializePartitionValue(column, partitionValues.get(column.getBaseColumnName())))));
                         if (!constraint.predicate().get().test(deserializedValues)) {
                             return Stream.empty();
                         }
@@ -226,7 +242,7 @@ public class DeltaLakeSplitManager
             return true;
         }
         return tableHandle.getProjectedColumns().get().stream()
-                .map(columnHandle -> ((DeltaLakeColumnHandle) columnHandle).getColumnType())
+                .map(DeltaLakeColumnHandle::getColumnType)
                 .anyMatch(DeltaLakeColumnType.REGULAR::equals);
     }
 
@@ -235,7 +251,7 @@ public class DeltaLakeSplitManager
         for (Map.Entry<DeltaLakeColumnHandle, Domain> enforcedDomainsEntry : domains.entrySet()) {
             DeltaLakeColumnHandle partitionColumn = enforcedDomainsEntry.getKey();
             Domain partitionDomain = enforcedDomainsEntry.getValue();
-            if (!partitionDomain.includesNullableValue(deserializePartitionValue(partitionColumn, partitionKeys.get(partitionColumn.getPhysicalName())))) {
+            if (!partitionDomain.includesNullableValue(deserializePartitionValue(partitionColumn, partitionKeys.get(partitionColumn.getBasePhysicalColumnName())))) {
                 return false;
             }
         }
@@ -246,7 +262,7 @@ public class DeltaLakeSplitManager
     {
         return effectivePredicate.getDomains()
                 .flatMap(domains -> Optional.ofNullable(domains.get(pathColumnHandle())))
-                .orElseGet(() -> Domain.all(pathColumnHandle().getType()));
+                .orElseGet(() -> Domain.all(pathColumnHandle().getBaseType()));
     }
 
     private static boolean pathMatchesPredicate(Domain pathDomain, String path)
