@@ -166,7 +166,6 @@ import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.collect.Iterables.concat;
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static io.trino.hdfs.ConfigurationUtils.toJobConf;
-import static io.trino.memory.context.AggregatedMemoryContext.newSimpleAggregatedMemoryContext;
 import static io.trino.plugin.hive.HiveAnalyzeProperties.getColumnNames;
 import static io.trino.plugin.hive.HiveAnalyzeProperties.getPartitionList;
 import static io.trino.plugin.hive.HiveApplyProjectionUtil.extractSupportedProjectedColumns;
@@ -1910,7 +1909,7 @@ public class HiveMetadata
                 TrinoOutputFile trinoOutputFile = fileSystem.newOutputFile(Location.of(path.toString()).appendPath(fileName));
                 try {
                     // create empty file
-                    trinoOutputFile.create(newSimpleAggregatedMemoryContext()).close();
+                    trinoOutputFile.create().close();
                 }
                 catch (IOException e) {
                     throw new TrinoException(HIVE_WRITER_CLOSE_ERROR, "Error write empty file to Hive", e);
@@ -2691,18 +2690,23 @@ public class HiveMetadata
     @Override
     public List<SchemaTableName> listViews(ConnectorSession session, Optional<String> optionalSchemaName)
     {
+        Set<SchemaTableName> materializedViews = ImmutableSet.copyOf(listMaterializedViews(session, optionalSchemaName));
         if (optionalSchemaName.isEmpty()) {
             Optional<List<SchemaTableName>> allViews = metastore.getAllViews();
             if (allViews.isPresent()) {
                 return allViews.get().stream()
                         .filter(view -> !isHiveSystemSchema(view.getSchemaName()))
+                        .filter(view -> !materializedViews.contains(view))
                         .collect(toImmutableList());
             }
         }
         ImmutableList.Builder<SchemaTableName> tableNames = ImmutableList.builder();
         for (String schemaName : listSchemas(session, optionalSchemaName)) {
             for (String tableName : metastore.getAllViews(schemaName)) {
-                tableNames.add(new SchemaTableName(schemaName, tableName));
+                SchemaTableName schemaTableName = new SchemaTableName(schemaName, tableName);
+                if (!materializedViews.contains(schemaTableName)) {
+                    tableNames.add(schemaTableName);
+                }
             }
         }
         return tableNames.build();

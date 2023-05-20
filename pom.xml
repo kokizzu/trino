@@ -5,12 +5,12 @@
     <parent>
         <groupId>io.airlift</groupId>
         <artifactId>airbase</artifactId>
-        <version>138</version>
+        <version>139</version>
     </parent>
 
     <groupId>io.trino</groupId>
     <artifactId>trino-root</artifactId>
-    <version>418-SNAPSHOT</version>
+    <version>419-SNAPSHOT</version>
 
     <name>trino-root</name>
     <description>Trino</description>
@@ -49,17 +49,18 @@
         <dep.accumulo.version>1.10.2</dep.accumulo.version>
         <dep.accumulo-hadoop.version>2.7.7-1</dep.accumulo-hadoop.version>
         <dep.antlr.version>4.12.0</dep.antlr.version>
-        <dep.airlift.version>230</dep.airlift.version>
+        <dep.airlift.version>231</dep.airlift.version>
         <dep.arrow.version>11.0.0</dep.arrow.version>
         <dep.avro.version>1.11.1</dep.avro.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
         <dep.aws-sdk.version>1.12.464</dep.aws-sdk.version>
+        <dep.aws-sdk-v2.version>2.20.65</dep.aws-sdk-v2.version>
         <dep.jsonwebtoken.version>0.11.5</dep.jsonwebtoken.version>
         <dep.oracle.version>21.9.0.0</dep.oracle.version>
         <dep.drift.version>1.14</dep.drift.version>
         <dep.tempto.version>194</dep.tempto.version>
         <dep.gcs.version>2.2.8</dep.gcs.version>
-        <dep.errorprone.version>2.18.0</dep.errorprone.version>
+        <dep.errorprone.version>2.19.1</dep.errorprone.version>
         <dep.testcontainers.version>1.18.0</dep.testcontainers.version>
         <dep.duct-tape.version>1.0.8</dep.duct-tape.version>
         <dep.coral.version>2.0.153</dep.coral.version>
@@ -73,6 +74,7 @@
         <dep.netty.version>4.1.92.Final</dep.netty.version>
         <dep.jna.version>5.13.0</dep.jna.version>
         <dep.okio.version>3.3.0</dep.okio.version>
+        <dep.jackson.version>2.15.1</dep.jackson.version>
 
         <dep.docker.images.version>80</dep.docker.images.version>
 
@@ -1907,6 +1909,14 @@
                 <artifactId>snakeyaml</artifactId>
                 <version>2.0</version>
             </dependency>
+
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <type>pom</type>
+                <version>${dep.aws-sdk-v2.version}</version>
+                <scope>import</scope>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -1931,8 +1941,13 @@
 
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-failsafe-plugin</artifactId>
+                    <version>${dep.plugin.surefire.version}</version>
+                </plugin>
+
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-shade-plugin</artifactId>
-                    <version>3.2.4</version>
                 </plugin>
 
                 <plugin>
@@ -2059,8 +2074,8 @@
                 </plugin>
 
                 <plugin>
-                    <groupId>pl.project13.maven</groupId>
-                    <artifactId>git-commit-id-plugin</artifactId>
+                    <groupId>io.github.git-commit-id</groupId>
+                    <artifactId>git-commit-id-maven-plugin</artifactId>
                     <configuration>
                         <runOnlyOnce>true</runOnlyOnce>
                         <injectAllReactorProjects>true</injectAllReactorProjects>
@@ -2102,6 +2117,21 @@
                                 </conflictingDependencies>
                                 <resources>
                                     <resource>dependencies.properties</resource>
+                                </resources>
+                            </exception>
+                            <exception>
+                                <conflictingDependencies>
+                                    <dependency>
+                                        <groupId>com.amazonaws</groupId>
+                                        <artifactId>aws-java-sdk-s3</artifactId>
+                                    </dependency>
+                                    <dependency>
+                                        <groupId>software.amazon.awssdk</groupId>
+                                        <artifactId>sdk-core</artifactId>
+                                    </dependency>
+                                </conflictingDependencies>
+                                <resources>
+                                    <resource>mime.types</resource>
                                 </resources>
                             </exception>
                         </exceptions>
@@ -2204,14 +2234,14 @@
                             <DynamicDependency>
                                 <groupId>org.apache.maven.surefire</groupId>
                                 <artifactId>surefire-testng</artifactId>
-                                <version>2.22.2</version> <!-- legacy version which Surefire seems to need for some reason -->
+                                <version>${dep.plugin.surefire.version}</version>
                                 <type>jar</type>
                                 <repositoryType>MAIN</repositoryType>
                             </DynamicDependency>
                             <DynamicDependency>
                                 <groupId>org.junit.platform</groupId>
                                 <artifactId>junit-platform-launcher</artifactId>
-                                <version>1.9.2</version> <!-- legacy version which Surefire seems to need for some reason -->
+                                <version>1.9.3</version> <!-- legacy version which Surefire seems to need for some reason -->
                                 <type>jar</type>
                                 <repositoryType>MAIN</repositoryType>
                             </DynamicDependency>
@@ -2297,6 +2327,7 @@
                                     -Xep:Overrides:ERROR \
                                     -Xep:PreferredInterfaceType:OFF <!-- flags List fields even if initialized with ImmutableList --> \
                                     -Xep:PrimitiveArrayPassedToVarargsMethod:ERROR \
+                                    -Xep:StaticAssignmentOfThrowable:ERROR \
                                     -Xep:StreamResourceLeak:ERROR \
                                     -Xep:UnnecessaryLambda:OFF <!-- we deliberately use it in a couple of places --> \
                                     -Xep:UnnecessaryMethodReference:ERROR \

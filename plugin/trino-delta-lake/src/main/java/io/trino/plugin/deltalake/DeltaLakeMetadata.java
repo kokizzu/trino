@@ -45,7 +45,7 @@ import io.trino.plugin.deltalake.statistics.DeltaLakeColumnStatistics;
 import io.trino.plugin.deltalake.statistics.DeltaLakeTableStatisticsProvider;
 import io.trino.plugin.deltalake.statistics.ExtendedStatistics;
 import io.trino.plugin.deltalake.transactionlog.AddFileEntry;
-import io.trino.plugin.deltalake.transactionlog.CdfFileEntry;
+import io.trino.plugin.deltalake.transactionlog.CdcEntry;
 import io.trino.plugin.deltalake.transactionlog.CommitInfoEntry;
 import io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.ColumnMappingMode;
 import io.trino.plugin.deltalake.transactionlog.DeltaLakeTransactionLogEntry;
@@ -130,11 +130,12 @@ import io.trino.spi.type.TimestampWithTimeZoneType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeManager;
 import io.trino.spi.type.VarcharType;
-import org.apache.hadoop.fs.Path;
 
 import javax.annotation.Nullable;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.Collection;
@@ -1345,13 +1346,7 @@ public class DeltaLakeMetadata
     public ConnectorInsertTableHandle beginInsert(ConnectorSession session, ConnectorTableHandle tableHandle, List<ColumnHandle> columns, RetryMode retryMode)
     {
         DeltaLakeTableHandle table = (DeltaLakeTableHandle) tableHandle;
-        if (!allowWrite(session, table)) {
-            String fileSystem = new Path(table.getLocation()).toUri().getScheme();
-            throw new TrinoException(
-                    NOT_SUPPORTED,
-                    format("Inserts are not enabled on the %1$s filesystem in order to avoid eventual data corruption which may be caused by concurrent data modifications on the table. " +
-                            "Writes to the %1$s filesystem can be however enabled with the '%2$s' configuration property.", fileSystem, ENABLE_NON_CONCURRENT_WRITES_CONFIGURATION_KEY));
-        }
+        checkWriteAllowed(session, table);
         checkWriteSupported(session, table);
 
         List<DeltaLakeColumnHandle> inputColumns = columns.stream()
@@ -1434,9 +1429,11 @@ public class DeltaLakeMetadata
             // it is not obvious why we need to persist this readVersion
             transactionLogWriter.appendCommitInfoEntry(getCommitInfoEntry(session, commitVersion, createdTime, INSERT_OPERATION, handle.getReadVersion()));
 
-            List<String> partitionColumns = getColumnMappingMode(handle.getMetadataEntry()) == ColumnMappingMode.NAME
-                    ? getPartitionColumnsForNameMapping(handle.getMetadataEntry().getOriginalPartitionColumns(), handle.getInputColumns())
-                    : handle.getMetadataEntry().getOriginalPartitionColumns();
+            ColumnMappingMode columnMappingMode = getColumnMappingMode(handle.getMetadataEntry());
+            List<String> partitionColumns = getPartitionColumns(
+                    handle.getMetadataEntry().getOriginalPartitionColumns(),
+                    handle.getInputColumns(),
+                    columnMappingMode);
             appendAddFileEntries(transactionLogWriter, dataFileInfos, partitionColumns, true);
 
             transactionLogWriter.flush();
@@ -1470,7 +1467,16 @@ public class DeltaLakeMetadata
         return Optional.empty();
     }
 
-    private static List<String> getPartitionColumnsForNameMapping(List<String> originalPartitionColumns, List<DeltaLakeColumnHandle> dataColumns)
+    private static List<String> getPartitionColumns(List<String> originalPartitionColumns, List<DeltaLakeColumnHandle> dataColumns, ColumnMappingMode columnMappingMode)
+    {
+        return switch (columnMappingMode) {
+            case NAME, ID -> getPartitionColumnsForNameOrIdMapping(originalPartitionColumns, dataColumns);
+            case NONE -> originalPartitionColumns;
+            case UNKNOWN -> throw new TrinoException(NOT_SUPPORTED, "Unsupported column mapping mode");
+        };
+    }
+
+    private static List<String> getPartitionColumnsForNameOrIdMapping(List<String> originalPartitionColumns, List<DeltaLakeColumnHandle> dataColumns)
     {
         Map<String, DeltaLakeColumnHandle> nameToDataColumns = dataColumns.stream()
                 .collect(toImmutableMap(DeltaLakeColumnHandle::getColumnName, Function.identity()));
@@ -1511,13 +1517,7 @@ public class DeltaLakeMetadata
         if (isAppendOnly(handle.getMetadataEntry())) {
             throw new TrinoException(NOT_SUPPORTED, "Cannot modify rows from a table with '" + APPEND_ONLY_CONFIGURATION_KEY + "' set to true");
         }
-        if (!allowWrite(session, handle)) {
-            String fileSystem = new Path(handle.getLocation()).toUri().getScheme();
-            throw new TrinoException(
-                    NOT_SUPPORTED,
-                    format("Updates are not enabled on the %1$s filesystem in order to avoid eventual data corruption which may be caused by concurrent data modifications on the table. " +
-                            "Writes to the %1$s filesystem can be however enabled with the '%2$s' configuration property.", fileSystem, ENABLE_NON_CONCURRENT_WRITES_CONFIGURATION_KEY));
-        }
+        checkWriteAllowed(session, handle);
         if (!getColumnInvariants(handle.getMetadataEntry()).isEmpty()) {
             throw new TrinoException(NOT_SUPPORTED, "Updates are not supported for tables with delta invariants");
         }
@@ -1565,7 +1565,7 @@ public class DeltaLakeMetadata
                 .collect(partitioningBy(dataFile -> dataFile.getDataFileType() == DATA));
 
         List<DataFileInfo> newFiles = ImmutableList.copyOf(split.get(true));
-        List<DataFileInfo> cdfFiles = ImmutableList.copyOf(split.get(false));
+        List<DataFileInfo> cdcFiles = ImmutableList.copyOf(split.get(false));
 
         if (mergeHandle.getInsertTableHandle().isRetriesEnabled()) {
             cleanExtraOutputFilesForUpdate(session, handle.getLocation(), allFiles);
@@ -1592,17 +1592,19 @@ public class DeltaLakeMetadata
 
             long writeTimestamp = Instant.now().toEpochMilli();
 
-            if (!cdfFiles.isEmpty()) {
-                appendCdfFileEntries(transactionLogWriter, cdfFiles, handle.getMetadataEntry().getOriginalPartitionColumns());
+            if (!cdcFiles.isEmpty()) {
+                appendCdcFilesInfos(transactionLogWriter, cdcFiles, handle.getMetadataEntry().getOriginalPartitionColumns());
             }
 
             for (String file : oldFiles) {
                 transactionLogWriter.appendRemoveFileEntry(new RemoveFileEntry(file, writeTimestamp, true));
             }
 
-            List<String> partitionColumns = getColumnMappingMode(handle.getMetadataEntry()) == ColumnMappingMode.NAME
-                    ? getPartitionColumnsForNameMapping(handle.getMetadataEntry().getOriginalPartitionColumns(), mergeHandle.getInsertTableHandle().getInputColumns())
-                    : handle.getMetadataEntry().getOriginalPartitionColumns();
+            ColumnMappingMode columnMappingMode = getColumnMappingMode(handle.getMetadataEntry());
+            List<String> partitionColumns = getPartitionColumns(
+                    handle.getMetadataEntry().getOriginalPartitionColumns(),
+                    mergeHandle.getInsertTableHandle().getInputColumns(),
+                    columnMappingMode);
             appendAddFileEntries(transactionLogWriter, newFiles, partitionColumns, true);
 
             transactionLogWriter.flush();
@@ -1619,12 +1621,12 @@ public class DeltaLakeMetadata
         }
     }
 
-    private static void appendCdfFileEntries(
+    private static void appendCdcFilesInfos(
             TransactionLogWriter transactionLogWriter,
-            List<DataFileInfo> cdfFilesInfos,
+            List<DataFileInfo> cdcFilesInfos,
             List<String> partitionColumnNames)
     {
-        for (DataFileInfo info : cdfFilesInfos) {
+        for (DataFileInfo info : cdcFilesInfos) {
             // using Hashmap because partition values can be null
             Map<String, String> partitionValues = new HashMap<>();
             for (int i = 0; i < partitionColumnNames.size(); i++) {
@@ -1632,8 +1634,8 @@ public class DeltaLakeMetadata
             }
             partitionValues = unmodifiableMap(partitionValues);
 
-            transactionLogWriter.appendCdfFileEntry(
-                    new CdfFileEntry(
+            transactionLogWriter.appendCdcEntry(
+                    new CdcEntry(
                             toUriFormat(info.getPath()),
                             partitionValues,
                             info.getSize()));
@@ -1734,13 +1736,7 @@ public class DeltaLakeMetadata
     {
         DeltaTableOptimizeHandle optimizeHandle = (DeltaTableOptimizeHandle) executeHandle.getProcedureHandle();
 
-        if (!allowWrite(session, table)) {
-            String fileSystem = new Path(table.getLocation()).toUri().getScheme();
-            throw new TrinoException(
-                    NOT_SUPPORTED,
-                    format("Optimize is not enabled on the %1$s filesystem in order to avoid eventual data corruption which may be caused by concurrent data modifications on the table. " +
-                            "Writes to the %1$s filesystem can be however enabled with the '%2$s' configuration property.", fileSystem, ENABLE_NON_CONCURRENT_WRITES_CONFIGURATION_KEY));
-        }
+        checkWriteAllowed(session, table);
         checkSupportedWriterVersion(session, table);
         ColumnMappingMode columnMappingMode = getColumnMappingMode(table.getMetadataEntry());
         if (columnMappingMode != NONE) {
@@ -1799,7 +1795,7 @@ public class DeltaLakeMetadata
             long writeTimestamp = Instant.now().toEpochMilli();
 
             for (String scannedPath : scannedPaths) {
-                String relativePath = new Path(tableLocation).toUri().relativize(new Path(scannedPath).toUri()).toString();
+                String relativePath = relativePath(tableLocation, scannedPath);
                 transactionLogWriter.appendRemoveFileEntry(new RemoveFileEntry(relativePath, writeTimestamp, false));
             }
 
@@ -1818,6 +1814,17 @@ public class DeltaLakeMetadata
                 cleanupFailedWrite(session, tableLocation, dataFileInfos);
             }
             throw new TrinoException(DELTA_LAKE_BAD_WRITE, "Failed to write Delta Lake transaction log entry", e);
+        }
+    }
+
+    private void checkWriteAllowed(ConnectorSession session, DeltaLakeTableHandle table)
+    {
+        if (!allowWrite(session, table)) {
+            String fileSystem = Location.of(table.getLocation()).scheme().orElse("unknown");
+            throw new TrinoException(
+                    NOT_SUPPORTED,
+                    format("Writes are not enabled on the %1$s filesystem in order to avoid eventual data corruption which may be caused by concurrent data modifications on the table. " +
+                            "Writes to the %1$s filesystem can be however enabled with the '%2$s' configuration property.", fileSystem, ENABLE_NON_CONCURRENT_WRITES_CONFIGURATION_KEY));
         }
     }
 
@@ -1841,7 +1848,7 @@ public class DeltaLakeMetadata
         checkSupportedWriterVersion(session, handle);
         checkUnsupportedGeneratedColumns(handle.getMetadataEntry());
         ColumnMappingMode columnMappingMode = getColumnMappingMode(handle.getMetadataEntry());
-        if (!(columnMappingMode == NONE || columnMappingMode == ColumnMappingMode.NAME)) {
+        if (!(columnMappingMode == NONE || columnMappingMode == ColumnMappingMode.NAME || columnMappingMode == ColumnMappingMode.ID)) {
             throw new TrinoException(NOT_SUPPORTED, "Writing with column mapping %s is not supported".formatted(columnMappingMode.name().toLowerCase(ENGLISH)));
         }
         // TODO: Check writer-features
@@ -2197,7 +2204,21 @@ public class DeltaLakeMetadata
 
     private static String toUriFormat(String path)
     {
-        return new Path(path).toUri().toString();
+        verify(!path.startsWith("/") && !path.contains(":/"), "unexpected path: %s", path);
+        try {
+            return new URI(null, null, path, null).toString();
+        }
+        catch (URISyntaxException e) {
+            throw new IllegalArgumentException("Invalid path: " + path, e);
+        }
+    }
+
+    static String relativePath(String basePath, String path)
+    {
+        String basePathDirectory = basePath.endsWith("/") ? basePath : basePath + "/";
+        checkArgument(path.startsWith(basePathDirectory) && (path.length() > basePathDirectory.length()),
+                "path [%s] must be a subdirectory of basePath [%s]", path, basePath);
+        return toUriFormat(path.substring(basePathDirectory.length()));
     }
 
     public void rollback()

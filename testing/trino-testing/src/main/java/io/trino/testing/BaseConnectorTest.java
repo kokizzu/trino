@@ -1005,21 +1005,14 @@ public abstract class BaseConnectorTest
             return;
         }
 
+        String catalog = getSession().getCatalog().orElseThrow();
+        String schema = getSession().getSchema().orElseThrow();
         String otherSchema = "other_schema" + randomNameSuffix();
         assertUpdate(createSchemaSql(otherSchema));
 
-        QualifiedObjectName view = new QualifiedObjectName(
-                getSession().getCatalog().orElseThrow(),
-                getSession().getSchema().orElseThrow(),
-                "test_materialized_view_" + randomNameSuffix());
-        QualifiedObjectName otherView = new QualifiedObjectName(
-                getSession().getCatalog().orElseThrow(),
-                otherSchema,
-                "test_materialized_view_" + randomNameSuffix());
-        QualifiedObjectName viewWithComment = new QualifiedObjectName(
-                getSession().getCatalog().orElseThrow(),
-                getSession().getSchema().orElseThrow(),
-                "test_materialized_view_with_comment_" + randomNameSuffix());
+        QualifiedObjectName view = new QualifiedObjectName(catalog, schema, "test_materialized_view_" + randomNameSuffix());
+        QualifiedObjectName otherView = new QualifiedObjectName(catalog, otherSchema, "test_materialized_view_" + randomNameSuffix());
+        QualifiedObjectName viewWithComment = new QualifiedObjectName(catalog, schema, "test_materialized_view_with_comment_" + randomNameSuffix());
 
         createTestingMaterializedView(view, Optional.empty());
         createTestingMaterializedView(otherView, Optional.of("sarcastic comment"));
@@ -1046,12 +1039,12 @@ public abstract class BaseConnectorTest
         assertThat(query("SHOW TABLES"))
                 .skippingTypesCheck()
                 .containsAll("VALUES '" + view.getObjectName() + "'");
-        // information_schema.tables without table_name filter
+        // information_schema.tables without table_name filter so that ConnectorMetadata.listViews is exercised
         assertThat(query(
                 "SELECT table_name, table_type FROM information_schema.tables " +
                         "WHERE table_schema = '" + view.getSchemaName() + "'"))
                 .skippingTypesCheck()
-                .containsAll("VALUES ('" + view.getObjectName() + "', 'BASE TABLE')"); // TODO table_type should probably be "* VIEW"
+                .containsAll("VALUES ('" + view.getObjectName() + "', 'BASE TABLE')");
         // information_schema.tables with table_name filter
         assertQuery(
                 "SELECT table_name, table_type FROM information_schema.tables " +
@@ -1104,7 +1097,14 @@ public abstract class BaseConnectorTest
                                 "CROSS JOIN UNNEST(ARRAY['nationkey', 'name', 'regionkey', 'comment'])");
 
         // view-specific listings
-        checkInformationSchemaViewsForMaterializedView(view.getSchemaName(), view.getObjectName());
+        assertThat(computeActual("SELECT table_name FROM information_schema.views WHERE table_schema = '" + view.getSchemaName() + "'").getOnlyColumnAsSet())
+                .doesNotContain(view.getObjectName());
+        assertThat(query("SELECT table_name FROM information_schema.views WHERE table_schema = '" + view.getSchemaName() + "' AND table_name = '" + view.getObjectName() + "'"))
+                .returnsEmptyResult();
+
+        // materialized view-specific listings
+        assertThat(query("SELECT name FROM system.metadata.materialized_views WHERE catalog_name = '" + catalog + "' AND schema_name = '" + view.getSchemaName() + "'"))
+                .containsAll("VALUES VARCHAR '" + view.getObjectName() + "'");
 
         // system.jdbc.columns without filter
         assertThat(query("SELECT table_schem, table_name, column_name FROM system.jdbc.columns"))
@@ -1874,6 +1874,7 @@ public abstract class BaseConnectorTest
         }
         // Validate that it is possible to have views and materialized views defined at the same time and both are operational
 
+        String catalogName = getSession().getCatalog().orElseThrow();
         String schemaName = getSession().getSchema().orElseThrow();
 
         String regularViewName = "test_views_together_normal_" + randomNameSuffix();
@@ -1882,12 +1883,17 @@ public abstract class BaseConnectorTest
         String materializedViewName = "test_views_together_materialized_" + randomNameSuffix();
         assertUpdate("CREATE MATERIALIZED VIEW " + materializedViewName + " AS SELECT * FROM nation");
 
-        // both should be accessible via information_schema.views
-        // TODO: actually it is not the cased now hence overridable `checkInformationSchemaViewsForMaterializedView`
-        assertThat(query("SELECT table_name FROM information_schema.views WHERE table_schema = '" + schemaName + "'"))
-                .skippingTypesCheck()
-                .containsAll("VALUES '" + regularViewName + "'");
-        checkInformationSchemaViewsForMaterializedView(schemaName, materializedViewName);
+        // only the regular view should be accessible via information_schema.views
+        assertThat(query("SELECT table_name FROM information_schema.views WHERE table_schema = '" + schemaName + "' AND table_name IN ('" + regularViewName + "', '" + materializedViewName + "')"))
+                .matches("VALUES VARCHAR '" + regularViewName + "'");
+        assertThat(computeActual("SELECT table_name FROM information_schema.views WHERE table_schema = '" + schemaName + "'").getOnlyColumnAsSet())
+                .contains(regularViewName)
+                .doesNotContain(materializedViewName);
+
+        // only the materialized view should be accessible via system.metadata.materialized_view
+        assertThat(computeActual("SELECT name FROM system.metadata.materialized_views WHERE catalog_name = '" + catalogName + "' AND schema_name = '" + schemaName + "'").getOnlyColumnAsSet())
+                .doesNotContain(regularViewName)
+                .contains(materializedViewName);
 
         // check we can query from both
         assertThat(query("SELECT * FROM " + regularViewName)).containsAll("SELECT * FROM region");
@@ -1895,14 +1901,6 @@ public abstract class BaseConnectorTest
 
         assertUpdate("DROP VIEW " + regularViewName);
         assertUpdate("DROP MATERIALIZED VIEW " + materializedViewName);
-    }
-
-    // TODO inline when all implementations fixed
-    protected void checkInformationSchemaViewsForMaterializedView(String schemaName, String viewName)
-    {
-        assertThat(query("SELECT table_name FROM information_schema.views WHERE table_schema = '" + schemaName + "'"))
-                .skippingTypesCheck()
-                .containsAll("VALUES '" + viewName + "'");
     }
 
     /**

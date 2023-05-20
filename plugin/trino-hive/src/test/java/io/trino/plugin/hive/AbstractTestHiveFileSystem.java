@@ -23,12 +23,14 @@ import io.airlift.json.JsonCodec;
 import io.airlift.slice.Slice;
 import io.airlift.stats.CounterStat;
 import io.trino.filesystem.Location;
+import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.hdfs.HdfsFileSystemFactory;
 import io.trino.hdfs.HdfsConfig;
 import io.trino.hdfs.HdfsConfiguration;
 import io.trino.hdfs.HdfsContext;
 import io.trino.hdfs.HdfsEnvironment;
 import io.trino.hdfs.HdfsNamenodeStats;
+import io.trino.hdfs.TrinoHdfsFileSystemStats;
 import io.trino.hdfs.authentication.NoHdfsAuthentication;
 import io.trino.operator.GroupByHashPageIndexerFactory;
 import io.trino.plugin.base.CatalogName;
@@ -36,6 +38,7 @@ import io.trino.plugin.hive.AbstractTestHive.Transaction;
 import io.trino.plugin.hive.aws.athena.PartitionProjectionService;
 import io.trino.plugin.hive.fs.FileSystemDirectoryLister;
 import io.trino.plugin.hive.fs.HiveFileIterator;
+import io.trino.plugin.hive.fs.TransactionScopeCachingDirectoryListerFactory;
 import io.trino.plugin.hive.fs.TrinoFileStatus;
 import io.trino.plugin.hive.metastore.Column;
 import io.trino.plugin.hive.metastore.Database;
@@ -105,6 +108,7 @@ import static io.trino.plugin.hive.AbstractTestHive.getAllSplits;
 import static io.trino.plugin.hive.AbstractTestHive.getSplits;
 import static io.trino.plugin.hive.HiveTestUtils.HDFS_FILE_SYSTEM_STATS;
 import static io.trino.plugin.hive.HiveTestUtils.PAGE_SORTER;
+import static io.trino.plugin.hive.HiveTestUtils.SESSION;
 import static io.trino.plugin.hive.HiveTestUtils.getDefaultHiveFileWriterFactories;
 import static io.trino.plugin.hive.HiveTestUtils.getDefaultHivePageSourceFactories;
 import static io.trino.plugin.hive.HiveTestUtils.getDefaultHiveRecordCursorProviders;
@@ -224,6 +228,7 @@ public abstract class AbstractTestHiveFileSystem
                 new DefaultHiveMaterializedViewMetadataFactory(),
                 SqlStandardAccessControlMetadata::new,
                 new FileSystemDirectoryLister(),
+                new TransactionScopeCachingDirectoryListerFactory(config),
                 new PartitionProjectionService(config, ImmutableMap.of(), new TestingTypeManager()),
                 true);
         transactionManager = new HiveTransactionManager(metadataFactory);
@@ -447,6 +452,7 @@ public abstract class AbstractTestHiveFileSystem
         //      base-path-file.txt
         Path basePath = new Path(getBasePath(), "test-file-iterator-listing");
         FileSystem fs = hdfsEnvironment.getFileSystem(TESTING_CONTEXT, basePath);
+        TrinoFileSystem trinoFileSystem = new HdfsFileSystemFactory(hdfsEnvironment, new TrinoHdfsFileSystemStats()).create(SESSION);
         fs.mkdirs(basePath);
 
         // create file in hidden folder
@@ -471,12 +477,11 @@ public abstract class AbstractTestHiveFileSystem
         // List recursively through hive file iterator
         HiveFileIterator recursiveIterator = new HiveFileIterator(
                 fakeTable,
-                basePath,
-                fs,
+                Location.of(basePath.toString()),
+                trinoFileSystem,
                 new FileSystemDirectoryLister(),
                 new HdfsNamenodeStats(),
-                HiveFileIterator.NestedDirectoryPolicy.RECURSE,
-                false); // ignoreAbsentPartitions
+                HiveFileIterator.NestedDirectoryPolicy.RECURSE);
 
         List<Path> recursiveListing = Streams.stream(recursiveIterator)
                 .map(TrinoFileStatus::getPath)
@@ -487,12 +492,11 @@ public abstract class AbstractTestHiveFileSystem
 
         HiveFileIterator shallowIterator = new HiveFileIterator(
                 fakeTable,
-                basePath,
-                fs,
+                Location.of(basePath.toString()),
+                trinoFileSystem,
                 new FileSystemDirectoryLister(),
                 new HdfsNamenodeStats(),
-                HiveFileIterator.NestedDirectoryPolicy.IGNORED,
-                false); // ignoreAbsentPartitions
+                HiveFileIterator.NestedDirectoryPolicy.IGNORED);
         List<Path> shallowListing = Streams.stream(shallowIterator)
                 .map(TrinoFileStatus::getPath)
                 .map(Path::new)

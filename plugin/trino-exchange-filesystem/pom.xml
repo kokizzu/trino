@@ -4,7 +4,7 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>418-SNAPSHOT</version>
+        <version>419-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -14,7 +14,6 @@
 
     <properties>
         <air.main.basedir>${project.parent.basedir}</air.main.basedir>
-        <awsjavasdk.version>2.20.48</awsjavasdk.version>
         <azurejavasdk.version>1.2.11</azurejavasdk.version>
     </properties>
 
@@ -25,13 +24,6 @@
                 <artifactId>azure-sdk-bom</artifactId>
                 <type>pom</type>
                 <version>${azurejavasdk.version}</version>
-                <scope>import</scope>
-            </dependency>
-            <dependency>
-                <groupId>software.amazon.awssdk</groupId>
-                <artifactId>bom</artifactId>
-                <type>pom</type>
-                <version>${awsjavasdk.version}</version>
                 <scope>import</scope>
             </dependency>
         </dependencies>

@@ -254,7 +254,8 @@ Hive connector documentation.
       - How long a cached directory listing is considered valid.
       - ``1m``
     * - ``hive.per-transaction-file-status-cache.max-retained-size``
-      - Maximum retained size of cached file status entries per transaction
+      - Maximum retained size of all entries in per transaction file status cache.
+        Retained size limit is shared across all running queries.
       - ``100MB``
     * - ``hive.rcfile.time-zone``
       - Adjusts binary encoded timestamp values to a specific time zone. For
@@ -396,7 +397,7 @@ Specific properties can be used to further configure the
 Thrift metastore configuration properties
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-In order to use a Hive Thrisft metastore, you must configure the metastore with
+In order to use a Hive Thrift metastore, you must configure the metastore with
 ``hive.metastore=thrift`` and provide further details with the following
 properties:
 

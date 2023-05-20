@@ -13,6 +13,7 @@
  */
 package io.trino.plugin.hive;
 
+import alluxio.collections.ConcurrentHashSet;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
@@ -25,6 +26,7 @@ import io.airlift.stats.CounterStat;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 import io.trino.filesystem.Location;
+import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.hdfs.HdfsFileSystemFactory;
 import io.trino.hdfs.HdfsConfig;
 import io.trino.hdfs.HdfsContext;
@@ -37,6 +39,8 @@ import io.trino.plugin.base.metrics.LongCount;
 import io.trino.plugin.hive.LocationService.WriteInfo;
 import io.trino.plugin.hive.aws.athena.PartitionProjectionService;
 import io.trino.plugin.hive.fs.DirectoryLister;
+import io.trino.plugin.hive.fs.RemoteIterator;
+import io.trino.plugin.hive.fs.TransactionScopeCachingDirectoryListerFactory;
 import io.trino.plugin.hive.fs.TrinoFileStatus;
 import io.trino.plugin.hive.fs.TrinoFileStatusRemoteIterator;
 import io.trino.plugin.hive.line.LinePageSource;
@@ -140,7 +144,6 @@ import io.trino.type.BlockTypeOperators;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hive.metastore.TableType;
 import org.joda.time.DateTime;
 import org.testng.annotations.AfterClass;
@@ -200,7 +203,6 @@ import static io.airlift.testing.Assertions.assertGreaterThanOrEqual;
 import static io.airlift.testing.Assertions.assertInstanceOf;
 import static io.airlift.testing.Assertions.assertLessThanOrEqual;
 import static io.airlift.units.DataSize.Unit.KILOBYTE;
-import static io.airlift.units.DataSize.Unit.MEGABYTE;
 import static io.trino.parquet.reader.ParquetReader.PARQUET_CODEC_METRIC_PREFIX;
 import static io.trino.plugin.hive.AbstractTestHive.TransactionDeleteInsertTestTag.COMMIT;
 import static io.trino.plugin.hive.AbstractTestHive.TransactionDeleteInsertTestTag.ROLLBACK_AFTER_APPEND_PAGE;
@@ -671,6 +673,8 @@ public abstract class AbstractTestHive
     private ScheduledExecutorService heartbeatService;
     private java.nio.file.Path temporaryStagingDirectory;
 
+    protected final ConcurrentHashSet<SchemaTableName> materializedViews = new ConcurrentHashSet<>();
+
     @BeforeClass(alwaysRun = true)
     public void setupClass()
             throws Exception
@@ -868,6 +872,16 @@ public abstract class AbstractTestHive
                 metastore -> new NoneHiveMaterializedViewMetadata()
                 {
                     @Override
+                    public List<SchemaTableName> listMaterializedViews(ConnectorSession session, Optional<String> schemaName)
+                    {
+                        return materializedViews.stream()
+                                .filter(schemaName
+                                        .<Predicate<SchemaTableName>>map(name -> mvName -> mvName.getSchemaName().equals(name))
+                                        .orElse(mvName -> true))
+                                .collect(toImmutableList());
+                    }
+
+                    @Override
                     public Optional<ConnectorMaterializedViewDefinition> getMaterializedView(ConnectorSession session, SchemaTableName viewName)
                     {
                         if (!viewName.getTableName().contains("materialized_view_tester")) {
@@ -886,7 +900,7 @@ public abstract class AbstractTestHive
                 },
                 SqlStandardAccessControlMetadata::new,
                 countingDirectoryLister,
-                DataSize.of(1, MEGABYTE),
+                new TransactionScopeCachingDirectoryListerFactory(hiveConfig),
                 new PartitionProjectionService(hiveConfig, ImmutableMap.of(), new TestingTypeManager()),
                 true,
                 HiveTimestampPrecision.DEFAULT_PRECISION);
@@ -6318,19 +6332,11 @@ public abstract class AbstractTestHive
         private final AtomicInteger listCount = new AtomicInteger();
 
         @Override
-        public RemoteIterator<TrinoFileStatus> list(FileSystem fs, Table table, Path path)
+        public RemoteIterator<TrinoFileStatus> listFilesRecursively(TrinoFileSystem fs, Table table, Location location)
                 throws IOException
         {
             listCount.incrementAndGet();
-            return new TrinoFileStatusRemoteIterator(fs.listLocatedStatus(path));
-        }
-
-        @Override
-        public RemoteIterator<TrinoFileStatus> listFilesRecursively(FileSystem fs, Table table, Path path)
-                throws IOException
-        {
-            listCount.incrementAndGet();
-            return new TrinoFileStatusRemoteIterator(fs.listFiles(path, true));
+            return new TrinoFileStatusRemoteIterator(fs.listFiles(location));
         }
 
         public int getListCount()

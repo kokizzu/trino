@@ -912,11 +912,11 @@ public class TestBackgroundHiveSplitLoader
         schema.setProperty(SERIALIZATION_LIB, AVRO.getSerde());
 
         Path filePath = new Path("hdfs://VOL1:9000/db_name/table_name/file1");
-        Path directoryPath = new Path("hdfs://VOL1:9000/db_name/table_name/dir");
+        Path directoryPath = new Path("hdfs://VOL1:9000/db_name/table_name/dir/file2");
         List<Path> paths = ImmutableList.of(filePath, directoryPath);
         List<LocatedFileStatus> files = ImmutableList.of(
                 locatedFileStatus(filePath),
-                locatedDirectoryStatus(directoryPath));
+                locatedFileStatus(directoryPath));
 
         BackgroundHiveSplitLoader backgroundHiveSplitLoader = backgroundHiveSplitLoader(
                 files,
@@ -1412,23 +1412,6 @@ public class TestBackgroundHiveSplitLoader
                 new BlockLocation[] {});
     }
 
-    private static LocatedFileStatus locatedDirectoryStatus(Path path)
-    {
-        return new LocatedFileStatus(
-                0L,
-                true,
-                0,
-                0L,
-                0L,
-                0L,
-                null,
-                null,
-                null,
-                null,
-                path,
-                new BlockLocation[] {});
-    }
-
     public static class TestingHdfsEnvironment
             extends HdfsEnvironment
     {
@@ -1483,7 +1466,18 @@ public class TestBackgroundHiveSplitLoader
         @Override
         public FileStatus[] listStatus(Path f)
         {
-            throw new UnsupportedOperationException();
+            FileStatus[] fileStatuses = new FileStatus[files.size()];
+            for (int i = 0; i < files.size(); i++) {
+                LocatedFileStatus locatedFileStatus = files.get(i);
+                fileStatuses[i] = new FileStatus(
+                        locatedFileStatus.getLen(),
+                        locatedFileStatus.isDirectory(),
+                        locatedFileStatus.getReplication(),
+                        locatedFileStatus.getBlockSize(),
+                        locatedFileStatus.getModificationTime(),
+                        locatedFileStatus.getPath());
+            }
+            return fileStatuses;
         }
 
         @Override
@@ -1547,13 +1541,13 @@ public class TestBackgroundHiveSplitLoader
         @Override
         public Path getWorkingDirectory()
         {
-            throw new UnsupportedOperationException();
+            return new Path(getUri());
         }
 
         @Override
         public URI getUri()
         {
-            throw new UnsupportedOperationException();
+            return URI.create("hdfs://VOL1:9000/");
         }
     }
 }
