@@ -40,21 +40,20 @@ detailed in :ref:`running-trino`. Alternatively, you can write logs to separate
 the process (typically running next to Trino as a sidecar process) via the TCP
 protocol by using a log path of the format ``tcp://host:port``.
 
-``log.max-history``
-^^^^^^^^^^^^^^^^^^^
-
-* **Type:** :ref:`prop-type-integer`
-* **Default value:** ``30``
-
-The maximum number of general application log files to use, before log
-rotation replaces old content.
-
 ``log.max-size``
 ^^^^^^^^^^^^^^^^
 * **Type:** :ref:`prop-type-data-size`
 * **Default value:** ``100MB``
 
 The maximum file size for the general application log file.
+
+``log.max-total-size``
+^^^^^^^^^^^^^^^^^^^^^^
+
+* **Type:** :ref:`prop-type-data-size`
+* **Default value:** ``1GB``
+
+The maximum file size for all general application log files combined.
 
 ``log.compression``
 ^^^^^^^^^^^^^^^^^^^
