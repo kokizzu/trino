@@ -105,8 +105,6 @@ public final class DecimalAverageAggregation
     @CombineFunction
     public static void combine(@AggregationState LongDecimalWithOverflowAndLongState state, @AggregationState LongDecimalWithOverflowAndLongState otherState)
     {
-        state.addLong(otherState.getLong()); // row counter
-
         long[] decimal = state.getDecimalArray();
         int offset = state.getDecimalArrayOffset();
 
@@ -128,10 +126,12 @@ public final class DecimalAverageAggregation
             decimal[offset + 1] = otherDecimal[otherOffset + 1];
             state.setOverflow(otherState.getOverflow());
         }
+
+        state.addLong(otherState.getLong()); // row counter
     }
 
     @OutputFunction("decimal(p,s)")
-    public static void outputShortDecimal(
+    public static void outputDecimal(
             @TypeParameter("decimal(p,s)") Type type,
             @AggregationState LongDecimalWithOverflowAndLongState state,
             BlockBuilder out)

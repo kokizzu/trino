@@ -18,13 +18,12 @@ import io.trino.filesystem.FileEntry;
 import io.trino.filesystem.FileIterator;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
-import io.trino.filesystem.hdfs.HdfsFileSystemFactory;
 import io.trino.plugin.hive.metastore.HiveMetastore;
 import io.trino.testing.AbstractTestQueryFramework;
 import io.trino.testing.MaterializedResult;
 import io.trino.testing.QueryRunner;
-import io.trino.testing.TestingConnectorSession;
 import org.testng.annotations.AfterClass;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
@@ -39,11 +38,11 @@ import java.util.stream.Stream;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.io.MoreFiles.deleteRecursively;
 import static com.google.common.io.RecursiveDeleteOption.ALLOW_INSECURE;
-import static io.trino.plugin.hive.HiveTestUtils.HDFS_ENVIRONMENT;
-import static io.trino.plugin.hive.HiveTestUtils.HDFS_FILE_SYSTEM_STATS;
 import static io.trino.plugin.hive.metastore.file.TestingFileHiveMetastore.createTestingFileHiveMetastore;
+import static io.trino.plugin.iceberg.IcebergTestUtils.getFileSystemFactory;
 import static io.trino.plugin.iceberg.IcebergUtil.METADATA_FOLDER_NAME;
 import static io.trino.plugin.iceberg.procedure.RegisterTableProcedure.getLatestMetadataLocation;
+import static io.trino.testing.TestingConnectorSession.SESSION;
 import static io.trino.testing.TestingNames.randomNameSuffix;
 import static java.lang.String.format;
 import static java.util.Locale.ENGLISH;
@@ -63,11 +62,16 @@ public class TestIcebergRegisterTableProcedure
         metastoreDir = Files.createTempDirectory("test_iceberg_register_table").toFile();
         metastoreDir.deleteOnExit();
         metastore = createTestingFileHiveMetastore(metastoreDir);
-        fileSystem = new HdfsFileSystemFactory(HDFS_ENVIRONMENT, HDFS_FILE_SYSTEM_STATS).create(TestingConnectorSession.SESSION);
         return IcebergQueryRunner.builder()
                 .setMetastoreDirectory(metastoreDir)
                 .setIcebergProperties(ImmutableMap.of("iceberg.register-table-procedure.enabled", "true"))
                 .build();
+    }
+
+    @BeforeClass
+    public void initFileSystem()
+    {
+        fileSystem = getFileSystemFactory(getDistributedQueryRunner()).create(SESSION);
     }
 
     @AfterClass(alwaysRun = true)
@@ -315,7 +319,7 @@ public class TestIcebergRegisterTableProcedure
         }
 
         assertQueryFails("CALL iceberg.system.register_table (CURRENT_SCHEMA, '" + tableNameNew + "', '" + tableLocation + "', '" + invalidMetadataFileName + "')",
-                ".*is not a valid metadata file.*");
+                "Invalid metadata file: .*");
         assertUpdate(format("DROP TABLE %s", tableName));
     }
 
@@ -335,7 +339,7 @@ public class TestIcebergRegisterTableProcedure
         String nonExistingMetadataFileName = "00003-409702ba-4735-4645-8f14-09537cc0b2c8.metadata.json";
         String tableLocation = "/test/iceberg/hive/warehouse/orders_5-581fad8517934af6be1857a903559d44";
         assertQueryFails("CALL iceberg.system.register_table (CURRENT_SCHEMA, '" + tableName + "', '" + tableLocation + "', '" + nonExistingMetadataFileName + "')",
-                ".*Location (.*) does not exist.*");
+                "Metadata file does not exist: .*");
     }
 
     @Test
@@ -367,9 +371,9 @@ public class TestIcebergRegisterTableProcedure
         String nonExistedMetadataFileName = "00003-409702ba-4735-4645-8f14-09537cc0b2c8.metadata.json";
         String tableLocation = "invalid://hadoop-master:9000/test/iceberg/hive/orders_5-581fad8517934af6be1857a903559d44";
         assertQueryFails("CALL iceberg.system.register_table (CURRENT_SCHEMA, '" + tableName + "', '" + tableLocation + "', '" + nonExistedMetadataFileName + "')",
-                ".*Invalid location:.*");
+                ".*Invalid metadata file location: .*");
         assertQueryFails("CALL iceberg.system.register_table (CURRENT_SCHEMA, '" + tableName + "', '" + tableLocation + "')",
-                ".*Failed checking table's location:.*");
+                ".*Failed checking table location: .*");
     }
 
     @Test

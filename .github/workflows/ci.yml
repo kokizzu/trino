@@ -478,7 +478,6 @@ jobs:
             !:trino-postgresql,
             !:trino-raptor-legacy,
             !:trino-redis,
-            !:trino-redshift,
             !:trino-singlestore,
             !:trino-sqlserver,
             !:trino-test-jdbc-compatibility-old-server,
@@ -548,6 +547,7 @@ jobs:
             - { modules: [ client/trino-jdbc, plugin/trino-base-jdbc, plugin/trino-thrift, plugin/trino-memory ] }
             - { modules: core/trino-main }
             - { modules: core/trino-main, jdk: 19 }
+            - { modules: lib/trino-filesystem-s3, profile: cloud-tests }
             - { modules: plugin/trino-accumulo }
             - { modules: plugin/trino-bigquery }
             - { modules: plugin/trino-bigquery, profile: cloud-tests-arrow }
@@ -578,7 +578,6 @@ jobs:
             - { modules: plugin/trino-postgresql }
             - { modules: plugin/trino-raptor-legacy }
             - { modules: plugin/trino-redis }
-            - { modules: plugin/trino-redshift }
             - { modules: plugin/trino-redshift, profile: cloud-tests }
             - { modules: plugin/trino-redshift, profile: fte-tests }
             - { modules: plugin/trino-singlestore }
@@ -634,8 +633,20 @@ jobs:
           && ! (contains(matrix.modules, 'trino-bigquery') && contains(matrix.profile, 'cloud-tests-arrow'))
           && ! (contains(matrix.modules, 'trino-redshift') && contains(matrix.profile, 'cloud-tests'))
           && ! (contains(matrix.modules, 'trino-redshift') && contains(matrix.profile, 'fte-tests'))
+          && ! (contains(matrix.modules, 'trino-filesystem-s3') && contains(matrix.profile, 'cloud-tests'))
         run: $MAVEN test ${MAVEN_TEST} -pl ${{ matrix.modules }} ${{ matrix.profile != '' && format('-P {0}', matrix.profile) || '' }}
       # Additional tests for selected modules
+      - name: S3 FileSystem Cloud Tests
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.TRINO_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TRINO_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-east-2
+          S3_BUCKET: trino-ci-s3fs-test
+        if: >-
+          contains(matrix.modules, 'trino-filesystem-s3') && contains(matrix.profile, 'cloud-tests') &&
+          (env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || env.AWS_ACCESS_KEY_ID != '' || env.AWS_SECRET_ACCESS_KEY != '')
+        run: |
+          $MAVEN test ${MAVEN_TEST} -pl ${{ matrix.modules }} ${{ format('-P {0}', matrix.profile) }}
       - name: Cloud Delta Lake Tests
       # Cloud tests are separate because they are time intensive, requiring cross-cloud network communication
         env:

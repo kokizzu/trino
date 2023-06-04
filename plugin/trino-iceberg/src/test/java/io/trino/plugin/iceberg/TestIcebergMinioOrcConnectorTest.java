@@ -14,25 +14,11 @@
 package io.trino.plugin.iceberg;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import io.trino.Session;
 import io.trino.filesystem.Location;
-import io.trino.filesystem.TrinoFileSystem;
-import io.trino.filesystem.hdfs.HdfsFileSystemFactory;
-import io.trino.hdfs.ConfigurationInitializer;
-import io.trino.hdfs.DynamicHdfsConfiguration;
-import io.trino.hdfs.HdfsConfig;
-import io.trino.hdfs.HdfsConfiguration;
-import io.trino.hdfs.HdfsConfigurationInitializer;
-import io.trino.hdfs.HdfsEnvironment;
-import io.trino.hdfs.TrinoHdfsFileSystemStats;
-import io.trino.hdfs.authentication.NoHdfsAuthentication;
-import io.trino.hdfs.s3.HiveS3Config;
-import io.trino.hdfs.s3.TrinoS3ConfigurationInitializer;
 import io.trino.testing.QueryRunner;
 import io.trino.testing.containers.Minio;
 import io.trino.testing.sql.TestTable;
-import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 import java.io.File;
@@ -45,7 +31,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.io.Resources.getResource;
 import static io.trino.plugin.iceberg.IcebergFileFormat.ORC;
 import static io.trino.plugin.iceberg.IcebergTestUtils.checkOrcFileSorting;
-import static io.trino.testing.TestingConnectorSession.SESSION;
 import static io.trino.testing.TestingNames.randomNameSuffix;
 import static io.trino.testing.containers.Minio.MINIO_ACCESS_KEY;
 import static io.trino.testing.containers.Minio.MINIO_SECRET_KEY;
@@ -83,6 +68,7 @@ public class TestIcebergMinioOrcConnectorTest
                                 .put("hive.s3.endpoint", minio.getMinioAddress())
                                 .put("hive.s3.path-style-access", "true")
                                 .put("hive.s3.streaming.part-size", "5MB") // minimize memory usage
+                                .put("hive.s3.max-connections", "8") // verify no leaks
                                 .put("iceberg.register-table-procedure.enabled", "true")
                                 // Allows testing the sorting writer flushing to the file system with smaller tables
                                 .put("iceberg.writer-sort-buffer-size", "1MB")
@@ -94,18 +80,6 @@ public class TestIcebergMinioOrcConnectorTest
                                 .withSchemaProperties(Map.of("location", "'s3://" + bucketName + "/iceberg_data/tpch'"))
                                 .build())
                 .build();
-    }
-
-    @Override
-    @BeforeClass
-    public void initFileSystemFactory()
-    {
-        ConfigurationInitializer s3Config = new TrinoS3ConfigurationInitializer(new HiveS3Config()
-                .setS3AwsAccessKey(MINIO_ACCESS_KEY)
-                .setS3AwsSecretKey(MINIO_SECRET_KEY));
-        HdfsConfigurationInitializer initializer = new HdfsConfigurationInitializer(new HdfsConfig(), ImmutableSet.of(s3Config));
-        HdfsConfiguration hdfsConfiguration = new DynamicHdfsConfiguration(initializer, ImmutableSet.of());
-        this.fileSystemFactory = new HdfsFileSystemFactory(new HdfsEnvironment(hdfsConfiguration, new HdfsConfig(), new NoHdfsAuthentication()), new TrinoHdfsFileSystemStats());
     }
 
     @Override
@@ -124,7 +98,7 @@ public class TestIcebergMinioOrcConnectorTest
     @Override
     protected boolean isFileSorted(String path, String sortColumnName)
     {
-        return checkOrcFileSorting(fileSystemFactory, Location.of(path), sortColumnName);
+        return checkOrcFileSorting(fileSystem, Location.of(path), sortColumnName);
     }
 
     @Test
@@ -147,7 +121,6 @@ public class TestIcebergMinioOrcConnectorTest
         checkArgument(expectedValue != 0);
         try (TestTable table = new TestTable(getQueryRunner()::execute, "test_read_as_integer", "(\"_col0\") AS VALUES 0, NULL")) {
             String orcFilePath = (String) computeScalar(format("SELECT DISTINCT file_path FROM \"%s$files\"", table.getName()));
-            TrinoFileSystem fileSystem = fileSystemFactory.create(SESSION);
             try (OutputStream outputStream = fileSystem.newOutputFile(Location.of(orcFilePath)).createOrOverwrite()) {
                 Files.copy(new File(getResource(orcFileResourceName).toURI()).toPath(), outputStream);
             }

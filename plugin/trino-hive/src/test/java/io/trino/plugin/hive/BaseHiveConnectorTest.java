@@ -165,6 +165,7 @@ import static io.trino.testing.TestingAccessControlManager.TestingPrivilegeType.
 import static io.trino.testing.TestingAccessControlManager.privilege;
 import static io.trino.testing.TestingNames.randomNameSuffix;
 import static io.trino.testing.TestingSession.testSessionBuilder;
+import static io.trino.testing.containers.TestContainers.getPathFromClassPathResource;
 import static io.trino.transaction.TransactionBuilder.transaction;
 import static io.trino.type.InternalTypeManager.TESTING_TYPE_MANAGER;
 import static java.lang.String.format;
@@ -8543,6 +8544,21 @@ public abstract class BaseHiveConnectorTest
         assertUpdate("DROP TABLE %s".formatted(tableName));
     }
 
+    @Test
+    public void testSelectWithShortZoneId()
+    {
+        String resourceLocation = getPathFromClassPathResource("with_short_zone_id/data");
+
+        try (TestTable testTable = new TestTable(
+                getQueryRunner()::execute,
+                "test_select_with_short_zone_id_",
+                "(id INT, firstName VARCHAR, lastName VARCHAR) WITH (external_location = '%s')".formatted(resourceLocation))) {
+            assertThatThrownBy(() -> query("SELECT * FROM %s".formatted(testTable.getName())))
+                    .hasMessageMatching(".*Failed to read ORC file: .*")
+                    .hasStackTraceContaining("Unknown time-zone ID: EST");
+        }
+    }
+
     private static final Set<HiveStorageFormat> NAMED_COLUMN_ONLY_FORMATS = ImmutableSet.of(HiveStorageFormat.AVRO, HiveStorageFormat.JSON);
 
     @DataProvider
@@ -8799,6 +8815,14 @@ public abstract class BaseHiveConnectorTest
     private String getTableLocation(String tableName)
     {
         return (String) computeScalar("SELECT DISTINCT regexp_replace(\"$path\", '/[^/]*$', '') FROM " + tableName);
+    }
+
+    @Override
+    protected boolean supportsPhysicalPushdown()
+    {
+        // Hive table is created using default format which is ORC. Currently ORC reader has issue
+        // pruning dereferenced struct fields https://github.com/trinodb/trino/issues/17201
+        return false;
     }
 
     private static final class BucketedFilterTestSetup

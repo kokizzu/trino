@@ -30,6 +30,7 @@ import io.trino.parquet.ParquetReaderOptions;
 import io.trino.parquet.reader.MetadataReader;
 import io.trino.plugin.hive.FileFormatDataSourceStats;
 import io.trino.plugin.hive.parquet.TrinoParquetDataSource;
+import io.trino.testing.DistributedQueryRunner;
 import org.apache.parquet.hadoop.metadata.BlockMetaData;
 import org.apache.parquet.hadoop.metadata.ColumnChunkMetaData;
 import org.apache.parquet.hadoop.metadata.ParquetMetadata;
@@ -45,7 +46,7 @@ import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.Iterators.getOnlyElement;
 import static com.google.common.collect.MoreCollectors.onlyElement;
-import static io.trino.testing.TestingConnectorSession.SESSION;
+import static io.trino.plugin.iceberg.IcebergQueryRunner.ICEBERG_CATALOG;
 
 public final class IcebergTestUtils
 {
@@ -61,11 +62,10 @@ public final class IcebergTestUtils
                 .build();
     }
 
-    public static boolean checkOrcFileSorting(TrinoFileSystemFactory fileSystemFactory, Location path, String sortColumnName)
+    public static boolean checkOrcFileSorting(TrinoFileSystem fileSystem, Location path, String sortColumnName)
     {
         return checkOrcFileSorting(() -> {
             try {
-                TrinoFileSystem fileSystem = fileSystemFactory.create(SESSION);
                 return new TrinoOrcDataSource(fileSystem.newInputFile(path), new OrcReaderOptions(), new FileFormatDataSourceStats());
             }
             catch (IOException e) {
@@ -145,5 +145,11 @@ public final class IcebergTestUtils
             previousMax = columnMetadata.getStatistics().genericGetMax();
         }
         return true;
+    }
+
+    public static TrinoFileSystemFactory getFileSystemFactory(DistributedQueryRunner queryRunner)
+    {
+        return ((IcebergConnector) queryRunner.getCoordinator().getConnector(ICEBERG_CATALOG))
+                .getInjector().getInstance(TrinoFileSystemFactory.class);
     }
 }

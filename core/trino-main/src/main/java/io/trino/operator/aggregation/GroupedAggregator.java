@@ -37,8 +37,16 @@ public class GroupedAggregator
     private final Type finalType;
     private final int[] inputChannels;
     private final OptionalInt maskChannel;
+    private final AggregationMaskBuilder maskBuilder;
 
-    public GroupedAggregator(GroupedAccumulator accumulator, Step step, Type intermediateType, Type finalType, List<Integer> inputChannels, OptionalInt maskChannel)
+    public GroupedAggregator(
+            GroupedAccumulator accumulator,
+            Step step,
+            Type intermediateType,
+            Type finalType,
+            List<Integer> inputChannels,
+            OptionalInt maskChannel,
+            AggregationMaskBuilder maskBuilder)
     {
         this.accumulator = requireNonNull(accumulator, "accumulator is null");
         this.step = requireNonNull(step, "step is null");
@@ -46,6 +54,7 @@ public class GroupedAggregator
         this.finalType = requireNonNull(finalType, "finalType is null");
         this.inputChannels = Ints.toArray(requireNonNull(inputChannels, "inputChannels is null"));
         this.maskChannel = requireNonNull(maskChannel, "maskChannel is null");
+        this.maskBuilder = requireNonNull(maskBuilder, "maskBuilder is null");
         checkArgument(step.isInputRaw() || inputChannels.size() == 1, "expected 1 input channel for intermediate aggregation");
     }
 
@@ -64,20 +73,24 @@ public class GroupedAggregator
 
     public void processPage(GroupByIdBlock groupIds, Page page)
     {
+        accumulator.setGroupCount(groupIds.getGroupCount());
+
         if (step.isInputRaw()) {
-            accumulator.addInput(groupIds, page.getColumns(inputChannels), getMaskBlock(page));
+            Page arguments = page.getColumns(inputChannels);
+            Optional<Block> maskBlock = Optional.empty();
+            if (maskChannel.isPresent()) {
+                maskBlock = Optional.of(page.getBlock(maskChannel.getAsInt()));
+            }
+            AggregationMask mask = maskBuilder.buildAggregationMask(arguments, maskBlock);
+
+            if (mask.isSelectNone()) {
+                return;
+            }
+            accumulator.addInput(groupIds, arguments, mask);
         }
         else {
             accumulator.addIntermediate(groupIds, page.getBlock(inputChannels[0]));
         }
-    }
-
-    private Optional<Block> getMaskBlock(Page page)
-    {
-        if (maskChannel.isEmpty()) {
-            return Optional.empty();
-        }
-        return Optional.of(page.getBlock(maskChannel.getAsInt()));
     }
 
     public void prepareFinal()
