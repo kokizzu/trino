@@ -4,7 +4,7 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>419-SNAPSHOT</version>
+        <version>420-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -100,6 +100,8 @@
                             <includes combine.children="append">
                                 <!-- allow vulnerable snakeyaml version until benchto is updated -->
                                 <include>org.yaml:snakeyaml:1.33</include>
+                                <!-- benchto still uses javax.annotation -->
+                                <include>javax.annotation:javax.annotation-api</include>
                             </includes>
                         </bannedDependencies>
                     </rules>

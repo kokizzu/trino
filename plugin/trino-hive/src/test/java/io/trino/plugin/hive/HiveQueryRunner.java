@@ -15,6 +15,7 @@ package io.trino.plugin.hive;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.inject.Module;
 import io.airlift.log.Logger;
 import io.airlift.log.Logging;
@@ -108,7 +109,6 @@ public final class HiveQueryRunner
         private Optional<DirectoryLister> directoryLister = Optional.empty();
         private boolean tpcdsCatalogEnabled;
         private boolean tpchBucketedCatalogEnabled;
-        private String security = SQL_STANDARD;
         private boolean createTpchSchemas = true;
         private ColumnNaming tpchColumnNaming = SIMPLIFIED;
         private DecimalTypeMapping tpchDecimalTypeMapping = DOUBLE;
@@ -123,12 +123,14 @@ public final class HiveQueryRunner
             super(defaultSession);
         }
 
+        @CanIgnoreReturnValue
         public SELF setSkipTimezoneSetup(boolean skipTimezoneSetup)
         {
             this.skipTimezoneSetup = skipTimezoneSetup;
             return self();
         }
 
+        @CanIgnoreReturnValue
         public SELF setHiveProperties(Map<String, String> hiveProperties)
         {
             this.hiveProperties = ImmutableMap.<String, String>builder()
@@ -136,78 +138,84 @@ public final class HiveQueryRunner
             return self();
         }
 
+        @CanIgnoreReturnValue
         public SELF addHiveProperty(String key, String value)
         {
             this.hiveProperties.put(key, value);
             return self();
         }
 
+        @CanIgnoreReturnValue
         public SELF setInitialTables(Iterable<TpchTable<?>> initialTables)
         {
             this.initialTables = ImmutableList.copyOf(requireNonNull(initialTables, "initialTables is null"));
             return self();
         }
 
+        @CanIgnoreReturnValue
         public SELF setInitialSchemasLocationBase(String initialSchemasLocationBase)
         {
             this.initialSchemasLocationBase = Optional.of(initialSchemasLocationBase);
             return self();
         }
 
+        @CanIgnoreReturnValue
         public SELF setInitialTablesSessionMutator(Function<Session, Session> initialTablesSessionMutator)
         {
             this.initialTablesSessionMutator = requireNonNull(initialTablesSessionMutator, "initialTablesSessionMutator is null");
             return self();
         }
 
+        @CanIgnoreReturnValue
         public SELF setMetastore(Function<DistributedQueryRunner, HiveMetastore> metastore)
         {
             this.metastore = requireNonNull(metastore, "metastore is null");
             return self();
         }
 
+        @CanIgnoreReturnValue
         public SELF setModule(Module module)
         {
             this.module = requireNonNull(module, "module is null");
             return self();
         }
 
+        @CanIgnoreReturnValue
         public SELF setDirectoryLister(DirectoryLister directoryLister)
         {
             this.directoryLister = Optional.ofNullable(directoryLister);
             return self();
         }
 
+        @CanIgnoreReturnValue
         public SELF setTpcdsCatalogEnabled(boolean tpcdsCatalogEnabled)
         {
             this.tpcdsCatalogEnabled = tpcdsCatalogEnabled;
             return self();
         }
 
+        @CanIgnoreReturnValue
         public SELF setTpchBucketedCatalogEnabled(boolean tpchBucketedCatalogEnabled)
         {
             this.tpchBucketedCatalogEnabled = tpchBucketedCatalogEnabled;
             return self();
         }
 
-        public SELF setSecurity(String security)
-        {
-            this.security = requireNonNull(security, "security is null");
-            return self();
-        }
-
+        @CanIgnoreReturnValue
         public SELF setCreateTpchSchemas(boolean createTpchSchemas)
         {
             this.createTpchSchemas = createTpchSchemas;
             return self();
         }
 
+        @CanIgnoreReturnValue
         public SELF setTpchColumnNaming(ColumnNaming tpchColumnNaming)
         {
             this.tpchColumnNaming = requireNonNull(tpchColumnNaming, "tpchColumnNaming is null");
             return self();
         }
 
+        @CanIgnoreReturnValue
         public SELF setTpchDecimalTypeMapping(DecimalTypeMapping tpchDecimalTypeMapping)
         {
             this.tpchDecimalTypeMapping = requireNonNull(tpchDecimalTypeMapping, "tpchDecimalTypeMapping is null");
@@ -246,7 +254,7 @@ public final class HiveQueryRunner
                 }
                 hiveProperties.put("hive.max-partitions-per-scan", "1000");
                 hiveProperties.put("hive.max-partitions-for-eager-load", "1000");
-                hiveProperties.put("hive.security", security);
+                hiveProperties.put("hive.security", SQL_STANDARD);
                 hiveProperties.putAll(this.hiveProperties.buildOrThrow());
 
                 if (tpchBucketedCatalogEnabled) {
@@ -279,7 +287,7 @@ public final class HiveQueryRunner
         {
             if (metastore.getDatabase(TPCH_SCHEMA).isEmpty()) {
                 metastore.createDatabase(createDatabaseMetastoreObject(TPCH_SCHEMA, initialSchemasLocationBase));
-                Session session = initialTablesSessionMutator.apply(createSession(Optional.empty()));
+                Session session = initialTablesSessionMutator.apply(queryRunner.getDefaultSession());
                 copyTpchTables(queryRunner, "tpch", TINY_SCHEMA_NAME, session, initialTables);
             }
 
@@ -401,12 +409,12 @@ public final class HiveQueryRunner
 
         DistributedQueryRunner queryRunner = HiveQueryRunner.builder()
                 .setExtraProperties(ImmutableMap.of("http-server.http.port", "8080"))
+                .setHiveProperties(ImmutableMap.of("hive.security", ALLOW_ALL))
                 .setSkipTimezoneSetup(true)
                 .setHiveProperties(ImmutableMap.of())
                 .setInitialTables(TpchTable.getTables())
                 .setBaseDataDir(baseDataDir)
                 .setTpcdsCatalogEnabled(true)
-                .setSecurity(ALLOW_ALL)
                 // Uncomment to enable standard column naming (column names to be prefixed with the first letter of the table name, e.g.: o_orderkey vs orderkey)
                 // and standard column types (decimals vs double for some columns). This will allow running unmodified tpch queries on the cluster.
                 //.setTpchColumnNaming(ColumnNaming.STANDARD)
