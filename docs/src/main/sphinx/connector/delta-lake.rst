@@ -104,6 +104,8 @@ values. Typical usage does not require you to configure them.
         * ``SNAPPY``
         * ``ZSTD``
         * ``GZIP``
+
+        The equivalent catalog session property is ``compression_codec``.
       - ``SNAPPY``
     * - ``delta.max-partitions-per-writer``
       - Maximum number of partitions per writer.
@@ -134,15 +136,24 @@ values. Typical usage does not require you to configure them.
     * - ``delta.dynamic-filtering.wait-timeout``
       - Duration to wait for completion of :doc:`dynamic filtering
         </admin/dynamic-filtering>` during split generation.
+        The equivalent catalog session property is
+        ``dynamic_filtering_wait_timeout``.
       -
     * - ``delta.table-statistics-enabled``
       - Enables :ref:`Table statistics <delta-lake-table-statistics>` for
-        performance improvements.
+        performance improvements. The equivalent catalog session property
+        is ``statistics_enabled``.
       - ``true``
     * - ``delta.extended-statistics.enabled``
       - Enable statistics collection with :doc:`/sql/analyze` and
-        use of extended statistics.
-      - ``false``
+        use of extended statistics. The equivalent catalog session property
+        is ``extended_statistics_enabled``.
+      - ``true``
+    * - ``delta.extended-statistics.collect-on-write``
+      - Enable collection of extended statistics for write operations.
+        The equivalent catalog session property is
+        ``extended_statistics_collect_on_write``.
+      - ``true``
     * - ``delta.per-transaction-metastore-cache-maximum-size``
       - Maximum number of metastore data objects per transaction in
         the Hive metastore cache.
@@ -156,6 +167,7 @@ values. Typical usage does not require you to configure them.
       - JVM default
     * - ``delta.target-max-file-size``
       - Target maximum size of written files; the actual size could be larger.
+        The equivalent catalog session property is ``target_max_file_size``.
       - ``1GB``
     * - ``delta.unique-table-location``
       - Use randomized, unique table locations.
@@ -166,16 +178,17 @@ values. Typical usage does not require you to configure them.
     * - ``delta.vacuum.min-retention``
       - Minimum retention threshold for the files taken into account
         for removal by the :ref:`VACUUM<delta-lake-vacuum>` procedure.
+        The equivalent catalog session property is
+        ``vacuum_min_retention``.
       - ``7 DAYS``
 
 Catalog session properties
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The following table describes :ref:`catalog session properties
-<session-properties-definition>` supported by the Delta Lake connector to
-configure processing of Parquet files.
+<session-properties-definition>` supported by the Delta Lake connector:
 
-.. list-table:: Parquet catalog session properties
+.. list-table:: Catalog session properties
     :widths: 40, 60, 20
     :header-rows: 1
 
@@ -478,31 +491,6 @@ Flush metadata cache
   Flushes metadata cache entries of a specific table.
   Procedure requires passing named parameters.
 
-.. _delta-lake-write-support:
-
-Updating data
-"""""""""""""
-
-You can use the connector to :doc:`/sql/insert`, :doc:`/sql/delete`,
-:doc:`/sql/update`, and :doc:`/sql/merge` data in Delta Lake tables.
-
-Write operations are supported for tables stored on the following systems:
-
-* Azure ADLS Gen2, Google Cloud Storage
-
-  Writes to the Azure ADLS Gen2 and Google Cloud Storage are
-  enabled by default. Trino detects write collisions on these storage systems
-  when writing from multiple Trino clusters, or from other query engines.
-
-* S3 and S3-compatible storage
-
-  Writes to :doc:`Amazon S3 <hive-s3>` and S3-compatible storage must be enabled
-  with the ``delta.enable-non-concurrent-writes`` property. Writes to S3 can
-  safely be made from multiple Trino clusters; however, write collisions are not
-  detected when writing concurrently from other Delta Lake engines. You need to
-  make sure that no concurrent data modifications are run to avoid data
-  corruption.
-
 .. _delta-lake-vacuum:
 
 ``VACUUM``
@@ -530,6 +518,31 @@ The ``delta.vacuum.min-retention`` configuration property provides a safety
 measure to ensure that files are retained as expected. The minimum value for
 this property is ``0s``. There is a minimum retention session property as well,
 ``vacuum_min_retention``.
+
+.. _delta-lake-write-support:
+
+Updating data
+^^^^^^^^^^^^^
+
+You can use the connector to :doc:`/sql/insert`, :doc:`/sql/delete`,
+:doc:`/sql/update`, and :doc:`/sql/merge` data in Delta Lake tables.
+
+Write operations are supported for tables stored on the following systems:
+
+* Azure ADLS Gen2, Google Cloud Storage
+
+  Writes to the Azure ADLS Gen2 and Google Cloud Storage are
+  enabled by default. Trino detects write collisions on these storage systems
+  when writing from multiple Trino clusters, or from other query engines.
+
+* S3 and S3-compatible storage
+
+  Writes to :doc:`Amazon S3 <hive-s3>` and S3-compatible storage must be enabled
+  with the ``delta.enable-non-concurrent-writes`` property. Writes to S3 can
+  safely be made from multiple Trino clusters; however, write collisions are not
+  detected when writing concurrently from other Delta Lake engines. You need to
+  make sure that no concurrent data modifications are run to avoid data
+  corruption.
 
 .. _delta-lake-data-management:
 
@@ -918,6 +931,13 @@ To collect statistics for a table, execute the following statement::
 
   ANALYZE table_schema.table_name;
 
+To recalculate from scratch the statistics for the table use additional parameter ``mode``:
+
+  ANALYZE table_schema.table_name WITH(mode = 'full_refresh');
+
+There are two modes available ``full_refresh`` and ``incremental``.
+The procedure use ``incremental`` by default.
+
 To gain the most benefit from cost-based optimizations, run periodic ``ANALYZE``
 statements on every large table that is frequently queried.
 
@@ -1084,7 +1104,8 @@ connector.
         with highly skewed aggregations or joins.
       - ``0.05``
     * - ``parquet.max-read-block-row-count``
-      - Sets the maximum number of rows read in a batch.
+      - Sets the maximum number of rows read in a batch. The equivalent catalog
+        session property is ``parquet_max_read_block_row_count``.
       - ``8192``
     * - ``parquet.optimized-reader.enabled``
       - Specifies whether batched column readers are used when reading Parquet
@@ -1098,6 +1119,10 @@ connector.
         property to ``false`` to disable the optimized parquet reader by default
         for structural data types. The equivalent catalog session property is
         ``parquet_optimized_nested_reader_enabled``.
+      - ``true``
+    * - ``parquet.use-column-index``
+      - Skip reading Parquet pages by using Parquet column indices. The equivalent
+        catalog session property is ``parquet_use_column_index``.
       - ``true``
     * - ``delta.projection-pushdown-enabled``
       - Read only projected fields from row columns while performing ``SELECT`` queries

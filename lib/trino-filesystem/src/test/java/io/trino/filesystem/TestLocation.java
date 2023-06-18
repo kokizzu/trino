@@ -13,6 +13,7 @@
  */
 package io.trino.filesystem;
 
+import org.intellij.lang.annotations.Language;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
@@ -41,8 +42,19 @@ class TestLocation
         assertLocation("scheme:///some/path", "scheme", Optional.empty(), "", "some/path");
         // userInfo can be empty string
         assertLocation("scheme://user@/some/path", "scheme", Optional.of("user"), "", "some/path");
+        // userInfo can be arbitrary string (note: this documents current state, but does not imply the intent to support such locations)
+        assertLocation("scheme://host:1234/some/path//@here:444/there", Optional.of("scheme"), Optional.of("host:1234/some/path//"), Optional.of("here"), OptionalInt.of(444), "there");
         // host and userInfo can both be empty
         assertLocation("scheme://@/some/path", "scheme", Optional.of(""), "", "some/path");
+        // port or userInfo can be given even if host is not (note: this documents current state, but does not imply the intent to support such locations)
+        assertLocation("scheme://:1/some/path", Optional.of("scheme"), Optional.empty(), Optional.empty(), OptionalInt.of(1), "some/path");
+        assertLocation("scheme://@:1/some/path", Optional.of("scheme"), Optional.of(""), Optional.empty(), OptionalInt.of(1), "some/path");
+        assertLocation("scheme://@/", Optional.of("scheme"), Optional.of(""), Optional.empty(), OptionalInt.empty(), "");
+        assertLocation("scheme://@:1/", Optional.of("scheme"), Optional.of(""), Optional.empty(), OptionalInt.of(1), "");
+        assertLocation("scheme://:1/", Optional.of("scheme"), Optional.empty(), Optional.empty(), OptionalInt.of(1), "");
+        assertLocation("scheme://@//", Optional.of("scheme"), Optional.of(""), Optional.empty(), OptionalInt.empty(), "/");
+        assertLocation("scheme://@:1//", Optional.of("scheme"), Optional.of(""), Optional.empty(), OptionalInt.of(1), "/");
+        assertLocation("scheme://:1//", Optional.of("scheme"), Optional.empty(), Optional.empty(), OptionalInt.of(1), "/");
 
         // port is allowed
         assertLocation("hdfs://hadoop:9000/some/path", "hdfs", "hadoop", 9000, "some/path");
@@ -59,7 +71,6 @@ class TestLocation
         assertLocation("scheme://host///path//", "scheme", Optional.empty(), "host", "//path//");
 
         // the path can be empty
-        assertLocation("scheme://host", "scheme", Optional.empty(), "host", "");
         assertLocation("scheme://", "scheme", Optional.empty(), "", "");
         assertLocation("scheme://host/", "scheme", Optional.empty(), "host", "");
         assertLocation("scheme:///", "scheme", Optional.empty(), "", "");
@@ -70,12 +81,20 @@ class TestLocation
 
         // the location can be just a path
         assertLocation("/", "");
+        assertLocation("//", "/");
+        assertLocation("///", "//");
         assertLocation("/abc", "abc");
+        assertLocation("//abc", "/abc");
+        assertLocation("///abc", "//abc");
         assertLocation("/abc/xyz", "abc/xyz");
         assertLocation("/foo://host:port/path", "foo://host:port/path");
 
         // special handling for Locations without hostnames
         assertLocation("file:/", "file", "");
+        assertLocation("file://", "file", "");
+        assertLocation("file:///", "file", "");
+        assertLocation("file:////", "file", "/");
+        assertLocation("file://///", "file", "//");
         assertLocation("file:/hello.txt", "file", "hello.txt");
         assertLocation("file:/some/path", "file", "some/path");
         assertLocation("file:/some@what/path", "file", "some@what/path");
@@ -87,74 +106,115 @@ class TestLocation
 
         assertThatThrownBy(() -> Location.of(""))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("location is empty");
+                .hasMessage("location is empty");
         assertThatThrownBy(() -> Location.of("  "))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("location is blank");
+                .hasMessage("location is blank");
         assertThatThrownBy(() -> Location.of("x"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("scheme");
+                .hasMessage("No scheme for file system location: x");
         assertThatThrownBy(() -> Location.of("scheme://host:invalid/path"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("port");
+                .hasMessage("Invalid port in file system location: scheme://host:invalid/path");
+        assertThatThrownBy(() -> Location.of("scheme://:"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid port in file system location: scheme://:");
+        assertThatThrownBy(() -> Location.of("scheme://:/"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid port in file system location: scheme://:/");
+        assertThatThrownBy(() -> Location.of("scheme://@:/"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid port in file system location: scheme://@:/");
+
+        // no path
+        assertThatThrownBy(() -> Location.of("scheme://host"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Path missing in file system location: scheme://host");
+
+        assertThatThrownBy(() -> Location.of("scheme://userInfo@host"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Path missing in file system location: scheme://userInfo@host");
+
+        assertThatThrownBy(() -> Location.of("scheme://userInfo@host:1234"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Path missing in file system location: scheme://userInfo@host:1234");
+
+        // no path and empty host name
+        assertThatThrownBy(() -> Location.of("scheme://@"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Path missing in file system location: scheme://@");
+
+        assertThatThrownBy(() -> Location.of("scheme://@:1"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Path missing in file system location: scheme://@:1");
+
+        assertThatThrownBy(() -> Location.of("scheme://:1"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Path missing in file system location: scheme://:1");
+
+        assertThatThrownBy(() -> Location.of("scheme://:"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid port in file system location: scheme://:");
 
         // fragment is not allowed
         assertThatThrownBy(() -> Location.of("scheme://userInfo@host/some/path#fragement"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Fragment");
+                .hasMessage("Fragment is not allowed in a file system location: scheme://userInfo@host/some/path#fragement");
         assertThatThrownBy(() -> Location.of("scheme://userInfo@ho#st/some/path"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Fragment");
+                .hasMessage("Fragment is not allowed in a file system location: scheme://userInfo@ho#st/some/path");
         assertThatThrownBy(() -> Location.of("scheme://user#Info@host/some/path"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Fragment");
+                .hasMessage("Fragment is not allowed in a file system location: scheme://user#Info@host/some/path");
         assertThatThrownBy(() -> Location.of("sc#heme://userInfo@host/some/path"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Fragment");
+                .hasMessage("Fragment is not allowed in a file system location: sc#heme://userInfo@host/some/path");
 
         // query component is not allowed
         assertThatThrownBy(() -> Location.of("scheme://userInfo@host/some/path?fragement"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("query");
+                .hasMessage("URI query component is not allowed in a file system location: scheme://userInfo@host/some/path?fragement");
         assertThatThrownBy(() -> Location.of("scheme://userInfo@ho?st/some/path"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("query");
+                .hasMessage("URI query component is not allowed in a file system location: scheme://userInfo@ho?st/some/path");
         assertThatThrownBy(() -> Location.of("scheme://user?Info@host/some/path"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("query");
+                .hasMessage("URI query component is not allowed in a file system location: scheme://user?Info@host/some/path");
         assertThatThrownBy(() -> Location.of("sc?heme://userInfo@host/some/path"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("query");
+                .hasMessage("URI query component is not allowed in a file system location: sc?heme://userInfo@host/some/path");
     }
 
     private static void assertLocation(String locationString, String scheme, Optional<String> userInfo, String host, String path)
     {
-        Location location = Location.of(locationString);
         Optional<String> expectedHost = host.isEmpty() ? Optional.empty() : Optional.of(host);
-        assertLocation(location, locationString, Optional.of(scheme), userInfo, expectedHost, OptionalInt.empty(), path);
+        assertLocation(locationString, Optional.of(scheme), userInfo, expectedHost, OptionalInt.empty(), path);
     }
 
     private static void assertLocation(String locationString, String scheme, String path)
     {
-        Location location = Location.of(locationString);
-        assertLocation(location, locationString, Optional.of(scheme), Optional.empty(), Optional.empty(), OptionalInt.empty(), path);
+        assertLocation(locationString, Optional.of(scheme), Optional.empty(), Optional.empty(), OptionalInt.empty(), path);
     }
 
     private static void assertLocation(String locationString, String scheme, String host, int port, String path)
     {
-        Location location = Location.of(locationString);
-        assertLocation(location, locationString, Optional.of(scheme), Optional.empty(), Optional.of(host), OptionalInt.of(port), path);
+        assertLocation(locationString, Optional.of(scheme), Optional.empty(), Optional.of(host), OptionalInt.of(port), path);
     }
 
     private static void assertLocation(String locationString, String path)
     {
-        Location location = Location.of(locationString);
-        assertLocation(location, locationString, Optional.empty(), Optional.empty(), Optional.empty(), OptionalInt.empty(), path);
+        assertLocation(locationString, Optional.empty(), Optional.empty(), Optional.empty(), OptionalInt.empty(), path);
     }
 
     private static void assertLocation(Location actual, Location expected)
     {
         assertLocation(actual, expected.toString(), expected.scheme(), expected.userInfo(), expected.host(), expected.port(), expected.path());
+    }
+
+    private static void assertLocation(String locationString, Optional<String> scheme, Optional<String> userInfo, Optional<String> host, OptionalInt port, String path)
+    {
+        Location location = Location.of(locationString);
+        assertLocation(location, locationString, scheme, userInfo, host, port, path);
     }
 
     private static void assertLocation(Location location, String locationString, Optional<String> scheme, Optional<String> userInfo, Optional<String> host, OptionalInt port, String path)
@@ -183,14 +243,13 @@ class TestLocation
         Location.of("/name").verifyValidFileLocation();
         Location.of("/path/name").verifyValidFileLocation();
 
-        assertInvalidFileLocation("scheme://userInfo@host", "File location must contain a path");
-        assertInvalidFileLocation("scheme://userInfo@host/", "File location must contain a path");
-        assertInvalidFileLocation("scheme://userInfo@host/name/", "File location cannot end with '/'");
-        assertInvalidFileLocation("scheme://userInfo@host/name ", "File location cannot end with whitespace");
+        assertInvalidFileLocation("scheme://userInfo@host/", "File location must contain a path: scheme://userInfo@host/");
+        assertInvalidFileLocation("scheme://userInfo@host/name/", "File location cannot end with '/': scheme://userInfo@host/name/");
+        assertInvalidFileLocation("scheme://userInfo@host/name ", "File location cannot end with whitespace: scheme://userInfo@host/name ");
 
-        assertInvalidFileLocation("/", "File location must contain a path");
-        assertInvalidFileLocation("/name/", "File location cannot end with '/'");
-        assertInvalidFileLocation("/name ", "File location cannot end with whitespace");
+        assertInvalidFileLocation("/", "File location must contain a path: /");
+        assertInvalidFileLocation("/name/", "File location cannot end with '/': /name/");
+        assertInvalidFileLocation("/name ", "File location cannot end with whitespace: /name ");
     }
 
     private static void assertInvalidFileLocation(String locationString, String expectedErrorMessage)
@@ -199,15 +258,15 @@ class TestLocation
         assertThatThrownBy(location::verifyValidFileLocation)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining(locationString)
-                .hasMessageContaining(expectedErrorMessage);
+                .hasMessage(expectedErrorMessage);
         assertThatThrownBy(location::fileName)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining(locationString)
-                .hasMessageContaining(expectedErrorMessage);
+                .hasMessage(expectedErrorMessage);
         assertThatThrownBy(location::parentDirectory)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining(locationString)
-                .hasMessageContaining(expectedErrorMessage);
+                .hasMessage(expectedErrorMessage);
     }
 
     @Test
@@ -234,15 +293,32 @@ class TestLocation
     @Test
     void testParentDirectory()
     {
+        assertParentDirectoryFailure("scheme:/", "File location must contain a path: scheme:/");
+        assertParentDirectoryFailure("scheme://", "File location must contain a path: scheme://");
+        assertParentDirectoryFailure("scheme:///", "File location must contain a path: scheme:///");
+
+        assertParentDirectoryFailure("scheme://host/", "File location must contain a path: scheme://host/");
+        assertParentDirectoryFailure("scheme://userInfo@host/", "File location must contain a path: scheme://userInfo@host/");
+        assertParentDirectoryFailure("scheme://userInfo@host:1234/", "File location must contain a path: scheme://userInfo@host:1234/");
+
+        assertParentDirectoryFailure("scheme://host//", "File location must contain a path: scheme://host//");
+        assertParentDirectoryFailure("scheme://userInfo@host//", "File location must contain a path: scheme://userInfo@host//");
+        assertParentDirectoryFailure("scheme://userInfo@host:1234//", "File location must contain a path: scheme://userInfo@host:1234//");
+
         assertParentDirectory("scheme://userInfo@host/path/name", Location.of("scheme://userInfo@host/path"));
-        assertParentDirectory("scheme://userInfo@host:1234/name", Location.of("scheme://userInfo@host:1234"));
+        assertParentDirectory("scheme://userInfo@host:1234/name", Location.of("scheme://userInfo@host:1234/"));
 
         assertParentDirectory("scheme://userInfo@host/path//name", Location.of("scheme://userInfo@host/path/"));
         assertParentDirectory("scheme://userInfo@host/path///name", Location.of("scheme://userInfo@host/path//"));
         assertParentDirectory("scheme://userInfo@host/path:/name", Location.of("scheme://userInfo@host/path:"));
 
+        assertParentDirectoryFailure("/", "File location must contain a path: /");
+        assertParentDirectoryFailure("//", "File location must contain a path: //");
         assertParentDirectory("/path/name", Location.of("/path"));
         assertParentDirectory("/name", Location.of("/"));
+
+        assertParentDirectoryFailure("/path/name/", "File location cannot end with '/': /path/name/");
+        assertParentDirectoryFailure("/name/", "File location cannot end with '/': /name/");
 
         assertParentDirectory("/path//name", Location.of("/path/"));
         assertParentDirectory("/path///name", Location.of("/path//"));
@@ -262,10 +338,15 @@ class TestLocation
         assertLocation(parentDirectory, parentLocation);
     }
 
+    private static void assertParentDirectoryFailure(String locationString, @Language("RegExp") String expectedMessagePattern)
+    {
+        assertThatThrownBy(Location.of(locationString)::parentDirectory)
+                .hasMessageMatching(expectedMessagePattern);
+    }
+
     @Test
     void testAppendPath()
     {
-        assertAppendPath("scheme://userInfo@host", "name", Location.of("scheme://userInfo@host/name"));
         assertAppendPath("scheme://userInfo@host/", "name", Location.of("scheme://userInfo@host/name"));
 
         assertAppendPath("scheme://userInfo@host:1234/path", "name", Location.of("scheme://userInfo@host:1234/path/name"));
@@ -293,7 +374,6 @@ class TestLocation
     @Test
     void testAppendSuffix()
     {
-        assertAppendSuffix("scheme://userInfo@host", ".ext", Location.of("scheme://userInfo@host/.ext"));
         assertAppendSuffix("scheme://userInfo@host/", ".ext", Location.of("scheme://userInfo@host/.ext"));
 
         assertAppendSuffix("scheme://userInfo@host:1234/path", ".ext", Location.of("scheme://userInfo@host:1234/path.ext"));

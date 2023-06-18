@@ -151,9 +151,6 @@ public class TestDeltaLakeConnectorTest
             case SUPPORTS_SET_COLUMN_TYPE:
                 return false;
 
-            case SUPPORTS_COMMENT_ON_VIEW_COLUMN:
-                return false;
-
             case SUPPORTS_CREATE_MATERIALIZED_VIEW:
                 return false;
 
@@ -1455,7 +1452,7 @@ public class TestDeltaLakeConnectorTest
         getQueryRunner().execute(sessionWithShortRetentionUnlocked, "CALL delta.system.vacuum('test_schema', '" + tableName + "', '" + retention + "s')");
         allFilesFromCdfDirectory = getAllFilesFromCdfDirectory(tableName);
         assertThat(allFilesFromCdfDirectory).hasSizeBetween(1, 2);
-        assertQueryFails("SELECT * FROM TABLE(system.table_changes('test_schema', '" + tableName + "', 2))", "Error opening Hive split .*");
+        assertQueryFails("SELECT * FROM TABLE(system.table_changes('test_schema', '" + tableName + "', 2))", "Error opening Hive split.*/_change_data/.*The specified key does not exist.*");
         assertTableChangesQuery("SELECT * FROM TABLE(system.table_changes('test_schema', '" + tableName + "', 3))",
                 """
                         VALUES

@@ -112,6 +112,8 @@ import static io.trino.plugin.hive.metastore.thrift.ThriftMetastoreUtil.getHiveB
 import static io.trino.plugin.hive.metastore.thrift.ThriftMetastoreUtil.updateStatisticsParameters;
 import static io.trino.plugin.hive.util.HiveUtil.DELTA_LAKE_PROVIDER;
 import static io.trino.plugin.hive.util.HiveUtil.SPARK_TABLE_PROVIDER_KEY;
+import static io.trino.plugin.hive.util.HiveUtil.escapeSchemaName;
+import static io.trino.plugin.hive.util.HiveUtil.escapeTableName;
 import static io.trino.plugin.hive.util.HiveUtil.isIcebergTable;
 import static io.trino.plugin.hive.util.HiveUtil.toPartitionValues;
 import static io.trino.plugin.hive.util.HiveUtil.unescapePathName;
@@ -337,15 +339,17 @@ public class FileHiveMetastore
             }
         }
         else if (table.getTableType().equals(EXTERNAL_TABLE.name())) {
-            try {
-                Path externalLocation = new Path(table.getStorage().getLocation());
-                FileSystem externalFileSystem = hdfsEnvironment.getFileSystem(hdfsContext, externalLocation);
-                if (!externalFileSystem.isDirectory(externalLocation)) {
-                    throw new TrinoException(HIVE_METASTORE_ERROR, "External table location does not exist");
+            if (!disableLocationChecks) {
+                try {
+                    Path externalLocation = new Path(table.getStorage().getLocation());
+                    FileSystem externalFileSystem = hdfsEnvironment.getFileSystem(hdfsContext, externalLocation);
+                    if (!externalFileSystem.isDirectory(externalLocation)) {
+                        throw new TrinoException(HIVE_METASTORE_ERROR, "External table location does not exist");
+                    }
                 }
-            }
-            catch (IOException e) {
-                throw new TrinoException(HIVE_METASTORE_ERROR, "Could not validate external location", e);
+                catch (IOException e) {
+                    throw new TrinoException(HIVE_METASTORE_ERROR, "Could not validate external location", e);
+                }
             }
         }
         else if (!table.getTableType().equals(MATERIALIZED_VIEW.name())) {
@@ -1412,7 +1416,7 @@ public class FileHiveMetastore
 
     private Path getDatabaseMetadataDirectory(String databaseName)
     {
-        return new Path(catalogDirectory, databaseName);
+        return new Path(catalogDirectory, escapeSchemaName(databaseName));
     }
 
     private Path getTableMetadataDirectory(Table table)
@@ -1422,7 +1426,7 @@ public class FileHiveMetastore
 
     private Path getTableMetadataDirectory(String databaseName, String tableName)
     {
-        return new Path(getDatabaseMetadataDirectory(databaseName), tableName);
+        return new Path(getDatabaseMetadataDirectory(databaseName), escapeTableName(tableName));
     }
 
     private Path getPartitionMetadataDirectory(Table table, List<String> values)
