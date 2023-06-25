@@ -312,8 +312,8 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.TRINO_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.TRINO_AWS_SECRET_ACCESS_KEY }}
-          S3_BUCKET: "trino-ci-test"
-          S3_BUCKET_ENDPOINT: "https://s3.us-east-2.amazonaws.com"
+          S3_BUCKET: ${{ vars.TRINO_S3_BUCKET }}
+          S3_BUCKET_ENDPOINT: "https://s3.${{ vars.TRINO_AWS_REGION }}.amazonaws.com"
         run: |
           if [ "${AWS_ACCESS_KEY_ID}" != "" ]; then
             source plugin/trino-hive-hadoop2/conf/hive-tests-${{ matrix.config }}.sh &&
@@ -327,9 +327,9 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.TRINO_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.TRINO_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: us-east-2
-          S3_BUCKET: "trino-ci-test"
-          S3_BUCKET_ENDPOINT: "s3.us-east-2.amazonaws.com"
+          AWS_REGION: ${{ vars.TRINO_AWS_REGION }}
+          S3_BUCKET: ${{ vars.TRINO_S3_BUCKET }}
+          S3_BUCKET_ENDPOINT: "s3.${{ vars.TRINO_AWS_REGION }}.amazonaws.com"
         run: |
           if [ "${AWS_ACCESS_KEY_ID}" != "" ]; then
             $MAVEN test ${MAVEN_TEST} -pl :trino-hive -P aws-tests
@@ -534,6 +534,16 @@ jobs:
                 github.event.client_payload.pull_request.head.sha == github.event.client_payload.slash_command.args.named.sha &&
                 format('refs/pull/{0}/head', github.event.client_payload.pull_request.number) || '' }}
       - uses: ./.github/actions/setup
+      - name: Update PR check
+        uses: ./.github/actions/update-check
+        if: >-
+          always() &&
+          github.event_name == 'repository_dispatch' &&
+          github.event.client_payload.slash_command.args.named.sha != '' &&
+          github.event.client_payload.pull_request.head.sha == github.event.client_payload.slash_command.args.named.sha
+        with:
+          pull_request_number: ${{ github.event.client_payload.pull_request.number }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Maven validate
         run: |
           export MAVEN_OPTS="${MAVEN_INSTALL_OPTS}"
@@ -642,8 +652,8 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.TRINO_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.TRINO_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: us-east-2
-          S3_BUCKET: trino-ci-s3fs-test
+          AWS_REGION: ${{ vars.TRINO_AWS_REGION }}
+          S3_BUCKET: ${{ vars.TRINO_S3_S3FS_TESTS_BUCKET }}
         if: >-
           contains(matrix.modules, 'trino-filesystem-s3') && contains(matrix.profile, 'cloud-tests') &&
           (env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || env.AWS_ACCESS_KEY_ID != '' || env.AWS_SECRET_ACCESS_KEY != '')
@@ -655,10 +665,12 @@ jobs:
           ABFS_CONTAINER: ${{ secrets.AZURE_ABFS_CONTAINER }}
           ABFS_ACCOUNT: ${{ secrets.AZURE_ABFS_ACCOUNT }}
           ABFS_ACCESSKEY: ${{ secrets.AZURE_ABFS_ACCESSKEY }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESSKEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRETKEY }}
-          AWS_REGION: us-east-2
+          AWS_ACCESS_KEY_ID: ${{ secrets.TRINO_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TRINO_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ vars.TRINO_AWS_REGION }}
+          S3_BUCKET: ${{ vars.TRINO_S3_BUCKET }}
           GCP_CREDENTIALS_KEY: ${{ secrets.GCP_CREDENTIALS_KEY }}
+          GCP_STORAGE_BUCKET: ${{ vars.GCP_STORAGE_BUCKET }}
         # Run tests if any of the secrets is present. Do not skip tests when one secret renamed, or secret name has a typo.
         if: >-
           contains(matrix.modules, 'trino-delta-lake') && contains(matrix.profile, 'cloud-tests') &&
@@ -668,7 +680,7 @@ jobs:
             -Dhive.hadoop2.azure-abfs-container="${ABFS_CONTAINER}" \
             -Dhive.hadoop2.azure-abfs-account="${ABFS_ACCOUNT}" \
             -Dhive.hadoop2.azure-abfs-access-key="${ABFS_ACCESSKEY}" \
-            -Dtesting.gcp-storage-bucket="trino-ci-test" \
+            -Dtesting.gcp-storage-bucket="${GCP_STORAGE_BUCKET}" \
             -Dtesting.gcp-credentials-key="${GCP_CREDENTIALS_KEY}"
       - name: Memsql Tests
         env:
@@ -679,20 +691,22 @@ jobs:
       - name: Cloud BigQuery Tests
         env:
           BIGQUERY_CREDENTIALS_KEY: ${{ secrets.BIGQUERY_CREDENTIALS_KEY }}
+          GCP_STORAGE_BUCKET: ${{ vars.GCP_STORAGE_BUCKET }}
         if: matrix.modules == 'plugin/trino-bigquery' && !contains(matrix.profile, 'cloud-tests-arrow') && (env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || env.BIGQUERY_CREDENTIALS_KEY != '')
         run: |
           $MAVEN test ${MAVEN_TEST} -pl :trino-bigquery -Pcloud-tests \
             -Dbigquery.credentials-key="${BIGQUERY_CREDENTIALS_KEY}" \
-            -Dtesting.gcp-storage-bucket="trino-ci-test" \
+            -Dtesting.gcp-storage-bucket="${GCP_STORAGE_BUCKET}" \
             -Dtesting.alternate-bq-project-id=bigquery-cicd-alternate
       - name: Cloud BigQuery Arrow Serialization Tests
         env:
           BIGQUERY_CREDENTIALS_KEY: ${{ secrets.BIGQUERY_CREDENTIALS_KEY }}
+          GCP_STORAGE_BUCKET: ${{ vars.GCP_STORAGE_BUCKET }}
         if: matrix.modules == 'plugin/trino-bigquery' && contains(matrix.profile, 'cloud-tests-arrow') && (env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || env.BIGQUERY_CREDENTIALS_KEY != '')
         run: |
           $MAVEN test ${MAVEN_TEST} -pl :trino-bigquery -Pcloud-tests-arrow \
             -Dbigquery.credentials-key="${BIGQUERY_CREDENTIALS_KEY}" \
-            -Dtesting.gcp-storage-bucket="trino-ci-test"
+            -Dtesting.gcp-storage-bucket="${GCP_STORAGE_BUCKET}"
       - name: Cloud BigQuery Case Insensitive Mapping Tests
         env:
           BIGQUERY_CASE_INSENSITIVE_CREDENTIALS_KEY: ${{ secrets.BIGQUERY_CASE_INSENSITIVE_CREDENTIALS_KEY }}
@@ -703,9 +717,10 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.TRINO_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.TRINO_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: us-east-2
-          S3_BUCKET: trino-ci-test
+          AWS_REGION: ${{ vars.TRINO_AWS_REGION }}
+          S3_BUCKET: ${{ vars.TRINO_S3_BUCKET }}
           GCP_CREDENTIALS_KEY: ${{ secrets.GCP_CREDENTIALS_KEY }}
+          GCP_STORAGE_BUCKET: ${{ vars.GCP_STORAGE_BUCKET }}
           ABFS_CONTAINER: ${{ secrets.AZURE_ABFS_CONTAINER }}
           ABFS_ACCOUNT: ${{ secrets.AZURE_ABFS_ACCOUNT }}
           ABFS_ACCESS_KEY: ${{ secrets.AZURE_ABFS_ACCESSKEY }}
@@ -714,8 +729,7 @@ jobs:
           (env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || env.AWS_ACCESS_KEY_ID != '' || env.AWS_SECRET_ACCESS_KEY != '' || env.GCP_CREDENTIALS_KEY != '')
         run: |
           $MAVEN test ${MAVEN_TEST} -pl :trino-iceberg ${{ format('-P {0}', matrix.profile) }} \
-            -Ds3.bucket=${S3_BUCKET} \
-            -Dtesting.gcp-storage-bucket="trino-ci-test-us-east" \
+            -Dtesting.gcp-storage-bucket="${GCP_STORAGE_BUCKET}" \
             -Dtesting.gcp-credentials-key="${GCP_CREDENTIALS_KEY}" \
             -Dhive.hadoop2.azure-abfs-container="${ABFS_CONTAINER}" \
             -Dhive.hadoop2.azure-abfs-account="${ABFS_ACCOUNT}" \
@@ -1089,8 +1103,8 @@ jobs:
           ABFS_CONTAINER: ${{ secrets.AZURE_ABFS_CONTAINER }}
           ABFS_ACCOUNT: ${{ secrets.AZURE_ABFS_ACCOUNT }}
           ABFS_ACCESS_KEY: ${{ secrets.AZURE_ABFS_ACCESSKEY }}
-          S3_BUCKET: trino-ci-test
-          AWS_REGION: us-east-2
+          S3_BUCKET: ${{ vars.TRINO_S3_BUCKET }}
+          AWS_REGION: ${{ vars.TRINO_AWS_REGION }}
           TRINO_AWS_ACCESS_KEY_ID: ${{ secrets.TRINO_AWS_ACCESS_KEY_ID }}
           TRINO_AWS_SECRET_ACCESS_KEY: ${{ secrets.TRINO_AWS_SECRET_ACCESS_KEY }}
           DATABRICKS_73_JDBC_URL: ${{ secrets.DATABRICKS_73_JDBC_URL }}
@@ -1101,7 +1115,7 @@ jobs:
           DATABRICKS_LOGIN: token
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           GCP_CREDENTIALS_KEY: ${{ secrets.GCP_CREDENTIALS_KEY }}
-          GCP_STORAGE_BUCKET: trino-ci-test-us-east
+          GCP_STORAGE_BUCKET: ${{ vars.GCP_STORAGE_BUCKET }}
         run: |
           exec testing/trino-product-tests-launcher/target/trino-product-tests-launcher-*-executable.jar suite run \
             --suite ${{ matrix.suite }} \

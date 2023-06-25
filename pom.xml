@@ -10,7 +10,7 @@
 
     <groupId>io.trino</groupId>
     <artifactId>trino-root</artifactId>
-    <version>420-SNAPSHOT</version>
+    <version>421-SNAPSHOT</version>
 
     <name>trino-root</name>
     <description>Trino</description>
@@ -53,15 +53,15 @@
         <dep.arrow.version>11.0.0</dep.arrow.version>
         <dep.avro.version>1.11.1</dep.avro.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
-        <dep.aws-sdk.version>1.12.464</dep.aws-sdk.version>
-        <dep.aws-sdk-v2.version>2.20.78</dep.aws-sdk-v2.version>
+        <dep.aws-sdk.version>1.12.493</dep.aws-sdk.version>
+        <dep.aws-sdk-v2.version>2.20.89</dep.aws-sdk-v2.version>
         <dep.jsonwebtoken.version>0.11.5</dep.jsonwebtoken.version>
         <dep.oracle.version>21.9.0.0</dep.oracle.version>
         <dep.drift.version>1.20</dep.drift.version>
         <dep.tempto.version>197</dep.tempto.version>
         <dep.gcs.version>2.2.8</dep.gcs.version>
 
-        <dep.errorprone.version>2.19.1</dep.errorprone.version>
+        <dep.errorprone.version>2.20.0</dep.errorprone.version>
         <dep.testcontainers.version>1.18.3</dep.testcontainers.version>
         <dep.duct-tape.version>1.0.8</dep.duct-tape.version>
         <dep.coral.version>2.0.153</dep.coral.version>
@@ -772,7 +772,7 @@
             <dependency>
                 <groupId>io.trino.hadoop</groupId>
                 <artifactId>hadoop-apache</artifactId>
-                <version>3.2.0-18</version>
+                <version>3.3.5-1</version>
             </dependency>
 
             <dependency>
@@ -1897,7 +1897,7 @@
             <dependency>
                 <groupId>org.xerial.snappy</groupId>
                 <artifactId>snappy-java</artifactId>
-                <version>1.1.8.4</version>
+                <version>1.1.10.0</version>
                 <exclusions>
                     <exclusion>
                         <groupId>org.osgi</groupId>
@@ -1951,6 +1951,9 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-shade-plugin</artifactId>
+                    <configuration>
+                        <dependencyReducedPomLocation>${project.build.directory}/pom.xml</dependencyReducedPomLocation>
+                    </configuration>
                 </plugin>
 
                 <plugin>
@@ -2084,7 +2087,6 @@
                     <configuration>
                         <runOnlyOnce>true</runOnlyOnce>
                         <injectAllReactorProjects>true</injectAllReactorProjects>
-                        <offline>true</offline>
                         <!-- A workaround to make build work in a Git worktree, see https://github.com/git-commit-id/git-commit-id-maven-plugin/issues/215 -->
                         <useNativeGit>true</useNativeGit>
                     </configuration>

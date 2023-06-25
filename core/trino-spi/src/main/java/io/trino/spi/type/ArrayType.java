@@ -13,7 +13,6 @@
  */
 package io.trino.spi.type;
 
-import io.airlift.slice.Slice;
 import io.trino.spi.block.AbstractArrayBlock;
 import io.trino.spi.block.ArrayBlockBuilder;
 import io.trino.spi.block.Block;
@@ -222,24 +221,6 @@ public class ArrayType
     }
 
     @Override
-    public Slice getSlice(Block block, int position)
-    {
-        return block.getSlice(position, 0, block.getSliceLength(position));
-    }
-
-    @Override
-    public void writeSlice(BlockBuilder blockBuilder, Slice value)
-    {
-        writeSlice(blockBuilder, value, 0, value.length());
-    }
-
-    @Override
-    public void writeSlice(BlockBuilder blockBuilder, Slice value, int offset, int length)
-    {
-        blockBuilder.writeBytes(value, offset, length).closeEntry();
-    }
-
-    @Override
     public Block getObject(Block block, int position)
     {
         return block.getObject(position, Block.class);
@@ -249,22 +230,21 @@ public class ArrayType
     public void writeObject(BlockBuilder blockBuilder, Object value)
     {
         Block arrayBlock = (Block) value;
-
-        BlockBuilder entryBuilder = blockBuilder.beginBlockEntry();
-        for (int i = 0; i < arrayBlock.getPositionCount(); i++) {
-            elementType.appendTo(arrayBlock, i, entryBuilder);
-        }
-        blockBuilder.closeEntry();
+        ((ArrayBlockBuilder) blockBuilder).buildEntry(elementBuilder -> {
+            for (int i = 0; i < arrayBlock.getPositionCount(); i++) {
+                elementType.appendTo(arrayBlock, i, elementBuilder);
+            }
+        });
     }
 
     @Override
-    public BlockBuilder createBlockBuilder(BlockBuilderStatus blockBuilderStatus, int expectedEntries, int expectedBytesPerEntry)
+    public ArrayBlockBuilder createBlockBuilder(BlockBuilderStatus blockBuilderStatus, int expectedEntries, int expectedBytesPerEntry)
     {
         return new ArrayBlockBuilder(elementType, blockBuilderStatus, expectedEntries, expectedBytesPerEntry);
     }
 
     @Override
-    public BlockBuilder createBlockBuilder(BlockBuilderStatus blockBuilderStatus, int expectedEntries)
+    public ArrayBlockBuilder createBlockBuilder(BlockBuilderStatus blockBuilderStatus, int expectedEntries)
     {
         return createBlockBuilder(blockBuilderStatus, expectedEntries, 100);
     }

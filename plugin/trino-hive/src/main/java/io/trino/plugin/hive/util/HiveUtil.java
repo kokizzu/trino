@@ -25,6 +25,7 @@ import io.airlift.compress.lzo.LzoCodec;
 import io.airlift.compress.lzo.LzopCodec;
 import io.airlift.slice.Slice;
 import io.airlift.slice.SliceUtf8;
+import io.trino.filesystem.Location;
 import io.trino.hadoop.TextLineLengthLimitExceededException;
 import io.trino.hive.formats.compression.CompressionKind;
 import io.trino.orc.OrcWriterOptions;
@@ -186,7 +187,7 @@ public final class HiveUtil
     public static final String ICEBERG_TABLE_TYPE_VALUE = "iceberg";
 
     // Input formats class names are listed below as String due to hudi-hadoop-mr dependency is not in the context of trino-hive plugin
-    private static final String HUDI_PARQUET_INPUT_FORMAT = "org.apache.hudi.hadoop.HoodieParquetInputFormat";
+    public static final String HUDI_PARQUET_INPUT_FORMAT = "org.apache.hudi.hadoop.HoodieParquetInputFormat";
     private static final String HUDI_PARQUET_REALTIME_INPUT_FORMAT = "org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat";
     private static final String HUDI_INPUT_FORMAT = "com.uber.hoodie.hadoop.HoodieInputFormat";
     private static final String HUDI_REALTIME_INPUT_FORMAT = "com.uber.hoodie.hadoop.realtime.HoodieRealtimeInputFormat";
@@ -207,6 +208,11 @@ public final class HiveUtil
             .precomputed();
 
     private static final CharMatcher DOT_MATCHER = CharMatcher.is('.');
+
+    public static String splitError(Throwable t, Location location, long start, long length)
+    {
+        return format("Error opening Hive split %s (offset=%s, length=%s): %s", location, start, length, t.getMessage());
+    }
 
     static {
         DateTimeParser[] timestampWithoutTimeZoneParser = {
@@ -379,7 +385,7 @@ public final class HiveUtil
         }
     }
 
-    @SuppressWarnings({"unchecked", "RedundantCast"})
+    @SuppressWarnings("unchecked")
     private static Class<? extends InputFormat<?, ?>> getInputFormatClass(JobConf conf, String inputFormatName)
             throws ClassNotFoundException
     {
