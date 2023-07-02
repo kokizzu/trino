@@ -17,11 +17,12 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import com.google.inject.Inject;
 import io.trino.FeaturesConfig;
-import io.trino.collect.cache.NonEvictableCache;
+import io.trino.cache.NonEvictableCache;
 import io.trino.connector.CatalogServiceProvider;
 import io.trino.connector.system.GlobalSystemConnector;
 import io.trino.spi.TrinoException;
 import io.trino.spi.block.Block;
+import io.trino.spi.block.BlockBuilder;
 import io.trino.spi.connector.CatalogHandle;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.function.AggregationImplementation;
@@ -48,9 +49,9 @@ import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Throwables.throwIfInstanceOf;
 import static com.google.common.primitives.Primitives.wrap;
+import static io.trino.cache.CacheUtils.uncheckedCacheGet;
+import static io.trino.cache.SafeCaches.buildNonEvictableCache;
 import static io.trino.client.NodeVersion.UNKNOWN;
-import static io.trino.collect.cache.CacheUtils.uncheckedCacheGet;
-import static io.trino.collect.cache.SafeCaches.buildNonEvictableCache;
 import static io.trino.spi.StandardErrorCode.FUNCTION_IMPLEMENTATION_ERROR;
 import static io.trino.type.InternalTypeManager.TESTING_TYPE_MANAGER;
 import static java.lang.String.format;
@@ -192,6 +193,7 @@ public class FunctionManager
                 .mapToInt(InvocationArgumentConvention::getParameterCount)
                 .sum();
         expectedParameterCount += methodType.parameterList().stream().filter(ConnectorSession.class::equals).count();
+        expectedParameterCount += convention.getReturnConvention().getParameterCount();
         if (scalarFunctionImplementation.getInstanceFactory().isPresent()) {
             expectedParameterCount++;
         }
@@ -232,9 +234,10 @@ public class FunctionManager
                     verifyFunctionSignature(parameterType.isAssignableFrom(wrap(argumentType.getJavaType())),
                             "Expected argument type to be %s, but is %s", wrap(argumentType.getJavaType()), parameterType);
                     break;
+                case BLOCK_POSITION_NOT_NULL:
                 case BLOCK_POSITION:
                     verifyFunctionSignature(parameterType.equals(Block.class) && methodType.parameterType(parameterIndex + 1).equals(int.class),
-                            "Expected BLOCK_POSITION argument types to be Block and int");
+                            "Expected %s argument types to be Block and int".formatted(argumentConvention));
                     break;
                 case IN_OUT:
                     verifyFunctionSignature(parameterType.equals(InOut.class), "Expected IN_OUT argument type to be InOut");
@@ -260,6 +263,12 @@ public class FunctionManager
             case NULLABLE_RETURN:
                 verifyFunctionSignature(methodType.returnType().isAssignableFrom(wrap(returnType.getJavaType())),
                         "Expected return type to be %s, but is %s", returnType.getJavaType(), wrap(methodType.returnType()));
+                break;
+            case BLOCK_BUILDER:
+                verifyFunctionSignature(methodType.lastParameterType().equals(BlockBuilder.class),
+                        "Expected last argument type to be BlockBuilder, but is %s", methodType.lastParameterType());
+                verifyFunctionSignature(methodType.returnType().equals(void.class),
+                        "Expected return type to be void, but is %s", methodType.returnType());
                 break;
             default:
                 throw new UnsupportedOperationException("Unknown return convention: " + convention.getReturnConvention());

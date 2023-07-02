@@ -203,23 +203,28 @@ public abstract class BaseHiveConnectorTest
         this.bucketedSession = createBucketedSession(Optional.of(new SelectedRole(ROLE, Optional.of("admin"))));
     }
 
-    protected static QueryRunner createHiveQueryRunner(Map<String, String> extraProperties, Consumer<QueryRunner> additionalSetup)
+    @Override
+    protected QueryRunner createQueryRunner()
+            throws Exception
+    {
+        return createHiveQueryRunner(HiveQueryRunner.builder());
+    }
+
+    protected static QueryRunner createHiveQueryRunner(HiveQueryRunner.Builder<?> builder)
             throws Exception
     {
         // Use faster compression codec in tests. TODO remove explicit config when default changes
         verify(new HiveConfig().getHiveCompressionCodec() == HiveCompressionOption.GZIP);
         String hiveCompressionCodec = HiveCompressionCodec.ZSTD.name();
 
-        DistributedQueryRunner queryRunner = HiveQueryRunner.builder()
-                .setExtraProperties(extraProperties)
-                .setAdditionalSetup(additionalSetup)
-                .setHiveProperties(ImmutableMap.of(
-                        "hive.compression-codec", hiveCompressionCodec,
-                        "hive.allow-register-partition-procedure", "true",
-                        // Reduce writer sort buffer size to ensure SortingFileWriter gets used
-                        "hive.writer-sort-buffer-size", "1MB",
-                        // Make weighted split scheduling more conservative to avoid OOMs in test
-                        "hive.minimum-assigned-split-weight", "0.5"))
+        DistributedQueryRunner queryRunner = builder
+                .addHiveProperty("hive.compression-codec", hiveCompressionCodec)
+                .addHiveProperty("hive.allow-register-partition-procedure", "true")
+                // Reduce writer sort buffer size to ensure SortingFileWriter gets used
+                .addHiveProperty("hive.writer-sort-buffer-size", "1MB")
+                // Make weighted split scheduling more conservative to avoid OOMs in test
+                .addHiveProperty("hive.minimum-assigned-split-weight", "0.5")
+                .addHiveProperty("hive.partition-projection-enabled", "true")
                 .setInitialTables(REQUIRED_TPCH_TABLES)
                 .setTpchBucketedCatalogEnabled(true)
                 .build();
@@ -4332,6 +4337,33 @@ public abstract class BaseHiveConnectorTest
         assertUpdate(createTableSql);
         actualResult = computeActual("SHOW CREATE TABLE test_show_create_table_with_special_characters");
         assertEquals(getOnlyElement(actualResult.getOnlyColumnAsSet()), createTableSql);
+    }
+
+    @Test
+    public void testShowCreateTableWithColumnProperties()
+    {
+        try (TestTable table = new TestTable(
+                getQueryRunner()::execute,
+                "test_show_create_table_with_column_properties",
+                "(a INT, b INT WITH (partition_projection_type = 'INTEGER', partition_projection_range = ARRAY['0', '10'])) " +
+                        "WITH (" +
+                        "    partition_projection_enabled = true," +
+                        "    partitioned_by = ARRAY['b']," +
+                        "    partition_projection_location_template = 's3://example/${b}')")) {
+            String result = (String) computeScalar("SHOW CREATE TABLE " + table.getName());
+            assertEquals(
+                    result,
+                    "CREATE TABLE hive.tpch." + table.getName() + " (\n" +
+                            "   a integer,\n" +
+                            "   b integer WITH ( partition_projection_range = ARRAY['0','10'], partition_projection_type = 'INTEGER' )\n" +
+                            ")\n" +
+                            "WITH (\n" +
+                            "   format = 'ORC',\n" +
+                            "   partition_projection_enabled = true,\n" +
+                            "   partition_projection_location_template = 's3://example/${b}',\n" +
+                            "   partitioned_by = ARRAY['b']\n" +
+                            ")");
+        }
     }
 
     private void testCreateExternalTable(

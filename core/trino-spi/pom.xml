@@ -21,11 +21,6 @@
     <!-- the SPI should have only minimal dependencies -->
     <dependencies>
         <dependency>
-            <groupId>io.airlift</groupId>
-            <artifactId>slice</artifactId>
-        </dependency>
-
-        <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-annotations</artifactId>
         </dependency>
@@ -34,6 +29,11 @@
             <groupId>com.google.code.findbugs</groupId>
             <artifactId>jsr305</artifactId>
             <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>slice</artifactId>
         </dependency>
 
         <dependency>
@@ -53,10 +53,27 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- for testing -->
         <dependency>
-            <groupId>io.trino</groupId>
-            <artifactId>trino-testing-services</artifactId>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.google.inject</groupId>
+            <artifactId>guice</artifactId>
             <scope>test</scope>
         </dependency>
 
@@ -73,20 +90,8 @@
         </dependency>
 
         <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-core</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>com.google.guava</groupId>
-            <artifactId>guava</artifactId>
+            <groupId>io.trino</groupId>
+            <artifactId>trino-testing-services</artifactId>
             <scope>test</scope>
         </dependency>
 
@@ -136,16 +141,16 @@
     <build>
         <resources>
             <resource>
-                <directory>src/main/resources</directory>
                 <filtering>true</filtering>
+                <directory>src/main/resources</directory>
                 <includes>
                     <include>io/trino/spi/trino-spi-version.txt</include>
                 </includes>
             </resource>
 
             <resource>
-                <directory>src/main/resources</directory>
                 <filtering>false</filtering>
+                <directory>src/main/resources</directory>
                 <excludes>
                     <exclude>io/trino/spi/trino-spi-version.txt</exclude>
                 </excludes>
@@ -174,20 +179,6 @@
                 <groupId>org.revapi</groupId>
                 <artifactId>revapi-maven-plugin</artifactId>
                 <version>0.15.0</version>
-                <dependencies>
-                    <dependency>
-                        <groupId>org.revapi</groupId>
-                        <artifactId>revapi-java</artifactId>
-                        <version>0.28.1</version>
-                    </dependency>
-                </dependencies>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>check</goal>
-                        </goals>
-                    </execution>
-                </executions>
                 <configuration>
                     <skip>${trino.check.skip-revapi}</skip>
                     <ignoreSuggestionsFormat>xml</ignoreSuggestionsFormat>
@@ -451,10 +442,37 @@
                                     <code>java.method.removed</code>
                                     <old>method io.trino.spi.block.BlockBuilder io.trino.spi.block.VariableWidthBlockBuilder::writeLong(long)</old>
                                 </item>
+                                <item>
+                                    <code>java.method.visibilityReduced</code>
+                                    <old>method void io.trino.spi.type.TypeOperatorDeclaration.Builder::&lt;init&gt;(java.lang.Class&lt;?&gt;)</old>
+                                    <new>method void io.trino.spi.type.TypeOperatorDeclaration.Builder::&lt;init&gt;(java.lang.Class&lt;?&gt;)</new>
+                                    <oldVisibility>public</oldVisibility>
+                                    <newVisibility>private</newVisibility>
+                                    <justification>Constructor should have never been public as there is a static factory method</justification>
+                                </item>
+                                <item>
+                                    <code>java.method.numberOfParametersChanged</code>
+                                    <old>method java.lang.invoke.MethodHandle io.trino.spi.function.ScalarFunctionAdapter::adapt(java.lang.invoke.MethodHandle, java.util.List&lt;io.trino.spi.type.Type&gt;, io.trino.spi.function.InvocationConvention, io.trino.spi.function.InvocationConvention)</old>
+                                    <new>method java.lang.invoke.MethodHandle io.trino.spi.function.ScalarFunctionAdapter::adapt(java.lang.invoke.MethodHandle, io.trino.spi.type.Type, java.util.List&lt;io.trino.spi.type.Type&gt;, io.trino.spi.function.InvocationConvention, io.trino.spi.function.InvocationConvention)</new>
+                                </item>
                             </differences>
                         </revapi.differences>
                     </analysisConfiguration>
                 </configuration>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.revapi</groupId>
+                        <artifactId>revapi-java</artifactId>
+                        <version>0.28.1</version>
+                    </dependency>
+                </dependencies>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
