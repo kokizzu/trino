@@ -34,7 +34,7 @@ import io.trino.sql.planner.plan.TableScanNode;
 import io.trino.sql.planner.plan.TableWriterNode;
 import io.trino.testing.LocalQueryRunner;
 import org.intellij.lang.annotations.Language;
-import org.testng.annotations.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
@@ -129,7 +129,6 @@ public class TestLimitMaxWriterNodesCount
                         distributedWithFilteringAndRepartitioning(),
                         ImmutableList.of(PropertyMetadata.stringProperty("file_size_threshold", "file_size_threshold", "10GB", false)))))
                 .withPartitionProvider(new TestTableScanNodePartitioning.TestPartitioningProvider(new InMemoryNodeManager()))
-                .withSupportsReportingWrittenBytes(true)
                 .withMaxWriterTasks(maxWriterTasks)
                 .withGetColumns(schemaTableName -> ImmutableList.of(
                         new ColumnMetadata("column_a", VARCHAR),

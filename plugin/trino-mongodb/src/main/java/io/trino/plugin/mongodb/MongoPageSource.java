@@ -13,6 +13,7 @@
  */
 package io.trino.plugin.mongodb;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.Shorts;
 import com.google.common.primitives.SignedBytes;
 import com.mongodb.DBRef;
@@ -27,14 +28,15 @@ import io.trino.spi.block.BlockBuilder;
 import io.trino.spi.block.MapBlockBuilder;
 import io.trino.spi.block.RowBlockBuilder;
 import io.trino.spi.connector.ConnectorPageSource;
+import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.CharType;
 import io.trino.spi.type.DecimalType;
 import io.trino.spi.type.Decimals;
 import io.trino.spi.type.Int128;
 import io.trino.spi.type.MapType;
 import io.trino.spi.type.RowType;
+import io.trino.spi.type.RowType.Field;
 import io.trino.spi.type.Type;
-import io.trino.spi.type.TypeSignatureParameter;
 import io.trino.spi.type.VarbinaryType;
 import io.trino.spi.type.VarcharType;
 import org.bson.Document;
@@ -50,6 +52,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Verify.verify;
 import static io.airlift.slice.Slices.utf8Slice;
@@ -59,7 +62,6 @@ import static io.trino.plugin.mongodb.MongoSession.COLLECTION_NAME;
 import static io.trino.plugin.mongodb.MongoSession.DATABASE_NAME;
 import static io.trino.plugin.mongodb.MongoSession.ID;
 import static io.trino.plugin.mongodb.ObjectIdType.OBJECT_ID;
-import static io.trino.plugin.mongodb.TypeUtils.isArrayType;
 import static io.trino.plugin.mongodb.TypeUtils.isJsonType;
 import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static io.trino.spi.type.BigintType.BIGINT;
@@ -81,6 +83,7 @@ import static io.trino.spi.type.TinyintType.TINYINT;
 import static java.lang.Float.floatToIntBits;
 import static java.lang.Math.multiplyExact;
 import static java.lang.String.join;
+import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
 
 public class MongoPageSource
@@ -90,7 +93,7 @@ public class MongoPageSource
     private static final int ROWS_PER_REQUEST = 1024;
 
     private final MongoCursor<Document> cursor;
-    private final List<String> columnNames;
+    private final List<MongoColumnHandle> columns;
     private final List<Type> columnTypes;
     private Document currentDoc;
     private boolean finished;
@@ -102,7 +105,7 @@ public class MongoPageSource
             MongoTableHandle tableHandle,
             List<MongoColumnHandle> columns)
     {
-        this.columnNames = columns.stream().map(MongoColumnHandle::getName).collect(toList());
+        this.columns = ImmutableList.copyOf(requireNonNull(columns, "columns is null"));
         this.columnTypes = columns.stream().map(MongoColumnHandle::getType).collect(toList());
         this.cursor = mongoSession.execute(tableHandle, columns);
         currentDoc = null;
@@ -148,7 +151,8 @@ public class MongoPageSource
             pageBuilder.declarePosition();
             for (int column = 0; column < columnTypes.size(); column++) {
                 BlockBuilder output = pageBuilder.getBlockBuilder(column);
-                appendTo(columnTypes.get(column), currentDoc.get(columnNames.get(column)), output);
+                MongoColumnHandle columnHandle = columns.get(column);
+                appendTo(columnTypes.get(column), getColumnValue(currentDoc, columnHandle), output);
             }
         }
 
@@ -277,9 +281,9 @@ public class MongoPageSource
 
     private void writeBlock(BlockBuilder output, Type type, Object value)
     {
-        if (isArrayType(type)) {
+        if (type instanceof ArrayType arrayType) {
             if (value instanceof List<?> list) {
-                ((ArrayBlockBuilder) output).buildEntry(elementBuilder -> list.forEach(element -> appendTo(type.getTypeParameters().get(0), element, elementBuilder)));
+                ((ArrayBlockBuilder) output).buildEntry(elementBuilder -> list.forEach(element -> appendTo(arrayType.getElementType(), element, elementBuilder)));
                 return;
             }
         }
@@ -310,23 +314,24 @@ public class MongoPageSource
             }
         }
         else if (type instanceof RowType rowType) {
+            List<Field> fields = rowType.getFields();
             if (value instanceof Map<?, ?> mapValue) {
                 ((RowBlockBuilder) output).buildEntry(fieldBuilders -> {
-                    for (int i = 0; i < type.getTypeSignature().getParameters().size(); i++) {
-                        TypeSignatureParameter parameter = type.getTypeSignature().getParameters().get(i);
-                        String fieldName = parameter.getNamedTypeSignature().getName().orElse("field" + i);
-                        appendTo(type.getTypeParameters().get(i), mapValue.get(fieldName), fieldBuilders.get(i));
+                    for (int i = 0; i < fields.size(); i++) {
+                        Field field = fields.get(i);
+                        String fieldName = field.getName().orElse("field" + i);
+                        appendTo(field.getType(), mapValue.get(fieldName), fieldBuilders.get(i));
                     }
                 });
                 return;
             }
             if (value instanceof DBRef dbRefValue) {
-                checkState(type.getTypeParameters().size() == 3, "DBRef should have 3 fields : %s", type);
+                checkState(fields.size() == 3, "DBRef should have 3 fields : %s", type);
                 ((RowBlockBuilder) output).buildEntry(fieldBuilders -> {
-                    for (int i = 0; i < type.getTypeSignature().getParameters().size(); i++) {
-                        TypeSignatureParameter parameter = type.getTypeSignature().getParameters().get(i);
-                        Type fieldType = type.getTypeParameters().get(i);
-                        String fieldName = parameter.getNamedTypeSignature().getName().orElseThrow();
+                    for (int i = 0; i < fields.size(); i++) {
+                        Field field = fields.get(i);
+                        Type fieldType = field.getType();
+                        String fieldName = field.getName().orElseThrow();
                         BlockBuilder builder = fieldBuilders.get(i);
                         switch (fieldName) {
                             case DATABASE_NAME -> appendTo(fieldType, dbRefValue.getDatabaseName(), builder);
@@ -340,9 +345,9 @@ public class MongoPageSource
             }
             if (value instanceof List<?> listValue) {
                 ((RowBlockBuilder) output).buildEntry(fieldBuilders -> {
-                    for (int index = 0; index < type.getTypeParameters().size(); index++) {
+                    for (int index = 0; index < fields.size(); index++) {
                         if (index < listValue.size()) {
-                            appendTo(type.getTypeParameters().get(index), listValue.get(index), fieldBuilders.get(index));
+                            appendTo(fields.get(index).getType(), listValue.get(index), fieldBuilders.get(index));
                         }
                         else {
                             fieldBuilders.get(index).appendNull();
@@ -358,6 +363,50 @@ public class MongoPageSource
 
         // not a convertible value
         output.appendNull();
+    }
+
+    private static Object getColumnValue(Document document, MongoColumnHandle mongoColumnHandle)
+    {
+        Object value = document.get(mongoColumnHandle.getBaseName());
+        if (mongoColumnHandle.isBaseColumn()) {
+            return value;
+        }
+        if (value instanceof DBRef dbRefValue) {
+            return getDbRefValue(dbRefValue, mongoColumnHandle);
+        }
+        Document documentValue = (Document) value;
+        for (String dereferenceName : mongoColumnHandle.getDereferenceNames()) {
+            // When parent field itself is null
+            if (documentValue == null) {
+                return null;
+            }
+            value = documentValue.get(dereferenceName);
+            if (value instanceof Document nestedDocument) {
+                documentValue = nestedDocument;
+            }
+            else if (value instanceof DBRef dbRefValue) {
+                // Assuming DBRefField is the leaf field
+                return getDbRefValue(dbRefValue, mongoColumnHandle);
+            }
+        }
+        return value;
+    }
+
+    private static Object getDbRefValue(DBRef dbRefValue, MongoColumnHandle columnHandle)
+    {
+        if (columnHandle.getType() instanceof RowType) {
+            return dbRefValue;
+        }
+        checkArgument(columnHandle.isDbRefField(), "columnHandle is not a dbRef field: " + columnHandle);
+        List<String> dereferenceNames = columnHandle.getDereferenceNames();
+        checkState(!dereferenceNames.isEmpty(), "dereferenceNames is empty");
+        String leafColumnName = dereferenceNames.get(dereferenceNames.size() - 1);
+        return switch (leafColumnName) {
+            case DATABASE_NAME -> dbRefValue.getDatabaseName();
+            case COLLECTION_NAME -> dbRefValue.getCollectionName();
+            case ID -> dbRefValue.getId();
+            default -> throw new IllegalStateException("Unsupported DBRef column name: " + leafColumnName);
+        };
     }
 
     @Override

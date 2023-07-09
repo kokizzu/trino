@@ -22,11 +22,10 @@ import io.airlift.units.Duration;
 import io.airlift.units.MinDataSize;
 import io.airlift.units.MinDuration;
 import io.trino.operator.RetryPolicy;
-
-import javax.validation.constraints.DecimalMin;
-import javax.validation.constraints.Max;
-import javax.validation.constraints.Min;
-import javax.validation.constraints.NotNull;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -111,12 +110,12 @@ public class QueryManagerConfig
     private int remoteTaskGuaranteedSplitPerTask = 3;
 
     private int faultTolerantExecutionArbitraryDistributionComputeTaskTargetSizeGrowthPeriod = 64;
-    private double faultTolerantExecutionArbitraryDistributionComputeTaskTargetSizeGrowthFactor = 1.2;
+    private double faultTolerantExecutionArbitraryDistributionComputeTaskTargetSizeGrowthFactor = 1.26;
     private DataSize faultTolerantExecutionArbitraryDistributionComputeTaskTargetSizeMin = DataSize.of(512, MEGABYTE);
     private DataSize faultTolerantExecutionArbitraryDistributionComputeTaskTargetSizeMax = DataSize.of(50, GIGABYTE);
 
     private int faultTolerantExecutionArbitraryDistributionWriteTaskTargetSizeGrowthPeriod = 64;
-    private double faultTolerantExecutionArbitraryDistributionWriteTaskTargetSizeGrowthFactor = 1.2;
+    private double faultTolerantExecutionArbitraryDistributionWriteTaskTargetSizeGrowthFactor = 1.26;
     private DataSize faultTolerantExecutionArbitraryDistributionWriteTaskTargetSizeMin = DataSize.of(4, GIGABYTE);
     private DataSize faultTolerantExecutionArbitraryDistributionWriteTaskTargetSizeMax = DataSize.of(50, GIGABYTE);
 

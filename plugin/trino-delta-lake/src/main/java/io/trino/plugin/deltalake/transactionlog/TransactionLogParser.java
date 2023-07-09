@@ -14,7 +14,6 @@
 package io.trino.plugin.deltalake.transactionlog;
 
 import com.fasterxml.jackson.core.JsonParseException;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.failsafe.Failsafe;
@@ -30,10 +29,8 @@ import io.trino.plugin.deltalake.transactionlog.checkpoint.LastCheckpoint;
 import io.trino.spi.TrinoException;
 import io.trino.spi.type.DecimalType;
 import io.trino.spi.type.Decimals;
-import io.trino.spi.type.StandardTypes;
 import io.trino.spi.type.Type;
-
-import javax.annotation.Nullable;
+import jakarta.annotation.Nullable;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -67,7 +64,7 @@ import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.spi.type.RealType.REAL;
 import static io.trino.spi.type.SmallintType.SMALLINT;
 import static io.trino.spi.type.TimeZoneKey.UTC_KEY;
-import static io.trino.spi.type.TimestampWithTimeZoneType.createTimestampWithTimeZoneType;
+import static io.trino.spi.type.TimestampWithTimeZoneType.TIMESTAMP_TZ_MILLIS;
 import static io.trino.spi.type.TinyintType.TINYINT;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.lang.Double.parseDouble;
@@ -88,7 +85,7 @@ public final class TransactionLogParser
 
     // Before 1900, Java Time and Joda Time are not consistent with java.sql.Date and java.util.Calendar
     // Since January 1, 1900 UTC is still December 31, 1899 in other zones, we are adding a 1 day margin.
-    public static final LocalDate START_OF_MODERN_ERA = LocalDate.of(1900, 1, 2);
+    public static final long START_OF_MODERN_ERA_EPOCH_DAY = LocalDate.of(1900, 1, 2).toEpochDay();
 
     public static final String LAST_CHECKPOINT_FILENAME = "_last_checkpoint";
 
@@ -132,7 +129,6 @@ public final class TransactionLogParser
             .withResolverStyle(ResolverStyle.STRICT);
 
     public static DeltaLakeTransactionLogEntry parseJson(String json)
-            throws JsonProcessingException
     {
         // lines are json strings followed by 'x' in some Databricks versions of Delta
         if (json.endsWith("x")) {
@@ -187,8 +183,8 @@ public final class TransactionLogParser
             if (type.equals(BIGINT)) {
                 return parseLong(valueString);
             }
-            if (type.getBaseName().equals(StandardTypes.DECIMAL)) {
-                return parseDecimal((DecimalType) type, valueString);
+            if (type instanceof DecimalType decimalType) {
+                return parseDecimal(decimalType, valueString);
             }
             if (type.equals(REAL)) {
                 return (long) floatToRawIntBits(parseFloat(valueString));
@@ -200,7 +196,7 @@ public final class TransactionLogParser
                 // date values are represented as yyyy-MM-dd
                 return LocalDate.parse(valueString).toEpochDay();
             }
-            if (type.equals(createTimestampWithTimeZoneType(3))) {
+            if (type.equals(TIMESTAMP_TZ_MILLIS)) {
                 return timestampReader.apply(valueString);
             }
             if (VARCHAR.equals(type)) {

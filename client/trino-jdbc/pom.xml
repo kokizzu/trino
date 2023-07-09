@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>421-SNAPSHOT</version>
+        <version>422-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -20,8 +20,8 @@
 
     <dependencies>
         <dependency>
-            <groupId>com.google.code.findbugs</groupId>
-            <artifactId>jsr305</artifactId>
+            <groupId>com.google.errorprone</groupId>
+            <artifactId>error_prone_annotations</artifactId>
             <optional>true</optional>
         </dependency>
 
@@ -29,6 +29,10 @@
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
             <exclusions>
+                <exclusion>
+                    <groupId>com.google.code.findbugs</groupId>
+                    <artifactId>jsr305</artifactId>
+                </exclusion>
                 <exclusion>
                     <groupId>com.google.errorprone</groupId>
                     <artifactId>error_prone_annotations</artifactId>
@@ -61,13 +65,29 @@
         </dependency>
 
         <dependency>
+            <groupId>io.opentelemetry.instrumentation</groupId>
+            <artifactId>opentelemetry-okhttp-3.0</artifactId>
+        </dependency>
+
+        <dependency>
             <groupId>io.trino</groupId>
             <artifactId>trino-client</artifactId>
         </dependency>
 
         <dependency>
+            <groupId>jakarta.annotation</groupId>
+            <artifactId>jakarta.annotation-api</artifactId>
+        </dependency>
+
+        <dependency>
             <groupId>joda-time</groupId>
             <artifactId>joda-time</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+            <scope>provided</scope>
         </dependency>
 
         <dependency>
@@ -350,10 +370,6 @@
                                     <shadedPattern>${shadeBase}.airlift</shadedPattern>
                                 </relocation>
                                 <relocation>
-                                    <pattern>javax.annotation</pattern>
-                                    <shadedPattern>${shadeBase}.javax.annotation</shadedPattern>
-                                </relocation>
-                                <relocation>
                                     <pattern>jakarta.annotation</pattern>
                                     <shadedPattern>${shadeBase}.jakarta.annotation</shadedPattern>
                                 </relocation>
@@ -364,6 +380,10 @@
                                 <relocation>
                                     <pattern>okhttp3</pattern>
                                     <shadedPattern>${shadeBase}.okhttp3</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>io.opentelemetry.instrumentation</pattern>
+                                    <shadedPattern>${shadeBase}.opentelemetry.instrumentation</shadedPattern>
                                 </relocation>
                                 <relocation>
                                     <pattern>okio</pattern>
@@ -390,6 +410,7 @@
                                     <excludes>
                                         <exclude>org/jetbrains/**</exclude>
                                         <exclude>org/intellij/**</exclude>
+                                        <exclude>com/google/errorprone/**</exclude>
                                         <exclude>META-INF/maven/**</exclude>
                                         <exclude>META-INF/services/com.fasterxml.**</exclude>
                                         <exclude>META-INF/proguard/**</exclude>
@@ -400,6 +421,9 @@
                                         <exclude>META-INF/*-NOTICE</exclude>
                                         <exclude>META-INF/*-LICENSE</exclude>
                                         <exclude>META-INF/LICENSE**</exclude>
+                                        <exclude>META-INF/io/opentelemetry/**</exclude>
+                                        <exclude>io/opentelemetry/semconv/**</exclude>
+                                        <exclude>META-INF/native-image/**</exclude>
                                     </excludes>
                                 </filter>
                             </filters>

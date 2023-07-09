@@ -25,8 +25,8 @@ import io.trino.sql.planner.plan.Assignments;
 import io.trino.sql.planner.plan.ExchangeNode;
 import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.TableFinishNode;
-import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Test;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
@@ -41,7 +41,7 @@ public class TestRemoveEmptyMergeWriterRuleSet
     private CatalogHandle catalogHandle;
     private SchemaTableName schemaTableName;
 
-    @BeforeClass
+    @BeforeAll
     public void setup()
     {
         catalogHandle = tester().getCurrentCatalogHandle();
@@ -89,7 +89,7 @@ public class TestRemoveEmptyMergeWriterRuleSet
                             List.of(rowCount));
                     return p.tableFinish(
                             planWithExchange ? withExchange(p, merge, rowCount) : merge,
-                            p.createTarget(catalogHandle, schemaTableName, true, true),
+                            p.createTarget(catalogHandle, schemaTableName, true),
                             rowCount);
                 })
                 .matches(values("A"));

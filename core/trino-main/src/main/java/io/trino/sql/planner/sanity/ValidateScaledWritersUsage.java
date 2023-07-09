@@ -82,12 +82,9 @@ public class ValidateScaledWritersUsage
             TableWriterNode.WriterTarget target = node.getTarget();
 
             scaleWriterPartitioningHandle.forEach(partitioningHandle -> {
-                checkState(target.supportsReportingWrittenBytes(plannerContext.getMetadata(), session),
-                        "The scaled writer partitioning scheme is set but writer target %s doesn't support reporting physical written bytes", target);
-
                 if (isScaledWriterHashDistribution(partitioningHandle)) {
                     checkState(target.supportsMultipleWritersPerPartition(plannerContext.getMetadata(), session),
-                            "The scaled writer partitioning scheme is set for the partitioned write but writer target %s doesn't support multiple writers per partition", target);
+                            "The hash scaled writer partitioning scheme is set for the partitioned write but writer target %s doesn't support multiple writers per partition", target);
                 }
             });
             return children;

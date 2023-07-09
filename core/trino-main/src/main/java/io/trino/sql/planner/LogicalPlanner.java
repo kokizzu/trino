@@ -108,8 +108,7 @@ import io.trino.tracing.ScopedSpan;
 import io.trino.tracing.TrinoAttributes;
 import io.trino.type.TypeCoercion;
 import io.trino.type.UnknownType;
-
-import javax.annotation.Nonnull;
+import jakarta.annotation.Nonnull;
 
 import java.util.AbstractMap.SimpleImmutableEntry;
 import java.util.ArrayList;
@@ -945,8 +944,7 @@ public class LogicalPlanner
                 .map(ColumnMetadata::getName)
                 .collect(toImmutableList());
 
-        boolean supportsReportingWrittenBytes = metadata.supportsReportingWrittenBytes(session, tableHandle);
-        TableWriterNode.TableExecuteTarget tableExecuteTarget = new TableWriterNode.TableExecuteTarget(executeHandle, Optional.empty(), tableName.asSchemaTableName(), supportsReportingWrittenBytes);
+        TableWriterNode.TableExecuteTarget tableExecuteTarget = new TableWriterNode.TableExecuteTarget(executeHandle, Optional.empty(), tableName.asSchemaTableName());
 
         Optional<TableLayout> layout = metadata.getLayoutForTableExecute(session, executeHandle);
 

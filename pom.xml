@@ -10,7 +10,7 @@
 
     <groupId>io.trino</groupId>
     <artifactId>trino-root</artifactId>
-    <version>421-SNAPSHOT</version>
+    <version>422-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>trino-root</name>
@@ -151,7 +151,7 @@
         <dep.accumulo.version>1.10.2</dep.accumulo.version>
         <dep.accumulo-hadoop.version>2.7.7-1</dep.accumulo-hadoop.version>
         <dep.antlr.version>4.13.0</dep.antlr.version>
-        <dep.airlift.version>233</dep.airlift.version>
+        <dep.airlift.version>234</dep.airlift.version>
         <dep.arrow.version>11.0.0</dep.arrow.version>
         <dep.avro.version>1.11.1</dep.avro.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
@@ -244,7 +244,7 @@
             <dependency>
                 <groupId>org.jdbi</groupId>
                 <artifactId>jdbi3-bom</artifactId>
-                <version>3.38.2</version>
+                <version>3.39.1</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -672,7 +672,7 @@
             <dependency>
                 <groupId>io.airlift</groupId>
                 <artifactId>units</artifactId>
-                <version>1.8</version>
+                <version>1.9</version>
             </dependency>
 
             <dependency>
@@ -2290,6 +2290,22 @@
                                 <type>jar</type>
                                 <repositoryType>MAIN</repositoryType>
                             </DynamicDependency>
+                            <DynamicDependency>
+                                <groupId>io.airlift</groupId>
+                                <artifactId>event-http</artifactId>
+                                <!-- it's not resolved by dependency-plugin correctly -->
+                                <version>${dep.airlift.version}</version>
+                                <type>jar</type>
+                                <repositoryType>MAIN</repositoryType>
+                            </DynamicDependency>
+                            <DynamicDependency>
+                                <groupId>io.airlift</groupId>
+                                <artifactId>jmx-http-rpc</artifactId>
+                                <!-- it's not resolved by dependency-plugin correctly -->
+                                <version>${dep.airlift.version}</version>
+                                <type>jar</type>
+                                <repositoryType>MAIN</repositoryType>
+                            </DynamicDependency>
                         </dynamicDependencies>
                     </configuration>
                 </plugin>
@@ -2366,6 +2382,8 @@
                                     <!-- needs some careful inspection -->
                                     -Xep:GuardedBy:OFF \
                                     -Xep:HidingField:ERROR \
+                                    <!-- This check requires list fields to be declared as ImmutableList, which is not in line with project's code style -->
+                                    -Xep:Immutable:OFF \
                                     <!-- flags enums with List fields even if initialized with ImmutableList, and other false positives -->
                                     -Xep:ImmutableEnumChecker:OFF \
                                     -Xep:ImmutableSetForContains:ERROR \
@@ -2388,8 +2406,6 @@
                                     -Xep:PrimitiveArrayPassedToVarargsMethod:ERROR \
                                     -Xep:StaticAssignmentOfThrowable:ERROR \
                                     -Xep:StreamResourceLeak:ERROR \
-                                    <!-- we deliberately use it in a couple of places -->
-                                    -Xep:UnnecessaryLambda:OFF \
                                     -Xep:UnnecessaryMethodReference:ERROR \
                                     -Xep:UnnecessaryOptionalGet:ERROR \
                                     -Xep:UnusedVariable:ERROR \

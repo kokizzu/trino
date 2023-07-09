@@ -17,7 +17,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Enums;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -35,7 +34,6 @@ import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.DecimalType;
 import io.trino.spi.type.MapType;
 import io.trino.spi.type.RowType;
-import io.trino.spi.type.StandardTypes;
 import io.trino.spi.type.TimestampWithTimeZoneType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeManager;
@@ -43,8 +41,7 @@ import io.trino.spi.type.TypeNotFoundException;
 import io.trino.spi.type.TypeSignature;
 import io.trino.spi.type.TypeSignatureParameter;
 import io.trino.spi.type.VarcharType;
-
-import javax.annotation.Nullable;
+import jakarta.annotation.Nullable;
 
 import java.util.AbstractMap;
 import java.util.List;
@@ -71,7 +68,7 @@ import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.spi.type.RealType.REAL;
 import static io.trino.spi.type.SmallintType.SMALLINT;
-import static io.trino.spi.type.TimestampWithTimeZoneType.createTimestampWithTimeZoneType;
+import static io.trino.spi.type.TimestampWithTimeZoneType.TIMESTAMP_TZ_MILLIS;
 import static io.trino.spi.type.TinyintType.TINYINT;
 import static io.trino.spi.type.VarbinaryType.VARBINARY;
 import static io.trino.spi.type.VarcharType.VARCHAR;
@@ -86,6 +83,7 @@ public final class DeltaLakeSchemaSupport
 
     public static final String APPEND_ONLY_CONFIGURATION_KEY = "delta.appendOnly";
     public static final String COLUMN_MAPPING_MODE_CONFIGURATION_KEY = "delta.columnMapping.mode";
+    public static final String COLUMN_MAPPING_PHYSICAL_NAME_CONFIGURATION_KEY = "delta.columnMapping.physicalName";
     public static final String MAX_COLUMN_ID_CONFIGURATION_KEY = "delta.columnMapping.maxColumnId";
 
     // https://github.com/delta-io/delta/blob/master/PROTOCOL.md#valid-feature-names-in-table-features
@@ -374,8 +372,7 @@ public final class DeltaLakeSchemaSupport
         }
     }
 
-    @VisibleForTesting
-    static List<DeltaLakeColumnMetadata> getColumnMetadata(String json, TypeManager typeManager, ColumnMappingMode mappingMode)
+    public static List<DeltaLakeColumnMetadata> getColumnMetadata(String json, TypeManager typeManager, ColumnMappingMode mappingMode)
     {
         try {
             return stream(OBJECT_MAPPER.readTree(json).get("fields").elements())
@@ -518,9 +515,35 @@ public final class DeltaLakeSchemaSupport
         }
     }
 
+    /**
+     * @return the case-sensitive column names
+     */
+    public static List<String> getExactColumnNames(MetadataEntry metadataEntry)
+    {
+        try {
+            return stream(OBJECT_MAPPER.readTree(metadataEntry.getSchemaString()).get("fields").elements())
+                    .map(field -> field.get("name").asText())
+                    .collect(toImmutableList());
+        }
+        catch (JsonProcessingException e) {
+            throw new TrinoException(DELTA_LAKE_INVALID_SCHEMA, getLocation(e), "Failed to parse serialized schema: " + metadataEntry.getSchemaString(), e);
+        }
+    }
+
     public static Set<String> unsupportedReaderFeatures(Set<String> features)
     {
         return Sets.difference(features, SUPPORTED_READER_FEATURES);
+    }
+
+    public static Type deserializeType(TypeManager typeManager, Object type, boolean usePhysicalName)
+    {
+        try {
+            String json = OBJECT_MAPPER.writeValueAsString(type);
+            return buildType(typeManager, OBJECT_MAPPER.readTree(json), usePhysicalName);
+        }
+        catch (JsonProcessingException e) {
+            throw new TrinoException(DELTA_LAKE_INVALID_SCHEMA, "Failed to deserialize type: " + type);
+        }
     }
 
     private static Type buildType(TypeManager typeManager, JsonNode typeNode, boolean usePhysicalName)
@@ -529,7 +552,7 @@ public final class DeltaLakeSchemaSupport
             return buildContainerType(typeManager, typeNode, usePhysicalName);
         }
         String primitiveType = typeNode.asText();
-        if (primitiveType.startsWith(StandardTypes.DECIMAL)) {
+        if (primitiveType.startsWith("decimal")) {
             return typeManager.fromSqlType(primitiveType);
         }
         switch (primitiveType) {
@@ -557,7 +580,7 @@ public final class DeltaLakeSchemaSupport
                 // Spark/DeltaLake stores timestamps in UTC, but renders them in session time zone.
                 // For more info, see https://delta-users.slack.com/archives/GKTUWT03T/p1585760533005400
                 // and https://cwiki.apache.org/confluence/display/Hive/Different+TIMESTAMP+types
-                return createTimestampWithTimeZoneType(3);
+                return TIMESTAMP_TZ_MILLIS;
             default:
                 throw new TypeNotFoundException(new TypeSignature(primitiveType));
         }
