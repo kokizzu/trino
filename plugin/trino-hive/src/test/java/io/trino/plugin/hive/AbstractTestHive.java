@@ -13,11 +13,11 @@
  */
 package io.trino.plugin.hive;
 
-import alluxio.collections.ConcurrentHashSet;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 import com.google.common.net.HostAndPort;
 import io.airlift.json.JsonCodec;
 import io.airlift.log.Logger;
@@ -673,7 +673,7 @@ public abstract class AbstractTestHive
     private ScheduledExecutorService heartbeatService;
     private java.nio.file.Path temporaryStagingDirectory;
 
-    protected final ConcurrentHashSet<SchemaTableName> materializedViews = new ConcurrentHashSet<>();
+    protected final Set<SchemaTableName> materializedViews = Sets.newConcurrentHashSet();
 
     @BeforeClass(alwaysRun = true)
     public void setupClass()
@@ -833,6 +833,7 @@ public abstract class AbstractTestHive
         metadataFactory = new HiveMetadataFactory(
                 new CatalogName("hive"),
                 HiveMetastoreFactory.ofInstance(metastoreClient),
+                getDefaultHiveFileWriterFactories(hiveConfig, hdfsEnvironment),
                 new HdfsFileSystemFactory(hdfsEnvironment, HDFS_FILE_SYSTEM_STATS),
                 hdfsEnvironment,
                 partitionManager,

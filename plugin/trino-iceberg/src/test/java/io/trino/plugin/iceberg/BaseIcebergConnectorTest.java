@@ -226,6 +226,9 @@ public abstract class BaseIcebergConnectorTest
             case SUPPORTS_TOPN_PUSHDOWN:
                 return false;
 
+            case SUPPORTS_DROP_SCHEMA_CASCADE:
+                return false;
+
             case SUPPORTS_RENAME_MATERIALIZED_VIEW_ACROSS_SCHEMAS:
                 return false;
 
@@ -234,6 +237,22 @@ public abstract class BaseIcebergConnectorTest
 
             default:
                 return super.hasBehavior(connectorBehavior);
+        }
+    }
+
+    @Test
+    public void testAddRowFieldCaseInsensitivity()
+    {
+        try (TestTable table = new TestTable(getQueryRunner()::execute,
+                "test_add_row_field_case_insensitivity_",
+                "AS SELECT CAST(row(row(2)) AS row(\"CHILD\" row(grandchild_1 integer))) AS col")) {
+            assertEquals(getColumnType(table.getName(), "col"), "row(CHILD row(grandchild_1 integer))");
+
+            assertUpdate("ALTER TABLE " + table.getName() + " ADD COLUMN col.child.grandchild_2 integer");
+            assertEquals(getColumnType(table.getName(), "col"), "row(CHILD row(grandchild_1 integer, grandchild_2 integer))");
+
+            assertUpdate("ALTER TABLE " + table.getName() + " ADD COLUMN col.CHILD.grandchild_3 integer");
+            assertEquals(getColumnType(table.getName(), "col"), "row(CHILD row(grandchild_1 integer, grandchild_2 integer, grandchild_3 integer))");
         }
     }
 
@@ -757,7 +776,7 @@ public abstract class BaseIcebergConnectorTest
                 "  a_timestamp timestamp(6), " +
                 "  a_timestamptz timestamp(6) with time zone, " +
                 "  a_uuid uuid, " +
-                "  a_row row(id integer , vc varchar), " +
+                "  a_row row(id integer, vc varchar), " +
                 "  an_array array(varchar), " +
                 "  a_map map(integer, varchar), " +
                 "  \"a quoted, field\" varchar" +
@@ -1134,7 +1153,7 @@ public abstract class BaseIcebergConnectorTest
                 "  a_timestamp timestamp(6), " +
                 "  a_timestamptz timestamp(6) with time zone, " +
                 "  a_uuid uuid, " +
-                "  a_row row(id integer , vc varchar), " +
+                "  a_row row(id integer, vc varchar, t time(6), ts timestamp(6), tstz timestamp(6) with time zone), " + // not sorted on, but still written to sort temp file, if any
                 "  an_array array(varchar), " +
                 "  a_map map(integer, varchar) " +
                 ") " +
@@ -1163,17 +1182,17 @@ public abstract class BaseIcebergConnectorTest
                 "REAL '3.0', " +
                 "DOUBLE '4.0', " +
                 "DECIMAL '5.00', " +
-                "DECIMAL '6.00', " +
-                "'seven', " +
+                "CAST(DECIMAL '6.00' AS decimal(38,20)), " +
+                "VARCHAR 'seven', " +
                 "X'88888888', " +
                 "DATE '2022-09-09', " +
                 "TIME '10:10:10.000000', " +
                 "TIMESTAMP '2022-11-11 11:11:11.000000', " +
                 "TIMESTAMP '2022-11-11 11:11:11.000000 UTC', " +
                 "UUID '12121212-1212-1212-1212-121212121212', " +
-                "ROW(13, 'thirteen'), " +
-                "ARRAY['four', 'teen'], " +
-                "MAP(ARRAY[15], ARRAY['fifteen']))";
+                "CAST(ROW(13, 'thirteen', TIME '10:10:10.000000', TIMESTAMP '2022-11-11 11:11:11.000000', TIMESTAMP '2022-11-11 11:11:11.000000 UTC') AS row(id integer, vc varchar, t time(6), ts timestamp(6), tstz timestamp(6) with time zone)), " +
+                "ARRAY[VARCHAR 'four', 'teen'], " +
+                "MAP(ARRAY[15], ARRAY[VARCHAR 'fifteen']))";
         String highValues = "(" +
                 "true, " +
                 "999999999, " +
@@ -1189,7 +1208,7 @@ public abstract class BaseIcebergConnectorTest
                 "TIMESTAMP '2099-12-31 23:59:59.000000', " +
                 "TIMESTAMP '2099-12-31 23:59:59.000000 UTC', " +
                 "UUID 'FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF', " +
-                "ROW(999, 'zzzzzzzz'), " +
+                "CAST(ROW(999, 'zzzzzzzz', TIME '23:59:59.999999', TIMESTAMP '2099-12-31 23:59:59.000000', TIMESTAMP '2099-12-31 23:59:59.000000 UTC') AS row(id integer, vc varchar, t time(6), ts timestamp(6), tstz timestamp(6) with time zone)), " +
                 "ARRAY['zzzz', 'zzzz'], " +
                 "MAP(ARRAY[999], ARRAY['zzzz']))";
         String lowValues = "(" +
@@ -1207,11 +1226,22 @@ public abstract class BaseIcebergConnectorTest
                 "TIMESTAMP '2000-01-01 00:00:00.000000', " +
                 "TIMESTAMP '2000-01-01 00:00:00.000000 UTC', " +
                 "UUID '00000000-0000-0000-0000-000000000000', " +
-                "ROW(0, ''), " +
+                "CAST(ROW(0, '', TIME '00:00:00.000000', TIMESTAMP '2000-01-01 00:00:00.000000', TIMESTAMP '2000-01-01 00:00:00.000000 UTC') AS row(id integer, vc varchar, t time(6), ts timestamp(6), tstz timestamp(6) with time zone)), " +
                 "ARRAY['', ''], " +
                 "MAP(ARRAY[0], ARRAY['']))";
 
         assertUpdate("INSERT INTO " + tableName + " VALUES " + values + ", " + highValues + ", " + lowValues, 3);
+        assertThat(query("TABLE " + tableName))
+                .matches("VALUES " + values + ", " + highValues + ", " + lowValues);
+
+        // Insert "large" number of rows, supposedly topping over iceberg.writer-sort-buffer-size so that temporary files are utilized by the sorting writer.
+        assertUpdate("""
+                INSERT INTO %s
+                SELECT v.*
+                FROM (VALUES %s, %s, %s) v
+                CROSS JOIN UNNEST (sequence(1, 10_000)) a(i)
+                """.formatted(tableName, values, highValues, lowValues), 30000);
+
         dropTable(tableName);
     }
 
@@ -1940,8 +1970,8 @@ public abstract class BaseIcebergConnectorTest
 
         @Language("SQL") String initialValues =
                 "(TIMESTAMP '1969-12-31 22:22:22.222222', 8)," +
-                "(TIMESTAMP '1969-12-31 23:33:11.456789', 9)," +
-                "(TIMESTAMP '1969-12-31 23:44:55.567890', 10)";
+                        "(TIMESTAMP '1969-12-31 23:33:11.456789', 9)," +
+                        "(TIMESTAMP '1969-12-31 23:44:55.567890', 10)";
         assertUpdate("INSERT INTO " + tableName + " VALUES " + initialValues, 3);
         assertThat(query(selectQuery))
                 .containsAll("VALUES 8, 9, 10")
@@ -1949,8 +1979,8 @@ public abstract class BaseIcebergConnectorTest
 
         @Language("SQL") String hourTransformValues =
                 "(TIMESTAMP '2015-01-01 10:01:23.123456', 1)," +
-                "(TIMESTAMP '2015-01-02 10:10:02.987654', 2)," +
-                "(TIMESTAMP '2015-01-03 10:55:00.456789', 3)";
+                        "(TIMESTAMP '2015-01-02 10:10:02.987654', 2)," +
+                        "(TIMESTAMP '2015-01-03 10:55:00.456789', 3)";
         // While the bucket transform is still used the hour transform still cannot be used for pushdown
         assertUpdate("ALTER TABLE " + tableName + " SET PROPERTIES partitioning = ARRAY['hour(d)']");
         assertUpdate("INSERT INTO " + tableName + " VALUES " + hourTransformValues, 3);
@@ -3157,7 +3187,7 @@ public abstract class BaseIcebergConnectorTest
         assertQuery("SELECT b FROM test_truncate_decimal_transform WHERE d = -0.05", "VALUES 5");
         assertQuery(
                 select + " WHERE partition.d_trunc = -0.10",
-                 format == AVRO ? "VALUES (-0.10, 1, NULL, NULL, NULL, NULL)" : "VALUES (-0.10, 1, -0.05, -0.05, 5, 5)");
+                format == AVRO ? "VALUES (-0.10, 1, NULL, NULL, NULL, NULL)" : "VALUES (-0.10, 1, -0.05, -0.05, 5, 5)");
 
         // Exercise IcebergMetadata.applyFilter with non-empty Constraint.predicate, via non-pushdownable predicates
         assertQuery(
@@ -3928,7 +3958,7 @@ public abstract class BaseIcebergConnectorTest
                 ", vb VARBINARY" +
                 ", ts TIMESTAMP(6)" +
                 ", tstz TIMESTAMP(6) WITH TIME ZONE" +
-                ", str ROW(id INTEGER , vc VARCHAR)" +
+                ", str ROW(id INTEGER, vc VARCHAR)" +
                 ", dt DATE)" +
                 " WITH (partitioning = ARRAY['int'])");
 
@@ -4251,7 +4281,7 @@ public abstract class BaseIcebergConnectorTest
                 "  a_timestamp timestamp(6), " +
                 "  a_timestamptz timestamp(6) with time zone, " +
                 "  a_uuid uuid, " +
-                "  a_row row(id integer , vc varchar), " +
+                "  a_row row(id integer, vc varchar), " +
                 "  an_array array(varchar), " +
                 "  a_map map(integer, varchar) " +
                 ")");
@@ -6071,7 +6101,7 @@ public abstract class BaseIcebergConnectorTest
                 .hasOutputTypes(ImmutableList.of(VARCHAR, INTEGER, BOOLEAN))
                 .returnsEmptyResult();
 
-        assertUpdate("INSERT INTO " + tableName + " VALUES ('a', 1 , true)", 1);
+        assertUpdate("INSERT INTO " + tableName + " VALUES ('a', 1, true)", 1);
         long v2SnapshotId = getCurrentSnapshotId(tableName);
         assertThat(query("SELECT * FROM " + tableName + " FOR VERSION AS OF " + v2SnapshotId))
                 .hasOutputTypes(ImmutableList.of(VARCHAR, INTEGER, BOOLEAN))
@@ -6390,7 +6420,7 @@ public abstract class BaseIcebergConnectorTest
                 .hasMessage("One MERGE target table row matched more than one source row");
 
         assertUpdate(format("MERGE INTO %s t USING %s s ON (t.customer = s.customer)", targetTable, sourceTable) +
-                "    WHEN MATCHED AND s.address = 'Adelphi' THEN UPDATE SET address = s.address",
+                        "    WHEN MATCHED AND s.address = 'Adelphi' THEN UPDATE SET address = s.address",
                 1);
         assertQuery("SELECT customer, purchases, address FROM " + targetTable, "VALUES ('Aaron', 5, 'Adelphi'), ('Bill', 7, 'Antioch')");
         assertUpdate("DROP TABLE " + sourceTable);
@@ -6997,7 +7027,7 @@ public abstract class BaseIcebergConnectorTest
     {
         int idField = 0;
         return getQueryRunner().execute(
-                format("SELECT snapshot_id FROM \"%s$snapshots\" ORDER BY committed_at", tableName))
+                        format("SELECT snapshot_id FROM \"%s$snapshots\" ORDER BY committed_at", tableName))
                 .getMaterializedRows().stream()
                 .map(row -> (Long) row.getField(idField))
                 .collect(toList());

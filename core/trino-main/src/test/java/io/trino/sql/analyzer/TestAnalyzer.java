@@ -802,6 +802,15 @@ public class TestAnalyzer
         assertFails("SELECT * FROM t1 WHERE foo() over () > 1")
                 .hasErrorCode(EXPRESSION_NOT_SCALAR)
                 .hasMessage("line 1:38: WHERE clause cannot contain aggregations, window functions or grouping operations: [foo() OVER ()]");
+        assertFails("SELECT * FROM t1 WHERE lag(t1.a) > t1.a")
+                .hasErrorCode(EXPRESSION_NOT_SCALAR)
+                .hasMessage("line 1:34: WHERE clause cannot contain aggregations, window functions or grouping operations: [lag(t1.a)]");
+        assertFails("SELECT * FROM t1 WHERE rank() > 1")
+                .hasErrorCode(EXPRESSION_NOT_SCALAR)
+                .hasMessage("line 1:31: WHERE clause cannot contain aggregations, window functions or grouping operations: [rank()]");
+        assertFails("SELECT * FROM t1 WHERE first_value(t1.a) > t1.a")
+                .hasErrorCode(EXPRESSION_NOT_SCALAR)
+                .hasMessage("line 1:42: WHERE clause cannot contain aggregations, window functions or grouping operations: [first_value(t1.a)]");
         assertFails("SELECT * FROM t1 GROUP BY rank() over ()")
                 .hasErrorCode(EXPRESSION_NOT_SCALAR)
                 .hasMessage("line 1:27: GROUP BY clause cannot contain aggregations, window functions or grouping operations: [rank() OVER ()]");
@@ -809,6 +818,9 @@ public class TestAnalyzer
                 .hasErrorCode(EXPRESSION_NOT_SCALAR)
                 .hasMessage("line 1:47: JOIN clause cannot contain aggregations, window functions or grouping operations: [sum(t1.a) OVER ()]");
         assertFails("SELECT 1 FROM (VALUES 1) HAVING count(*) OVER () > 1")
+                .hasErrorCode(NESTED_WINDOW)
+                .hasMessage("line 1:33: HAVING clause cannot contain window functions or row pattern measures");
+        assertFails("SELECT 1 FROM (VALUES 1) HAVING rank() > 1")
                 .hasErrorCode(NESTED_WINDOW)
                 .hasMessage("line 1:33: HAVING clause cannot contain window functions or row pattern measures");
 
@@ -7013,6 +7025,22 @@ public class TestAnalyzer
                 false,
                 false));
         testingConnectorMetadata.markMaterializedViewIsFresh(freshMaterializedMismatchedColumnType.asSchemaTableName());
+    }
+
+    @Test
+    public void testAlterTableAddRowField()
+    {
+        assertFails("ALTER TABLE a.t1 ADD COLUMN b.f3 INTEGER NOT NULL")
+                .hasErrorCode(NOT_SUPPORTED)
+                .hasMessage("line 1:1: Adding fields with NOT NULL constraint is unsupported");
+
+        assertFails("ALTER TABLE a.t1 ADD COLUMN b.f3 INTEGER WITH(foo='bar')")
+                .hasErrorCode(NOT_SUPPORTED)
+                .hasMessage("line 1:1: Adding fields with column properties is unsupported");
+
+        assertFails("ALTER TABLE a.t1 ADD COLUMN b.f3 INTEGER COMMENT 'test comment'")
+                .hasErrorCode(NOT_SUPPORTED)
+                .hasMessage("line 1:1: Adding fields with COMMENT is unsupported");
     }
 
     @AfterAll

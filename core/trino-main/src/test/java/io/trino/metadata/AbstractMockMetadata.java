@@ -241,7 +241,7 @@ public abstract class AbstractMockMetadata
     }
 
     @Override
-    public void dropSchema(Session session, CatalogSchemaName schema)
+    public void dropSchema(Session session, CatalogSchemaName schema, boolean cascade)
     {
         throw new UnsupportedOperationException();
     }
@@ -308,6 +308,12 @@ public abstract class AbstractMockMetadata
 
     @Override
     public void addColumn(Session session, TableHandle tableHandle, CatalogSchemaTableName table, ColumnMetadata column)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void addField(Session session, TableHandle tableHandle, List<String> parentPath, String fieldName, Type type, boolean ignoreExisting)
     {
         throw new UnsupportedOperationException();
     }
@@ -782,6 +788,12 @@ public abstract class AbstractMockMetadata
 
     @Override
     public boolean isAggregationFunction(Session session, QualifiedName name)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean isWindowFunction(Session session, QualifiedName name)
     {
         throw new UnsupportedOperationException();
     }

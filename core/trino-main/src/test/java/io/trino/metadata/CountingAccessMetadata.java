@@ -245,9 +245,9 @@ public class CountingAccessMetadata
     }
 
     @Override
-    public void dropSchema(Session session, CatalogSchemaName schema)
+    public void dropSchema(Session session, CatalogSchemaName schema, boolean cascade)
     {
-        delegate.dropSchema(session, schema);
+        delegate.dropSchema(session, schema, cascade);
     }
 
     @Override
@@ -320,6 +320,12 @@ public class CountingAccessMetadata
     public void addColumn(Session session, TableHandle tableHandle, CatalogSchemaTableName table, ColumnMetadata column)
     {
         delegate.addColumn(session, tableHandle, table, column);
+    }
+
+    @Override
+    public void addField(Session session, TableHandle tableHandle, List<String> parentPath, String fieldName, Type type, boolean ignoreExisting)
+    {
+        throw new UnsupportedOperationException();
     }
 
     @Override
@@ -777,6 +783,12 @@ public class CountingAccessMetadata
     public boolean isAggregationFunction(Session session, QualifiedName name)
     {
         return delegate.isAggregationFunction(session, name);
+    }
+
+    @Override
+    public boolean isWindowFunction(Session session, QualifiedName name)
+    {
+        return delegate.isWindowFunction(session, name);
     }
 
     @Override

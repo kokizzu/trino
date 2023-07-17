@@ -29,6 +29,12 @@ import io.trino.metadata.Metadata;
 import io.trino.metadata.QualifiedObjectName;
 import io.trino.metadata.TableHandle;
 import io.trino.metadata.TableMetadata;
+import io.trino.plugin.hive.metastore.Column;
+import io.trino.plugin.hive.metastore.PrincipalPrivileges;
+import io.trino.plugin.hive.metastore.Storage;
+import io.trino.plugin.hive.metastore.StorageFormat;
+import io.trino.plugin.hive.metastore.Table;
+import io.trino.plugin.hive.metastore.file.FileHiveMetastore;
 import io.trino.spi.connector.CatalogSchemaTableName;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
@@ -83,6 +89,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.StringJoiner;
 import java.util.function.BiConsumer;
@@ -136,6 +143,7 @@ import static io.trino.plugin.hive.HiveTableProperties.BUCKET_COUNT_PROPERTY;
 import static io.trino.plugin.hive.HiveTableProperties.PARTITIONED_BY_PROPERTY;
 import static io.trino.plugin.hive.HiveTableProperties.STORAGE_FORMAT_PROPERTY;
 import static io.trino.plugin.hive.HiveType.toHiveType;
+import static io.trino.plugin.hive.metastore.file.TestingFileHiveMetastore.createTestingFileHiveMetastore;
 import static io.trino.plugin.hive.util.HiveUtil.columnExtraInfo;
 import static io.trino.spi.security.Identity.ofUser;
 import static io.trino.spi.security.SelectedRole.Type.ROLE;
@@ -225,6 +233,9 @@ public abstract class BaseHiveConnectorTest
                 // Make weighted split scheduling more conservative to avoid OOMs in test
                 .addHiveProperty("hive.minimum-assigned-split-weight", "0.5")
                 .addHiveProperty("hive.partition-projection-enabled", "true")
+                // This is needed for e2e scale writers test otherwise 50% threshold of
+                // bufferSize won't get exceeded for scaling to happen.
+                .addExtraProperty("task.max-local-exchange-buffer-size", "32MB")
                 .setInitialTables(REQUIRED_TPCH_TABLES)
                 .setTpchBucketedCatalogEnabled(true)
                 .build();
@@ -245,6 +256,10 @@ public abstract class BaseHiveConnectorTest
             case SUPPORTS_TOPN_PUSHDOWN:
                 return false;
 
+            case SUPPORTS_DROP_SCHEMA_CASCADE:
+                return false;
+
+            case SUPPORTS_ADD_FIELD:
             case SUPPORTS_DROP_FIELD:
             case SUPPORTS_SET_COLUMN_TYPE:
                 return false;
@@ -2124,21 +2139,12 @@ public abstract class BaseHiveConnectorTest
                 // REGEX format is readonly
                 continue;
             }
-            for (HiveCompressionCodec compressionCodec : HiveCompressionCodec.values()) {
-                if ((storageFormat == HiveStorageFormat.AVRO) && (compressionCodec == HiveCompressionCodec.LZ4)) {
-                    continue;
-                }
-                if ((storageFormat == HiveStorageFormat.PARQUET) && (compressionCodec == HiveCompressionCodec.LZ4)) {
-                    // TODO (https://github.com/trinodb/trino/issues/9142) Support LZ4 compression with native Parquet writer
-                    continue;
-                }
-                testEmptyBucketedTable(storageFormat, compressionCodec, true);
-            }
-            testEmptyBucketedTable(storageFormat, HiveCompressionCodec.GZIP, false);
+            testEmptyBucketedTable(storageFormat, true);
+            testEmptyBucketedTable(storageFormat, false);
         }
     }
 
-    private void testEmptyBucketedTable(HiveStorageFormat storageFormat, HiveCompressionCodec compressionCodec, boolean createEmpty)
+    private void testEmptyBucketedTable(HiveStorageFormat storageFormat, boolean createEmpty)
     {
         String tableName = "test_empty_bucketed_table";
 
@@ -2166,7 +2172,6 @@ public abstract class BaseHiveConnectorTest
         Session session = Session.builder(getSession())
                 .setSystemProperty("task_writer_count", "4")
                 .setCatalogSessionProperty(catalog, "create_empty_bucket_files", String.valueOf(createEmpty))
-                .setCatalogSessionProperty(catalog, "compression_codec", compressionCodec.name())
                 .build();
         assertUpdate(session, "INSERT INTO " + tableName + " VALUES ('a0', 'b0', 'c0')", 1);
         assertUpdate(session, "INSERT INTO " + tableName + " VALUES ('a1', 'b1', 'c1')", 1);
@@ -8360,6 +8365,45 @@ public abstract class BaseHiveConnectorTest
         assertThat(query(nanosSessions, "SELECT ts FROM " + prestoViewNameNanos)).matches("VALUES TIMESTAMP '1990-01-02 12:13:14.123000000'");
 
         assertThat(query(nanosSessions, "SELECT ts FROM hive_timestamp_nanos.tpch." + prestoViewNameNanos)).matches("VALUES TIMESTAMP '1990-01-02 12:13:14.123000000'");
+    }
+
+    @Test
+    public void testTimestampWithTimeZone()
+    {
+        assertUpdate("CREATE TABLE test_timestamptz_base (t timestamp) WITH (format = 'PARQUET')");
+        assertUpdate("INSERT INTO test_timestamptz_base (t) VALUES" +
+                     "(timestamp '2022-07-26 12:13')", 1);
+
+        // Writing TIMESTAMP WITH LOCAL TIME ZONE is not supported, so we first create Parquet object by writing unzoned
+        // timestamp (which is converted to UTC using default timezone) and then creating another table that reads from the same file.
+        String tableLocation = getTableLocation("test_timestamptz_base");
+
+        // TIMESTAMP WITH LOCAL TIME ZONE is not mapped to any Trino type, so we need to create the metastore entry manually
+        FileHiveMetastore metastore = createTestingFileHiveMetastore(new File(getDistributedQueryRunner().getCoordinator().getBaseDataDir().toFile(), "hive_data"));
+        metastore.createTable(
+                new Table(
+                        "tpch",
+                        "test_timestamptz",
+                        Optional.of("hive"),
+                        "EXTERNAL_TABLE",
+                        new Storage(
+                                StorageFormat.fromHiveStorageFormat(HiveStorageFormat.PARQUET),
+                                Optional.of(tableLocation),
+                                Optional.empty(),
+                                false,
+                                Collections.emptyMap()),
+                        List.of(new Column("t", HiveType.HIVE_TIMESTAMPLOCALTZ, Optional.empty())),
+                        List.of(),
+                        Collections.emptyMap(),
+                        Optional.empty(),
+                        Optional.empty(),
+                        OptionalLong.empty()),
+                PrincipalPrivileges.fromHivePrivilegeInfos(Collections.emptySet()));
+
+        assertThat(query("SELECT * FROM test_timestamptz"))
+                .matches("VALUES TIMESTAMP '2022-07-26 17:13:00.000 UTC'");
+
+        assertUpdate("DROP TABLE test_timestamptz");
     }
 
     @Test(dataProvider = "legalUseColumnNamesProvider")

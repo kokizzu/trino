@@ -111,6 +111,7 @@ import static io.trino.testing.QueryAssertions.getTrinoExceptionCause;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_ADD_COLUMN;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_ADD_COLUMN_NOT_NULL_CONSTRAINT;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_ADD_COLUMN_WITH_COMMENT;
+import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_ADD_FIELD;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_ARRAY;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_COMMENT_ON_COLUMN;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_COMMENT_ON_TABLE;
@@ -129,6 +130,7 @@ import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_DELETE;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_DEREFERENCE_PUSHDOWN;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_DROP_COLUMN;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_DROP_FIELD;
+import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_DROP_SCHEMA_CASCADE;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_INSERT;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_MATERIALIZED_VIEW_FRESHNESS_FROM_BASE_TABLES;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_MERGE;
@@ -2352,6 +2354,52 @@ public abstract class BaseConnectorTest
     }
 
     @Test
+    public void testDropSchemaCascade()
+    {
+        skipTestUnless(hasBehavior(SUPPORTS_CREATE_SCHEMA));
+
+        if (!hasBehavior(SUPPORTS_DROP_SCHEMA_CASCADE)) {
+            String schemaName = "test_drop_schema_cascade_" + randomNameSuffix();
+            assertUpdate(createSchemaSql(schemaName));
+            assertQueryFails(
+                    "DROP SCHEMA " + schemaName + " CASCADE",
+                    "This connector does not support dropping schemas with CASCADE option");
+            assertUpdate("DROP SCHEMA " + schemaName);
+            return;
+        }
+
+        skipTestUnless(hasBehavior(SUPPORTS_CREATE_TABLE) || hasBehavior(SUPPORTS_CREATE_VIEW) || hasBehavior(SUPPORTS_CREATE_MATERIALIZED_VIEW));
+
+        String schemaName = "test_drop_schema_cascade_" + randomNameSuffix();
+        String tableName = "test_table" + randomNameSuffix();
+        String viewName = "test_view" + randomNameSuffix();
+        String materializedViewName = "test_materialized_view" + randomNameSuffix();
+        try {
+            assertUpdate(createSchemaSql(schemaName));
+            if (hasBehavior(SUPPORTS_CREATE_TABLE)) {
+                assertUpdate("CREATE TABLE " + schemaName + "." + tableName + "(a INT)");
+            }
+            if (hasBehavior(SUPPORTS_CREATE_VIEW)) {
+                assertUpdate("CREATE VIEW " + schemaName + "." + viewName + " AS SELECT 1 a");
+            }
+            if (hasBehavior(SUPPORTS_CREATE_MATERIALIZED_VIEW)) {
+                assertUpdate("CREATE MATERIALIZED VIEW " + schemaName + "." + materializedViewName + " AS SELECT 1 a");
+            }
+
+            assertThat(computeActual("SHOW SCHEMAS").getOnlyColumnAsSet()).contains(schemaName);
+
+            assertUpdate("DROP SCHEMA " + schemaName + " CASCADE");
+            assertThat(computeActual("SHOW SCHEMAS").getOnlyColumnAsSet()).doesNotContain(schemaName);
+        }
+        finally {
+            assertUpdate("DROP TABLE IF EXISTS " + schemaName + "." + tableName);
+            assertUpdate("DROP VIEW IF EXISTS " + schemaName + "." + viewName);
+            assertUpdate("DROP MATERIALIZED VIEW IF EXISTS " + schemaName + "." + materializedViewName);
+            assertUpdate("DROP SCHEMA IF EXISTS " + schemaName);
+        }
+    }
+
+    @Test
     public void testAddColumn()
     {
         if (!hasBehavior(SUPPORTS_ADD_COLUMN)) {
@@ -2496,6 +2544,44 @@ public abstract class BaseConnectorTest
     protected void verifyAddNotNullColumnToNonEmptyTableFailurePermissible(Throwable e)
     {
         throw new AssertionError("Unexpected failure when adding not null column", e);
+    }
+
+    @Test
+    public void testAddRowField()
+    {
+        skipTestUnless(hasBehavior(SUPPORTS_CREATE_TABLE_WITH_DATA) && hasBehavior(SUPPORTS_ROW_TYPE));
+
+        if (!hasBehavior(SUPPORTS_ADD_FIELD)) {
+            try (TestTable table = new TestTable(getQueryRunner()::execute, "test_add_field_", "AS SELECT CAST(row(1) AS row(x integer)) AS col")) {
+                assertQueryFails(
+                        "ALTER TABLE " + table.getName() + " ADD COLUMN col.y integer",
+                        "This connector does not support adding fields");
+            }
+            return;
+        }
+
+        try (TestTable table = new TestTable(getQueryRunner()::execute,
+                "test_add_field_",
+                "AS SELECT CAST(row(1, row(10)) AS row(a integer, b row(x integer))) AS col")) {
+            assertEquals(getColumnType(table.getName(), "col"), "row(a integer, b row(x integer))");
+
+            assertUpdate("ALTER TABLE " + table.getName() + " ADD COLUMN col.c integer");
+            assertEquals(getColumnType(table.getName(), "col"), "row(a integer, b row(x integer), c integer)");
+            assertThat(query("SELECT * FROM " + table.getName())).matches("SELECT CAST(row(1, row(10), NULL) AS row(a integer, b row(x integer), c integer))");
+
+            // Add a nested field
+            assertUpdate("ALTER TABLE " + table.getName() + " ADD COLUMN col.b.y integer");
+            assertEquals(getColumnType(table.getName(), "col"), "row(a integer, b row(x integer, y integer), c integer)");
+            assertThat(query("SELECT * FROM " + table.getName())).matches("SELECT CAST(row(1, row(10, NULL), NULL) AS row(a integer, b row(x integer, y integer), c integer))");
+
+            // Specify existing fields with IF NOT EXISTS option
+            assertUpdate("ALTER TABLE " + table.getName() + " ADD COLUMN IF NOT EXISTS col.a varchar");
+            assertUpdate("ALTER TABLE " + table.getName() + " ADD COLUMN IF NOT EXISTS col.b.x varchar");
+            assertEquals(getColumnType(table.getName(), "col"), "row(a integer, b row(x integer, y integer), c integer)");
+
+            // Specify existing fields without IF NOT EXISTS option
+            assertQueryFails("ALTER TABLE " + table.getName() + " ADD COLUMN col.a varchar", ".* Field 'a' already exists");
+        }
     }
 
     @Test
@@ -2892,7 +2978,7 @@ public abstract class BaseConnectorTest
         throw new AssertionError("Unexpected set column type failure", e);
     }
 
-    private String getColumnType(String tableName, String columnName)
+    protected String getColumnType(String tableName, String columnName)
     {
         return (String) computeScalar(format("SELECT data_type FROM information_schema.columns WHERE table_schema = CURRENT_SCHEMA AND table_name = '%s' AND column_name = '%s'",
                 tableName,

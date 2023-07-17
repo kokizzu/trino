@@ -71,6 +71,7 @@ public enum TestingConnectorBehavior
     SUPPORTS_CREATE_SCHEMA,
     // Expect rename to be supported when create schema is supported, to help make connector implementations coherent.
     SUPPORTS_RENAME_SCHEMA(SUPPORTS_CREATE_SCHEMA),
+    SUPPORTS_DROP_SCHEMA_CASCADE(SUPPORTS_CREATE_SCHEMA),
 
     SUPPORTS_CREATE_TABLE,
     SUPPORTS_CREATE_TABLE_WITH_DATA(SUPPORTS_CREATE_TABLE),
@@ -81,6 +82,7 @@ public enum TestingConnectorBehavior
 
     SUPPORTS_ADD_COLUMN,
     SUPPORTS_ADD_COLUMN_WITH_COMMENT(SUPPORTS_ADD_COLUMN),
+    SUPPORTS_ADD_FIELD(fallback -> fallback.test(SUPPORTS_ADD_COLUMN) && fallback.test(SUPPORTS_ROW_TYPE)),
     SUPPORTS_DROP_COLUMN(SUPPORTS_ADD_COLUMN),
     SUPPORTS_DROP_FIELD(and(SUPPORTS_DROP_COLUMN, SUPPORTS_ROW_TYPE)),
     SUPPORTS_RENAME_COLUMN,

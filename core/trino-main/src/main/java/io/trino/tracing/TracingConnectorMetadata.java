@@ -19,7 +19,6 @@ import io.opentelemetry.api.trace.Tracer;
 import io.trino.spi.connector.AggregateFunction;
 import io.trino.spi.connector.AggregationApplicationResult;
 import io.trino.spi.connector.BeginTableExecuteResult;
-import io.trino.spi.connector.CatalogSchemaName;
 import io.trino.spi.connector.CatalogSchemaTableName;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
@@ -225,16 +224,6 @@ public class TracingConnectorMetadata
         }
     }
 
-    @SuppressWarnings("deprecation")
-    @Override
-    public SchemaTableName getSchemaTableName(ConnectorSession session, ConnectorTableHandle table)
-    {
-        Span span = startSpan("getSchemaTableName", table);
-        try (var ignored = scopedSpan(span)) {
-            return delegate.getSchemaTableName(session, table);
-        }
-    }
-
     @Override
     public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle table)
     {
@@ -323,6 +312,15 @@ public class TracingConnectorMetadata
         Span span = startSpan("createSchema", schemaName);
         try (var ignored = scopedSpan(span)) {
             delegate.createSchema(session, schemaName, properties, owner);
+        }
+    }
+
+    @Override
+    public void dropSchema(ConnectorSession session, String schemaName, boolean cascade)
+    {
+        Span span = startSpan("dropSchema", schemaName);
+        try (var ignored = scopedSpan(span)) {
+            delegate.dropSchema(session, schemaName, cascade);
         }
     }
 
@@ -440,6 +438,15 @@ public class TracingConnectorMetadata
         Span span = startSpan("addColumn", tableHandle);
         try (var ignored = scopedSpan(span)) {
             delegate.addColumn(session, tableHandle, column);
+        }
+    }
+
+    @Override
+    public void addField(ConnectorSession session, ConnectorTableHandle tableHandle, List<String> parentPath, String fieldName, Type type, boolean ignoreExisting)
+    {
+        Span span = startSpan("addField", tableHandle);
+        try (var ignored = scopedSpan(span)) {
+            delegate.addField(session, tableHandle, parentPath, fieldName, type, ignoreExisting);
         }
     }
 
@@ -755,32 +762,12 @@ public class TracingConnectorMetadata
         }
     }
 
-    @SuppressWarnings("removal")
-    @Override
-    public Map<String, Object> getSchemaProperties(ConnectorSession session, CatalogSchemaName schemaName)
-    {
-        Span span = startSpan("getSchemaProperties", schemaName.getSchemaName());
-        try (var ignored = scopedSpan(span)) {
-            return delegate.getSchemaProperties(session, schemaName);
-        }
-    }
-
     @Override
     public Map<String, Object> getSchemaProperties(ConnectorSession session, String schemaName)
     {
         Span span = startSpan("getSchemaProperties", schemaName);
         try (var ignored = scopedSpan(span)) {
             return delegate.getSchemaProperties(session, schemaName);
-        }
-    }
-
-    @SuppressWarnings("removal")
-    @Override
-    public Optional<TrinoPrincipal> getSchemaOwner(ConnectorSession session, CatalogSchemaName schemaName)
-    {
-        Span span = startSpan("getSchemaOwner", schemaName.getSchemaName());
-        try (var ignored = scopedSpan(span)) {
-            return delegate.getSchemaOwner(session, schemaName);
         }
     }
 

@@ -342,11 +342,11 @@ public class TracingMetadata
     }
 
     @Override
-    public void dropSchema(Session session, CatalogSchemaName schema)
+    public void dropSchema(Session session, CatalogSchemaName schema, boolean cascade)
     {
         Span span = startSpan("dropSchema", schema);
         try (var ignored = scopedSpan(span)) {
-            delegate.dropSchema(session, schema);
+            delegate.dropSchema(session, schema, cascade);
         }
     }
 
@@ -446,6 +446,15 @@ public class TracingMetadata
         Span span = startSpan("addColumn", table);
         try (var ignored = scopedSpan(span)) {
             delegate.addColumn(session, tableHandle, table, column);
+        }
+    }
+
+    @Override
+    public void addField(Session session, TableHandle tableHandle, List<String> parentPath, String fieldName, Type type, boolean ignoreExisting)
+    {
+        Span span = startSpan("addField", tableHandle);
+        try (var ignored = scopedSpan(span)) {
+            delegate.addField(session, tableHandle, parentPath, fieldName, type, ignoreExisting);
         }
     }
 
@@ -1149,6 +1158,16 @@ public class TracingMetadata
                 .setAllAttributes(attribute(TrinoAttributes.FUNCTION, extractFunctionName(name)));
         try (var ignored = scopedSpan(span)) {
             return delegate.isAggregationFunction(session, name);
+        }
+    }
+
+    @Override
+    public boolean isWindowFunction(Session session, QualifiedName name)
+    {
+        Span span = startSpan("isWindowFunction")
+                .setAllAttributes(attribute(TrinoAttributes.FUNCTION, extractFunctionName(name)));
+        try (var ignored = scopedSpan(span)) {
+            return delegate.isWindowFunction(session, name);
         }
     }
 
