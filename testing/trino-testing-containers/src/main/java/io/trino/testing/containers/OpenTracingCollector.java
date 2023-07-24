@@ -13,6 +13,8 @@
  */
 package io.trino.testing.containers;
 
+import io.airlift.units.DataSize;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -27,23 +29,15 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 import static com.google.common.net.UrlEscapers.urlFragmentEscaper;
+import static io.airlift.units.DataSize.Unit.GIGABYTE;
 
 public class OpenTracingCollector
         extends BaseTestContainer
 {
-    private static final Path storageDirectory;
-
-    static {
-        try {
-            storageDirectory = Files.createTempDirectory("tracing-collector");
-        }
-        catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-    }
-
     private static final int COLLECTOR_PORT = 4317;
     private static final int HTTP_PORT = 16686;
+
+    private final Path storageDirectory;
 
     public OpenTracingCollector()
     {
@@ -67,8 +61,15 @@ public class OpenTracingCollector
                 "--badger.maintenance-interval=30s"));
 
         withCreateContainerModifier(command -> command.getHostConfig()
-                .withMemory(2 * 1024 * 1024 * 1024L)); // 1 GB limit
-        mountDirectory(storageDirectory.toString(), "/badger");
+                .withMemory(DataSize.of(1, GIGABYTE).toBytes()));
+
+        try {
+            this.storageDirectory = Files.createTempDirectory("tracing-collector");
+            mountDirectory(storageDirectory.toString(), "/badger");
+        }
+        catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     @Override

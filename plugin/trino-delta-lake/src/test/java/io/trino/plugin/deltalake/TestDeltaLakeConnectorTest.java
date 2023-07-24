@@ -152,6 +152,7 @@ public class TestDeltaLakeConnectorTest
 
             case SUPPORTS_ADD_FIELD:
             case SUPPORTS_DROP_FIELD:
+            case SUPPORTS_RENAME_FIELD:
             case SUPPORTS_SET_COLUMN_TYPE:
                 return false;
 
@@ -309,6 +310,54 @@ public class TestDeltaLakeConnectorTest
         assertQuery("SELECT * FROM " + tableName, "VALUES (1, 'first#1', 'second#1'), (2, 'first#2', NULL), (3, NULL, 'second#3'), (4, NULL, NULL)");
     }
 
+    @Test
+    public void testCreateTableWithAllPartitionColumns()
+    {
+        String tableName = "test_create_table_all_partition_columns_" + randomNameSuffix();
+        assertQueryFails(
+                "CREATE TABLE " + tableName + "(part INT) WITH (partitioned_by = ARRAY['part'])",
+                "Using all columns for partition columns is unsupported");
+    }
+
+    @Test
+    public void testCreateTableAsSelectAllPartitionColumns()
+    {
+        String tableName = "test_create_table_all_partition_columns_" + randomNameSuffix();
+        assertQueryFails(
+                "CREATE TABLE " + tableName + " WITH (partitioned_by = ARRAY['part']) AS SELECT 1 part",
+                "Using all columns for partition columns is unsupported");
+    }
+
+    @Test
+    public void testCreateTableWithUnsupportedPartitionType()
+    {
+        String tableName = "test_create_table_unsupported_partition_types_" + randomNameSuffix();
+        assertQueryFails(
+                "CREATE TABLE " + tableName + "(a INT, part ARRAY(INT)) WITH (partitioned_by = ARRAY['part'])",
+                "Using array, map or row type on partitioned columns is unsupported");
+        assertQueryFails(
+                "CREATE TABLE " + tableName + "(a INT, part MAP(INT,INT)) WITH (partitioned_by = ARRAY['part'])",
+                "Using array, map or row type on partitioned columns is unsupported");
+        assertQueryFails(
+                "CREATE TABLE " + tableName + "(a INT, part ROW(field INT)) WITH (partitioned_by = ARRAY['part'])",
+                "Using array, map or row type on partitioned columns is unsupported");
+    }
+
+    @Test
+    public void testCreateTableAsSelectWithUnsupportedPartitionType()
+    {
+        String tableName = "test_ctas_unsupported_partition_types_" + randomNameSuffix();
+        assertQueryFails(
+                "CREATE TABLE " + tableName + " WITH (partitioned_by = ARRAY['part']) AS SELECT 1 a, array[1] part",
+                "Using array, map or row type on partitioned columns is unsupported");
+        assertQueryFails(
+                "CREATE TABLE " + tableName + " WITH (partitioned_by = ARRAY['part']) AS SELECT 1 a, map() part",
+                "Using array, map or row type on partitioned columns is unsupported");
+        assertQueryFails(
+                "CREATE TABLE " + tableName + " WITH (partitioned_by = ARRAY['part']) AS SELECT 1 a, row(1) part",
+                "Using array, map or row type on partitioned columns is unsupported");
+    }
+
     @Override
     public void testShowCreateSchema()
     {
@@ -422,6 +471,46 @@ public class TestDeltaLakeConnectorTest
                 "SELECT * FROM " + tableName + " WHERE t = TIMESTAMP '" + value + "'",
                 queryStats -> assertThat(queryStats.getProcessedInputDataSize().toBytes()).isGreaterThan(0),
                 results -> {});
+    }
+
+    @Test
+    public void testTimestampWithTimeZonePartition()
+    {
+        String tableName = "test_timestamp_tz_partition_" + randomNameSuffix();
+
+        assertUpdate("DROP TABLE IF EXISTS " + tableName);
+        assertUpdate("CREATE TABLE " + tableName + "(id INT, part TIMESTAMP WITH TIME ZONE) WITH (partitioned_by = ARRAY['part'])");
+        assertUpdate(
+                "INSERT INTO " + tableName + " VALUES " +
+                        "(1, NULL)," +
+                        "(2, TIMESTAMP '0001-01-01 00:00:00.000 UTC')," +
+                        "(3, TIMESTAMP '2023-07-20 01:02:03.9999 -01:00')," +
+                        "(4, TIMESTAMP '9999-12-31 23:59:59.999 UTC')",
+                4);
+
+        assertThat(query("SELECT * FROM " + tableName))
+                .matches("VALUES " +
+                        "(1, NULL)," +
+                        "(2, TIMESTAMP '0001-01-01 00:00:00.000 UTC')," +
+                        "(3, TIMESTAMP '2023-07-20 02:02:04.000 UTC')," +
+                        "(4, TIMESTAMP '9999-12-31 23:59:59.999 UTC')");
+        assertQuery(
+                "SHOW STATS FOR " + tableName,
+                "VALUES " +
+                        "('id', null, 4.0, 0.0, null, 1, 4)," +
+                        "('part', null, 3.0, 0.25, null, null, null)," +
+                        "(null, null, null, null, 4.0, null, null)");
+
+        assertThat((String) computeScalar("SELECT \"$path\" FROM " + tableName + " WHERE id = 1"))
+                .contains("/part=__HIVE_DEFAULT_PARTITION__/");
+        assertThat((String) computeScalar("SELECT \"$path\" FROM " + tableName + " WHERE id = 2"))
+                .contains("/part=0001-01-01 00%3A00%3A00/");
+        assertThat((String) computeScalar("SELECT \"$path\" FROM " + tableName + " WHERE id = 3"))
+                .contains("/part=2023-07-20 02%3A02%3A04/");
+        assertThat((String) computeScalar("SELECT \"$path\" FROM " + tableName + " WHERE id = 4"))
+                .contains("/part=9999-12-31 23%3A59%3A59.999/");
+
+        assertUpdate("DROP TABLE " + tableName);
     }
 
     @DataProvider

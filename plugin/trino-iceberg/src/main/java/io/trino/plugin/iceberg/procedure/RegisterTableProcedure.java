@@ -30,6 +30,7 @@ import io.trino.spi.classloader.ThreadContextClassLoader;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.procedure.Procedure;
+import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 
 import java.io.IOException;
@@ -143,15 +144,22 @@ public class RegisterTableProcedure
         TrinoFileSystem fileSystem = fileSystemFactory.create(clientSession);
         String metadataLocation = getMetadataLocation(fileSystem, tableLocation, metadataFileName);
         validateMetadataLocation(fileSystem, Location.of(metadataLocation));
+        TableMetadata tableMetadata;
         try {
             // Try to read the metadata file. Invalid metadata file will throw the exception.
-            TableMetadataParser.read(new ForwardingFileIo(fileSystem), metadataLocation);
+            tableMetadata = TableMetadataParser.read(new ForwardingFileIo(fileSystem), metadataLocation);
         }
         catch (RuntimeException e) {
             throw new TrinoException(ICEBERG_INVALID_METADATA, "Invalid metadata file: " + metadataLocation, e);
         }
 
-        catalog.registerTable(clientSession, schemaTableName, tableLocation, metadataLocation);
+        if (!tableMetadata.location().equals(tableLocation)) {
+            throw new TrinoException(ICEBERG_INVALID_METADATA, """
+                Table metadata file [%s] declares table location as [%s] which is differs from location provided [%s]. \
+                Iceberg table can only be registered with the same location it was created with.""".formatted(metadataLocation, tableMetadata.location(), tableLocation));
+        }
+
+        catalog.registerTable(clientSession, schemaTableName, tableMetadata);
     }
 
     private static void validateMetadataFileName(String fileName)

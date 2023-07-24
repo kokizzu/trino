@@ -25,6 +25,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.Transaction;
 
 import java.util.List;
@@ -75,7 +76,7 @@ public interface TrinoCatalog
             String location,
             Map<String, String> properties);
 
-    void registerTable(ConnectorSession session, SchemaTableName tableName, String tableLocation, String metadataLocation);
+    void registerTable(ConnectorSession session, SchemaTableName tableName, TableMetadata tableMetadata);
 
     void unregisterTable(ConnectorSession session, SchemaTableName tableName);
 
@@ -136,5 +137,5 @@ public interface TrinoCatalog
 
     void updateColumnComment(ConnectorSession session, SchemaTableName schemaTableName, ColumnIdentity columnIdentity, Optional<String> comment);
 
-    Optional<CatalogSchemaTableName> redirectTable(ConnectorSession session, SchemaTableName tableName);
+    Optional<CatalogSchemaTableName> redirectTable(ConnectorSession session, SchemaTableName tableName, String hiveCatalogName);
 }

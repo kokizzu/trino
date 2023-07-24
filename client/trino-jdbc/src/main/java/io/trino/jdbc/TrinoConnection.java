@@ -113,10 +113,9 @@ public class TrinoConnection
     private final Set<TrinoStatement> statements = newSetFromMap(new ConcurrentHashMap<>());
 
     TrinoConnection(TrinoDriverUri uri, Call.Factory httpCallFactory)
-            throws SQLException
     {
         requireNonNull(uri, "uri is null");
-        this.jdbcUri = uri.getJdbcUri();
+        this.jdbcUri = uri.getUri();
         this.httpUri = uri.getHttpUri();
         uri.getSchema().ifPresent(schema::set);
         uri.getCatalog().ifPresent(catalog::set);

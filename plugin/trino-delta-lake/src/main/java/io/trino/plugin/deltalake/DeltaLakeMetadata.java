@@ -1070,8 +1070,16 @@ public class DeltaLakeMetadata
                 .filter(partitionColumnName -> !columnNames.contains(partitionColumnName))
                 .collect(toImmutableList());
 
+        if (columns.stream().filter(column -> partitionColumnNames.contains(column.getName()))
+                .anyMatch(column -> column.getType() instanceof ArrayType || column.getType() instanceof MapType || column.getType() instanceof RowType)) {
+            throw new TrinoException(DELTA_LAKE_INVALID_SCHEMA, "Using array, map or row type on partitioned columns is unsupported");
+        }
+
         if (!invalidPartitionNames.isEmpty()) {
             throw new TrinoException(DELTA_LAKE_INVALID_SCHEMA, "Table property 'partition_by' contained column names which do not exist: " + invalidPartitionNames);
+        }
+        if (columns.size() == partitionColumnNames.size()) {
+            throw new TrinoException(DELTA_LAKE_INVALID_SCHEMA, "Using all columns for partition columns is unsupported");
         }
     }
 
@@ -1119,13 +1127,6 @@ public class DeltaLakeMetadata
                 getQueryId(table).orElseThrow(() -> new IllegalArgumentException("Query id is not present")).equals(queryId),
                 "Table '%s' does not have correct query id set",
                 table);
-
-        ImmutableList.Builder<String> columnNames = ImmutableList.builderWithExpectedSize(handle.getInputColumns().size());
-        ImmutableMap.Builder<String, Object> columnTypes = ImmutableMap.builderWithExpectedSize(handle.getInputColumns().size());
-        for (DeltaLakeColumnHandle column : handle.getInputColumns()) {
-            columnNames.add(column.getBaseColumnName());
-            columnTypes.put(column.getBaseColumnName(), serializeColumnType(NONE, new AtomicInteger(), column.getBaseType()));
-        }
 
         ColumnMappingMode columnMappingMode = handle.getColumnMappingMode();
         String schemaString = handle.getSchemaString();
@@ -3097,8 +3098,9 @@ public class DeltaLakeMetadata
 
         String tableLocation = table.get().location();
         TableSnapshot tableSnapshot = getSnapshot(new SchemaTableName(systemTableName.getSchemaName(), tableName), tableLocation, session);
+        MetadataEntry metadataEntry;
         try {
-            transactionLogAccess.getMetadataEntry(tableSnapshot, session);
+            metadataEntry = transactionLogAccess.getMetadataEntry(tableSnapshot, session);
         }
         catch (TrinoException e) {
             if (e.getErrorCode().equals(DELTA_LAKE_INVALID_SCHEMA.toErrorCode())) {
@@ -3113,6 +3115,10 @@ public class DeltaLakeMetadata
                     systemTableName,
                     getCommitInfoEntries(tableLocation, session),
                     typeManager));
+            case PROPERTIES -> Optional.of(new DeltaLakePropertiesTable(
+                    systemTableName,
+                    metadataEntry,
+                    transactionLogAccess.getProtocolEntry(session, tableSnapshot)));
         };
     }
 

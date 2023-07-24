@@ -75,16 +75,16 @@ import static io.trino.plugin.hive.metastore.MetastoreUtil.buildInitialPrivilege
 import static io.trino.plugin.hive.metastore.PrincipalPrivileges.NO_PRIVILEGES;
 import static io.trino.plugin.hive.metastore.StorageFormat.VIEW_STORAGE_FORMAT;
 import static io.trino.plugin.hive.util.HiveUtil.isHiveSystemSchema;
+import static io.trino.plugin.hive.util.HiveUtil.isIcebergTable;
 import static io.trino.plugin.iceberg.IcebergMaterializedViewAdditionalProperties.STORAGE_SCHEMA;
 import static io.trino.plugin.iceberg.IcebergMaterializedViewDefinition.encodeMaterializedViewData;
 import static io.trino.plugin.iceberg.IcebergMaterializedViewDefinition.fromConnectorMaterializedViewDefinition;
 import static io.trino.plugin.iceberg.IcebergSchemaProperties.LOCATION_PROPERTY;
-import static io.trino.plugin.iceberg.IcebergSessionProperties.getHiveCatalogName;
 import static io.trino.plugin.iceberg.IcebergUtil.getIcebergTableWithMetadata;
-import static io.trino.plugin.iceberg.IcebergUtil.isIcebergTable;
 import static io.trino.plugin.iceberg.IcebergUtil.loadIcebergTable;
 import static io.trino.plugin.iceberg.IcebergUtil.validateTableCanBeDropped;
 import static io.trino.plugin.iceberg.catalog.AbstractIcebergTableOperations.ICEBERG_METASTORE_STORAGE_FORMAT;
+import static io.trino.plugin.iceberg.catalog.AbstractIcebergTableOperations.toHiveColumns;
 import static io.trino.spi.StandardErrorCode.ALREADY_EXISTS;
 import static io.trino.spi.StandardErrorCode.INVALID_SCHEMA_PROPERTY;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
@@ -271,7 +271,7 @@ public class TrinoHiveCatalog
     }
 
     @Override
-    public void registerTable(ConnectorSession session, SchemaTableName schemaTableName, String tableLocation, String metadataLocation)
+    public void registerTable(ConnectorSession session, SchemaTableName schemaTableName, TableMetadata tableMetadata)
             throws TrinoException
     {
         Optional<String> owner = isUsingSystemSecurity ? Optional.empty() : Optional.of(session.getUser());
@@ -280,14 +280,15 @@ public class TrinoHiveCatalog
                 .setDatabaseName(schemaTableName.getSchemaName())
                 .setTableName(schemaTableName.getTableName())
                 .setOwner(owner)
+                .setDataColumns(toHiveColumns(tableMetadata.schema().columns()))
                 // Table needs to be EXTERNAL, otherwise table rename in HMS would rename table directory and break table contents.
                 .setTableType(EXTERNAL_TABLE.name())
-                .withStorage(storage -> storage.setLocation(tableLocation))
+                .withStorage(storage -> storage.setLocation(tableMetadata.location()))
                 .withStorage(storage -> storage.setStorageFormat(ICEBERG_METASTORE_STORAGE_FORMAT))
                 // This is a must-have property for the EXTERNAL_TABLE table type
                 .setParameter("EXTERNAL", "TRUE")
                 .setParameter(TABLE_TYPE_PROP, ICEBERG_TABLE_TYPE_VALUE.toUpperCase(ENGLISH))
-                .setParameter(METADATA_LOCATION_PROP, metadataLocation);
+                .setParameter(METADATA_LOCATION_PROP, tableMetadata.metadataFileLocation());
 
         PrincipalPrivileges privileges = owner.map(MetastoreUtil::buildInitialPrivilegeSet).orElse(NO_PRIVILEGES);
         metastore.createTable(builder.build(), privileges);
@@ -603,14 +604,12 @@ public class TrinoHiveCatalog
     }
 
     @Override
-    public Optional<CatalogSchemaTableName> redirectTable(ConnectorSession session, SchemaTableName tableName)
+    public Optional<CatalogSchemaTableName> redirectTable(ConnectorSession session, SchemaTableName tableName, String hiveCatalogName)
     {
         requireNonNull(session, "session is null");
         requireNonNull(tableName, "tableName is null");
-        Optional<String> targetCatalogName = getHiveCatalogName(session);
-        if (targetCatalogName.isEmpty()) {
-            return Optional.empty();
-        }
+        requireNonNull(hiveCatalogName, "hiveCatalogName is null");
+
         if (isHiveSystemSchema(tableName.getSchemaName())) {
             return Optional.empty();
         }
@@ -628,7 +627,7 @@ public class TrinoHiveCatalog
         }
         if (!isIcebergTable(table.get())) {
             // After redirecting, use the original table name, with "$partitions" and similar suffixes
-            return targetCatalogName.map(catalog -> new CatalogSchemaTableName(catalog, tableName));
+            return Optional.of(new CatalogSchemaTableName(hiveCatalogName, tableName));
         }
         return Optional.empty();
     }

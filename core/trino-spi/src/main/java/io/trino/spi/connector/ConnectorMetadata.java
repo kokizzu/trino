@@ -286,7 +286,7 @@ public interface ConnectorMetadata
     }
 
     /**
-     * Gets the metadata for all columns that match the specified table prefix.
+     * Gets the metadata for all columns that match the specified table prefix. Columns of views and materialized views are not included.
      *
      * @deprecated use {@link #streamTableColumns} which handles redirected tables
      */
@@ -298,7 +298,7 @@ public interface ConnectorMetadata
 
     /**
      * Gets the metadata for all columns that match the specified table prefix. Redirected table names are included, but
-     * the column metadata for them is not.
+     * the column metadata for them is not. Views and materialized views are not included.
      */
     default Iterator<TableColumnsMetadata> streamTableColumns(ConnectorSession session, SchemaTablePrefix prefix)
     {
@@ -484,6 +484,18 @@ public interface ConnectorMetadata
     default void renameColumn(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle source, String target)
     {
         throw new TrinoException(NOT_SUPPORTED, "This connector does not support renaming columns");
+    }
+
+    /**
+     * Rename the specified field, potentially nested, to a row.
+     *
+     * @param fieldPath path starting with column name.
+     * @param target the new field name. The field position and nested level shouldn't be changed.
+     */
+    @Experimental(eta = "2023-09-01") // TODO add support for rows inside arrays and maps and for anonymous row fields
+    default void renameField(ConnectorSession session, ConnectorTableHandle tableHandle, List<String> fieldPath, String target)
+    {
+        throw new TrinoException(NOT_SUPPORTED, "This connector does not support renaming fields");
     }
 
     /**

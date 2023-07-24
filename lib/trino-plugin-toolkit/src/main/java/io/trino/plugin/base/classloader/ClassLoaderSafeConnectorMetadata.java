@@ -424,6 +424,14 @@ public class ClassLoaderSafeConnectorMetadata
     }
 
     @Override
+    public void renameField(ConnectorSession session, ConnectorTableHandle tableHandle, List<String> fieldPath, String target)
+    {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            delegate.renameField(session, tableHandle, fieldPath, target);
+        }
+    }
+
+    @Override
     public void dropColumn(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle column)
     {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
@@ -1105,12 +1113,5 @@ public class ClassLoaderSafeConnectorMetadata
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
             return delegate.getMaxWriterTasks(session);
         }
-    }
-
-    @Override
-    protected Object clone()
-            throws CloneNotSupportedException
-    {
-        return super.clone();
     }
 }

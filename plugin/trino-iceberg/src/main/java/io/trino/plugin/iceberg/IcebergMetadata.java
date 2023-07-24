@@ -181,6 +181,7 @@ import static com.google.common.base.Verify.verifyNotNull;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
+import static com.google.common.collect.Iterables.getLast;
 import static com.google.common.collect.Maps.transformValues;
 import static com.google.common.collect.Sets.difference;
 import static io.trino.plugin.base.projection.ApplyProjectionUtil.extractSupportedProjectedColumns;
@@ -207,6 +208,7 @@ import static io.trino.plugin.iceberg.IcebergMetadataColumn.FILE_MODIFIED_TIME;
 import static io.trino.plugin.iceberg.IcebergMetadataColumn.FILE_PATH;
 import static io.trino.plugin.iceberg.IcebergMetadataColumn.isMetadataColumnId;
 import static io.trino.plugin.iceberg.IcebergSessionProperties.getExpireSnapshotMinRetention;
+import static io.trino.plugin.iceberg.IcebergSessionProperties.getHiveCatalogName;
 import static io.trino.plugin.iceberg.IcebergSessionProperties.getRemoveOrphanFilesMinRetention;
 import static io.trino.plugin.iceberg.IcebergSessionProperties.isCollectExtendedStatisticsOnWrite;
 import static io.trino.plugin.iceberg.IcebergSessionProperties.isExtendedStatisticsEnabled;
@@ -1742,6 +1744,27 @@ public class IcebergMetadata
     }
 
     @Override
+    public void renameField(ConnectorSession session, ConnectorTableHandle tableHandle, List<String> fieldPath, String target)
+    {
+        Table icebergTable = catalog.loadTable(session, ((IcebergTableHandle) tableHandle).getSchemaTableName());
+        String parentPath = String.join(".", fieldPath.subList(0, fieldPath.size() - 1));
+        NestedField parent = icebergTable.schema().caseInsensitiveFindField(parentPath);
+
+        String caseSensitiveParentName = icebergTable.schema().findColumnName(parent.fieldId());
+        NestedField source = parent.type().asStructType().caseInsensitiveField(getLast(fieldPath));
+
+        String sourcePath = caseSensitiveParentName + "." + source.name();
+        try {
+            icebergTable.updateSchema()
+                    .renameColumn(sourcePath, target)
+                    .commit();
+        }
+        catch (RuntimeException e) {
+            throw new TrinoException(ICEBERG_COMMIT_ERROR, "Failed to rename field: " + firstNonNull(e.getMessage(), e), e);
+        }
+    }
+
+    @Override
     public void setColumnType(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle columnHandle, io.trino.spi.type.Type type)
     {
         IcebergTableHandle table = (IcebergTableHandle) tableHandle;
@@ -2879,7 +2902,11 @@ public class IcebergMetadata
     @Override
     public Optional<CatalogSchemaTableName> redirectTable(ConnectorSession session, SchemaTableName tableName)
     {
-        return catalog.redirectTable(session, tableName);
+        Optional<String> targetCatalogName = getHiveCatalogName(session);
+        if (targetCatalogName.isEmpty()) {
+            return Optional.empty();
+        }
+        return catalog.redirectTable(session, tableName, targetCatalogName.get());
     }
 
     private static CollectedStatistics processComputedTableStatistics(Table table, Collection<ComputedStatistics> computedStatistics)
