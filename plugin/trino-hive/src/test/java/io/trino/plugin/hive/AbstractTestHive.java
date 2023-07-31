@@ -3970,7 +3970,7 @@ public abstract class AbstractTestHive
     {
         SchemaTableName tableName = temporaryTable("parquet_page_source_metrics");
         try {
-            assertPageSourceMetrics(tableName, PARQUET, new Metrics(ImmutableMap.of(PARQUET_CODEC_METRIC_PREFIX + "SNAPPY", new LongCount(1169))));
+            assertPageSourceMetrics(tableName, PARQUET, new Metrics(ImmutableMap.of(PARQUET_CODEC_METRIC_PREFIX + "SNAPPY", new LongCount(1157))));
         }
         finally {
             dropTable(tableName);
@@ -6296,8 +6296,8 @@ public abstract class AbstractTestHive
                 throws IOException
         {
             for (PartitionUpdate partitionUpdate : partitionUpdates) {
-                if ("pk2=insert2".equals(partitionUpdate.getTargetPath().getName())) {
-                    path = new Path(partitionUpdate.getTargetPath(), partitionUpdate.getFileNames().get(0));
+                if ("pk2=insert2".equals(partitionUpdate.getTargetPath().fileName())) {
+                    path = new Path(partitionUpdate.getTargetPath().toString(), partitionUpdate.getFileNames().get(0));
                     break;
                 }
             }
