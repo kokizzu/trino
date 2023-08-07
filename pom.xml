@@ -164,7 +164,7 @@
         <dep.tempto.version>200</dep.tempto.version>
         <dep.gcs.version>2.2.8</dep.gcs.version>
 
-        <dep.errorprone.version>2.20.0</dep.errorprone.version>
+        <dep.errorprone.version>2.21.1</dep.errorprone.version>
         <dep.testcontainers.version>1.18.3</dep.testcontainers.version>
         <dep.duct-tape.version>1.0.8</dep.duct-tape.version>
         <dep.confluent.version>7.3.1</dep.confluent.version>
@@ -180,6 +180,7 @@
         <dep.okio.version>3.3.0</dep.okio.version>
         <dep.flyway.version>9.21.0</dep.flyway.version>
         <dep.parquet.version>1.13.1</dep.parquet.version>
+        <dep.jmh.version>1.37</dep.jmh.version>
 
         <dep.docker.images.version>81</dep.docker.images.version>
 
@@ -532,7 +533,7 @@
             <dependency>
                 <groupId>com.nimbusds</groupId>
                 <artifactId>oauth2-oidc-sdk</artifactId>
-                <version>10.11</version>
+                <version>10.13</version>
                 <classifier>jdk11</classifier>
             </dependency>
 
@@ -606,12 +607,6 @@
                 <groupId>io.airlift</groupId>
                 <artifactId>joni</artifactId>
                 <version>2.1.5.3</version>
-            </dependency>
-
-            <dependency>
-                <groupId>io.airlift</groupId>
-                <artifactId>parameternames</artifactId>
-                <version>1.4</version>
             </dependency>
 
             <dependency>
@@ -2436,6 +2431,9 @@
                         <configuration combine.children="merge">
                             <!-- forking not required due to JVM flags in .mvn/jvm.config -->
                             <!-- see https://errorprone.info/docs/installation#maven -->
+                            <!-- Do not fail on error-prone's warnings even for modules using air.compiler.fail-warnings -->
+                            <!-- TODO silence warnings we choose to ignore and raise important warnings to error and then remove <failOnWarning> -->
+                            <failOnWarning>false</failOnWarning>
                             <compilerArgs>
                                 <arg>-XDcompilePolicy=simple</arg>
                                 <arg>
@@ -2470,7 +2468,9 @@
                                     <!-- Sometimes our javadoc contains just a @see directive -->
                                     -Xep:MissingSummary:OFF \
                                     -Xep:MutablePublicArray:ERROR \
+                                    -Xep:NarrowingCompoundAssignment:ERROR \
                                     -Xep:NullOptional:ERROR \
+                                    -Xep:NullableOptional:ERROR \
                                     -Xep:ObjectToString:ERROR \
                                     -Xep:OptionalNotPresent:ERROR \
                                     -Xep:OrphanedFormatString:ERROR \

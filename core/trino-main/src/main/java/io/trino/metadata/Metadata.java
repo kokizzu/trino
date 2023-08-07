@@ -228,6 +228,11 @@ public interface Metadata
     void setViewColumnComment(Session session, QualifiedObjectName viewName, String columnName, Optional<String> comment);
 
     /**
+     * Comments to the specified materialized view column.
+     */
+    void setMaterializedViewColumnComment(Session session, QualifiedObjectName viewName, String columnName, Optional<String> comment);
+
+    /**
      * Comments to the specified column.
      */
     void setColumnComment(Session session, TableHandle tableHandle, ColumnHandle column, Optional<String> comment);
@@ -256,6 +261,11 @@ public interface Metadata
      * Set the specified type to the column.
      */
     void setColumnType(Session session, TableHandle tableHandle, ColumnHandle column, Type type);
+
+    /**
+     * Set the specified type to the field.
+     */
+    void setFieldType(Session session, TableHandle tableHandle, List<String> fieldPath, Type type);
 
     /**
      * Set the authorization (owner) of specified table's user/role

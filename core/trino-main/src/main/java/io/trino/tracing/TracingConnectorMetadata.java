@@ -318,7 +318,8 @@ public class TracingConnectorMetadata
     @Override
     public void dropSchema(ConnectorSession session, String schemaName, boolean cascade)
     {
-        Span span = startSpan("dropSchema", schemaName);
+        Span span = startSpan("dropSchema", schemaName)
+                .setAttribute(TrinoAttributes.CASCADE, cascade);
         try (var ignored = scopedSpan(span)) {
             delegate.dropSchema(session, schemaName, cascade);
         }
@@ -424,6 +425,15 @@ public class TracingConnectorMetadata
     }
 
     @Override
+    public void setMaterializedViewColumnComment(ConnectorSession session, SchemaTableName viewName, String columnName, Optional<String> comment)
+    {
+        Span span = startSpan("setMaterializedViewColumnComment", viewName);
+        try (var ignored = scopedSpan(span)) {
+            delegate.setMaterializedViewColumnComment(session, viewName, columnName, comment);
+        }
+    }
+
+    @Override
     public void setColumnComment(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle column, Optional<String> comment)
     {
         Span span = startSpan("setColumnComment", tableHandle);
@@ -456,6 +466,15 @@ public class TracingConnectorMetadata
         Span span = startSpan("setColumnType", tableHandle);
         try (var ignored = scopedSpan(span)) {
             delegate.setColumnType(session, tableHandle, column, type);
+        }
+    }
+
+    @Override
+    public void setFieldType(ConnectorSession session, ConnectorTableHandle tableHandle, List<String> fieldPath, Type type)
+    {
+        Span span = startSpan("setFieldType", tableHandle);
+        try (var ignored = scopedSpan(span)) {
+            delegate.setFieldType(session, tableHandle, fieldPath, type);
         }
     }
 

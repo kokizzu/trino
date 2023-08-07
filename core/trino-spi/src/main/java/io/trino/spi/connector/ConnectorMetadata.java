@@ -435,6 +435,14 @@ public interface ConnectorMetadata
     }
 
     /**
+     * Comments to the specified materialized view column.
+     */
+    default void setMaterializedViewColumnComment(ConnectorSession session, SchemaTableName viewName, String columnName, Optional<String> comment)
+    {
+        throw new TrinoException(NOT_SUPPORTED, "This connector does not support setting materialized view column comments");
+    }
+
+    /**
      * Comments to the specified column
      */
     default void setColumnComment(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle column, Optional<String> comment)
@@ -468,6 +476,17 @@ public interface ConnectorMetadata
     default void setColumnType(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle column, Type type)
     {
         throw new TrinoException(NOT_SUPPORTED, "This connector does not support setting column types");
+    }
+
+    /**
+     * Set the specified field type
+     *
+     * @param fieldPath path starting with column name. The path is always lower-cased. It cannot be an empty or a single element.
+     */
+    @Experimental(eta = "2023-09-01")
+    default void setFieldType(ConnectorSession session, ConnectorTableHandle tableHandle, List<String> fieldPath, Type type)
+    {
+        throw new TrinoException(NOT_SUPPORTED, "This connector does not support setting field types");
     }
 
     /**

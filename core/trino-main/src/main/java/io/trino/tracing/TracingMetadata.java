@@ -423,6 +423,15 @@ public class TracingMetadata
     }
 
     @Override
+    public void setMaterializedViewColumnComment(Session session, QualifiedObjectName viewName, String columnName, Optional<String> comment)
+    {
+        Span span = startSpan("setMaterializedViewColumnComment", viewName);
+        try (var ignored = scopedSpan(span)) {
+            delegate.setMaterializedViewColumnComment(session, viewName, columnName, comment);
+        }
+    }
+
+    @Override
     public void setColumnComment(Session session, TableHandle tableHandle, ColumnHandle column, Optional<String> comment)
     {
         Span span = startSpan("setColumnComment", tableHandle);
@@ -473,6 +482,15 @@ public class TracingMetadata
         Span span = startSpan("setColumnType", tableHandle);
         try (var ignored = scopedSpan(span)) {
             delegate.setColumnType(session, tableHandle, column, type);
+        }
+    }
+
+    @Override
+    public void setFieldType(Session session, TableHandle tableHandle, List<String> fieldPath, Type type)
+    {
+        Span span = startSpan("setFieldType", tableHandle);
+        try (var ignored = scopedSpan(span)) {
+            delegate.setFieldType(session, tableHandle, fieldPath, type);
         }
     }
 
