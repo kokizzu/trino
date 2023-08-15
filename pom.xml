@@ -5,12 +5,12 @@
     <parent>
         <groupId>io.airlift</groupId>
         <artifactId>airbase</artifactId>
-        <version>143</version>
+        <version>144</version>
     </parent>
 
     <groupId>io.trino</groupId>
     <artifactId>trino-root</artifactId>
-    <version>423-SNAPSHOT</version>
+    <version>424-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>${project.artifactId}</name>
@@ -31,6 +31,7 @@
         <module>client/trino-cli</module>
         <module>client/trino-client</module>
         <module>client/trino-jdbc</module>
+        <module>core/trino-grammar</module>
         <module>core/trino-main</module>
         <module>core/trino-parser</module>
         <module>core/trino-server</module>
@@ -148,6 +149,8 @@
 
         <air.release.preparation-goals>clean verify -DskipTests</air.release.preparation-goals>
 
+        <dep.slice.version>2.0</dep.slice.version>
+
         <dep.accumulo.version>1.10.2</dep.accumulo.version>
         <dep.accumulo-hadoop.version>2.7.7-1</dep.accumulo-hadoop.version>
         <dep.antlr.version>4.13.0</dep.antlr.version>
@@ -175,7 +178,7 @@
         <dep.protobuf.version>3.23.2</dep.protobuf.version>
         <dep.wire.version>4.5.0</dep.wire.version>
         <!-- Netty 4.1.94.Final breaks Apache Arrow -->
-        <dep.netty.version>4.1.93.Final</dep.netty.version>
+        <dep.netty.version>4.1.96.Final</dep.netty.version>
         <dep.jna.version>5.13.0</dep.jna.version>
         <dep.okio.version>3.3.0</dep.okio.version>
         <dep.flyway.version>9.21.0</dep.flyway.version>
@@ -216,7 +219,7 @@
             <dependency>
                 <groupId>com.azure</groupId>
                 <artifactId>azure-sdk-bom</artifactId>
-                <version>1.2.14</version>
+                <version>1.2.15</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -248,7 +251,7 @@
             <dependency>
                 <groupId>org.jdbi</groupId>
                 <artifactId>jdbi3-bom</artifactId>
-                <version>3.39.1</version>
+                <version>3.40.0</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -280,7 +283,7 @@
             <dependency>
                 <groupId>com.adobe.testing</groupId>
                 <artifactId>s3mock-testcontainers</artifactId>
-                <version>2.11.0</version>
+                <version>3.0.1</version>
             </dependency>
 
             <dependency>
@@ -568,12 +571,6 @@
             </dependency>
 
             <dependency>
-                <groupId>com.teradata</groupId>
-                <artifactId>re2j-td</artifactId>
-                <version>1.4</version>
-            </dependency>
-
-            <dependency>
                 <groupId>commons-codec</groupId>
                 <artifactId>commons-codec</artifactId>
                 <version>1.15</version>
@@ -761,7 +758,7 @@
             <dependency>
                 <groupId>io.dropwizard.metrics</groupId>
                 <artifactId>metrics-core</artifactId>
-                <version>4.1.18</version>
+                <version>4.2.19</version>
             </dependency>
 
             <dependency>
@@ -788,6 +785,12 @@
                 <version>${dep.minio.version}</version>
             </dependency>
 
+            <dependency>
+                <groupId>io.projectreactor</groupId>
+                <artifactId>reactor-core</artifactId>
+                <version>3.4.30</version>
+            </dependency>
+
             <!-- io.confluent:kafka-avro-serializer uses multiple versions of this transitive dependency -->
             <dependency>
                 <groupId>io.swagger</groupId>
@@ -800,6 +803,11 @@
                 <groupId>io.swagger</groupId>
                 <artifactId>swagger-core</artifactId>
                 <version>1.6.2</version>
+            </dependency>
+            <dependency>
+                <groupId>io.trino</groupId>
+                <artifactId>re2j</artifactId>
+                <version>1.6</version>
             </dependency>
             <dependency>
                 <groupId>io.trino</groupId>
@@ -954,6 +962,12 @@
             <dependency>
                 <groupId>io.trino</groupId>
                 <artifactId>trino-geospatial-toolkit</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>io.trino</groupId>
+                <artifactId>trino-grammar</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
@@ -1863,7 +1877,7 @@
             <dependency>
                 <groupId>org.roaringbitmap</groupId>
                 <artifactId>RoaringBitmap</artifactId>
-                <version>0.9.46</version>
+                <version>0.9.47</version>
             </dependency>
 
             <dependency>
@@ -1900,7 +1914,7 @@
             <dependency>
                 <groupId>org.yaml</groupId>
                 <artifactId>snakeyaml</artifactId>
-                <version>2.0</version>
+                <version>2.1</version>
             </dependency>
 
             <dependency>
@@ -2115,7 +2129,7 @@
                                 </excludes>
                                 <includes combine.children="append">
                                     <!-- 2.x versions are not affected by CVE-2022-1471 -->
-                                    <include>org.yaml:snakeyaml:2.0</include>
+                                    <include>org.yaml:snakeyaml:2.+</include>
                                 </includes>
                             </bannedDependencies>
                             <requireProfileIdsExist />
@@ -2468,6 +2482,7 @@
                                     <!-- Sometimes our javadoc contains just a @see directive -->
                                     -Xep:MissingSummary:OFF \
                                     -Xep:MutablePublicArray:ERROR \
+                                    -Xep:NarrowCalculation:ERROR \
                                     -Xep:NarrowingCompoundAssignment:ERROR \
                                     -Xep:NullOptional:ERROR \
                                     -Xep:NullableOptional:ERROR \
@@ -2522,6 +2537,9 @@
             <properties>
                 <!-- the *local* master, not refs/remotes/... -->
                 <gib.referenceBranch>master</gib.referenceBranch>
+                <!-- set as properties, not configuration, to allow overriding them -->
+                <gib.buildDownstream>true</gib.buildDownstream>
+                <gib.buildUpstream>true</gib.buildUpstream>
             </properties>
             <build>
                 <plugins>
@@ -2535,8 +2553,6 @@
                             <compareToMergeBase>true</compareToMergeBase>
                             <uncommitted>true</uncommitted>
                             <untracked>true</untracked>
-                            <buildDownstream>true</buildDownstream>
-                            <buildUpstream>true</buildUpstream>
                             <buildUpstreamMode>impacted</buildUpstreamMode>
                             <!-- Skip tests and checks for upstream modules since they have not been modified but are still required to be built -->
                             <skipTestsForUpstreamModules>true</skipTestsForUpstreamModules>

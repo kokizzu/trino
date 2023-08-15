@@ -35,6 +35,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -69,6 +70,16 @@ public abstract class AbstractTestTrinoFileSystem
     }
 
     protected boolean deleteFileFailsIfNotExists()
+    {
+        return true;
+    }
+
+    protected boolean normalizesListFilesResult()
+    {
+        return false;
+    }
+
+    protected boolean seekPastEndOfFileFails()
     {
         return true;
     }
@@ -233,7 +244,7 @@ public abstract class AbstractTestTrinoFileSystem
 
                 // read int at a time
                 for (int intPosition = 0; intPosition < 4 * MEGABYTE; intPosition++) {
-                    assertThat(inputStream.getPosition()).isEqualTo(intPosition * 4);
+                    assertThat(inputStream.getPosition()).isEqualTo(intPosition * 4L);
 
                     int size = inputStream.readNBytes(bytes, 0, bytes.length);
                     assertThat(size).isEqualTo(4);
@@ -325,12 +336,21 @@ public abstract class AbstractTestTrinoFileSystem
                 inputStream.seek(currentPosition);
                 assertThat(inputStream.read()).isGreaterThanOrEqualTo(0);
                 currentPosition++;
-                assertThatThrownBy(() -> inputStream.seek(fileSize + 100))
-                        .isInstanceOf(IOException.class)
-                        .hasMessageContaining(tempBlob.location().toString());
-                assertThat(inputStream.getPosition()).isEqualTo(currentPosition);
-                assertThat(inputStream.read()).isGreaterThanOrEqualTo(0);
-                assertThat(inputStream.getPosition()).isEqualTo(currentPosition + 1);
+                if (seekPastEndOfFileFails()) {
+                    assertThatThrownBy(() -> inputStream.seek(fileSize + 100))
+                            .isInstanceOf(IOException.class)
+                            .hasMessageContaining(tempBlob.location().toString());
+                    assertThat(inputStream.getPosition()).isEqualTo(currentPosition);
+                    assertThat(inputStream.read()).isGreaterThanOrEqualTo(0);
+                    assertThat(inputStream.getPosition()).isEqualTo(currentPosition + 1);
+                }
+                else {
+                    inputStream.seek(fileSize + 100);
+                    assertThat(inputStream.getPosition()).isEqualTo(fileSize + 100);
+                    assertThat(inputStream.read()).isEqualTo(-1);
+                    assertThat(inputStream.readNBytes(50)).isEmpty();
+                    assertThat(inputStream.getPosition()).isEqualTo(fileSize + 100);
+                }
 
                 // verify all the methods throw after close
                 inputStream.close();
@@ -552,7 +572,9 @@ public abstract class AbstractTestTrinoFileSystem
             assertThat(inputFile.length()).isEqualTo(TEST_BLOB_CONTENT_PREFIX.length() + tempBlob.location().toString().length());
             assertThat(tempBlob.read()).isEqualTo(TEST_BLOB_CONTENT_PREFIX + tempBlob.location().toString());
 
-            assertThat(listPath("test/..")).containsExactly(tempBlob.location());
+            if (!normalizesListFilesResult()) {
+                assertThat(listPath("test/..")).containsExactly(tempBlob.location());
+            }
 
             if (supportsRenameFile()) {
                 getFileSystem().renameFile(tempBlob.location(), createLocation("file"));
@@ -710,6 +732,9 @@ public abstract class AbstractTestTrinoFileSystem
                     .hasMessageContaining(sourceBlob.location().toString())
                     .hasMessageContaining(targetBlob.location().toString());
 
+            // create target directory first
+            getFileSystem().createDirectory(targetBlob.location().parentDirectory());
+
             // rename
             sourceBlob.createOrOverwrite("data");
             getFileSystem().renameFile(sourceBlob.location(), targetBlob.location());
@@ -791,7 +816,7 @@ public abstract class AbstractTestTrinoFileSystem
                 assertThat(listPath("level0-file0")).isEmpty();
             }
 
-            if (!hierarchicalNamingConstraints) {
+            if (!hierarchicalNamingConstraints && !normalizesListFilesResult()) {
                 // this lists a path in a directory with an empty name
                 assertThat(listPath("/")).isEmpty();
             }
@@ -874,6 +899,82 @@ public abstract class AbstractTestTrinoFileSystem
                 getFileSystem().deleteFile(target);
                 assertThat(getFileSystem().newInputFile(target).exists()).as("target exists after delete").isFalse();
             }
+        }
+    }
+
+    @Test
+    public void testCreateDirectory()
+            throws IOException
+    {
+        try (Closer closer = Closer.create()) {
+            getFileSystem().createDirectory(createLocation("level0/level1/level2"));
+
+            Optional<Boolean> expectedExists = isHierarchical() ? Optional.of(true) : Optional.empty();
+
+            assertThat(getFileSystem().directoryExists(createLocation("level0/level1/level2"))).isEqualTo(expectedExists);
+            assertThat(getFileSystem().directoryExists(createLocation("level0/level1"))).isEqualTo(expectedExists);
+            assertThat(getFileSystem().directoryExists(createLocation("level0"))).isEqualTo(expectedExists);
+
+            Location blob = createBlob(closer, "level0/level1/level2-file");
+
+            if (isHierarchical()) {
+                // creating a directory for an existing file location is an error
+                assertThatThrownBy(() -> getFileSystem().createDirectory(blob))
+                        .isInstanceOf(IOException.class)
+                        .hasMessageContaining(blob.toString());
+            }
+            else {
+                getFileSystem().createDirectory(blob);
+            }
+            assertThat(readLocation(blob)).isEqualTo(TEST_BLOB_CONTENT_PREFIX + blob);
+
+            // create for existing directory does nothing
+            getFileSystem().createDirectory(createLocation("level0"));
+            getFileSystem().createDirectory(createLocation("level0/level1"));
+            getFileSystem().createDirectory(createLocation("level0/level1/level2"));
+        }
+    }
+
+    @Test
+    public void testRenameDirectory()
+            throws IOException
+    {
+        if (!isHierarchical()) {
+            getFileSystem().createDirectory(createLocation("abc"));
+            assertThatThrownBy(() -> getFileSystem().renameDirectory(createLocation("source"), createLocation("target")))
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("does not support directory renames");
+            return;
+        }
+
+        // rename directory locations cannot be the root of the file system
+        assertThatThrownBy(() -> getFileSystem().renameDirectory(getRootLocation(), createLocation("dir")))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining(getRootLocation().toString());
+        assertThatThrownBy(() -> getFileSystem().renameDirectory(createLocation("dir"), getRootLocation()))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining(getRootLocation().toString());
+
+        try (Closer closer = Closer.create()) {
+            getFileSystem().createDirectory(createLocation("level0/level1/level2"));
+
+            Location blob = createBlob(closer, "level0/level1/level2-file");
+
+            assertThat(getFileSystem().directoryExists(createLocation("level0/level1/level2"))).contains(true);
+            assertThat(getFileSystem().directoryExists(createLocation("level0/level1"))).contains(true);
+            assertThat(getFileSystem().directoryExists(createLocation("level0"))).contains(true);
+
+            getFileSystem().renameDirectory(createLocation("level0/level1"), createLocation("level0/renamed"));
+
+            assertThat(getFileSystem().directoryExists(createLocation("level0/level1"))).contains(false);
+            assertThat(getFileSystem().directoryExists(createLocation("level0/level1/level2"))).contains(false);
+            assertThat(getFileSystem().directoryExists(createLocation("level0/renamed"))).contains(true);
+            assertThat(getFileSystem().directoryExists(createLocation("level0/renamed/level2"))).contains(true);
+
+            assertThat(getFileSystem().newInputFile(blob).exists()).isFalse();
+
+            assertThat(readLocation(createLocation("level0/renamed/level2-file")))
+                    .isEqualTo(TEST_BLOB_CONTENT_PREFIX + blob);
         }
     }
 

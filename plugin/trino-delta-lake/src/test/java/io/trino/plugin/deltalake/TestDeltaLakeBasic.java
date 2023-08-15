@@ -61,6 +61,7 @@ import static com.google.common.io.RecursiveDeleteOption.ALLOW_INSECURE;
 import static io.trino.plugin.deltalake.DeltaLakeQueryRunner.DELTA_CATALOG;
 import static io.trino.plugin.deltalake.DeltaLakeQueryRunner.createDeltaLakeQueryRunner;
 import static io.trino.plugin.deltalake.DeltaTestingConnectorSession.SESSION;
+import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.getColumnsMetadata;
 import static io.trino.plugin.deltalake.transactionlog.checkpoint.TransactionLogTail.getEntriesFromJson;
 import static io.trino.plugin.hive.HiveTestUtils.HDFS_ENVIRONMENT;
 import static io.trino.plugin.hive.HiveTestUtils.HDFS_FILE_SYSTEM_STATS;
@@ -68,6 +69,7 @@ import static io.trino.testing.TestingNames.randomNameSuffix;
 import static java.lang.String.format;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 import static org.testng.Assert.assertFalse;
 
 public class TestDeltaLakeBasic
@@ -444,15 +446,35 @@ public class TestDeltaLakeBasic
         assertThat(stats.getMaxValues().orElseThrow().get("UPPER_CASE")).isEqualTo(20);
         assertThat(stats.getNullCount("UPPER_CASE").orElseThrow()).isEqualTo(1);
 
-        assertUpdate("UPDATE " + tableName + " SET upper_case = 30", 3);
+        assertUpdate("UPDATE " + tableName + " SET upper_case = upper_case + 10", 3);
 
-        List<DeltaLakeTransactionLogEntry> transactionLogAfterUpdate = getEntriesFromJson(1, tableLocation.resolve("_delta_log").toString(), FILE_SYSTEM).orElseThrow();
-        assertThat(transactionLogAfterUpdate).hasSize(2);
-        AddFileEntry updateAddFileEntry = transactionLogAfterUpdate.get(1).getAdd();
+        List<DeltaLakeTransactionLogEntry> transactionLogAfterUpdate = getEntriesFromJson(2, tableLocation.resolve("_delta_log").toString(), FILE_SYSTEM).orElseThrow();
+        assertThat(transactionLogAfterUpdate).hasSize(3);
+        AddFileEntry updateAddFileEntry = transactionLogAfterUpdate.get(2).getAdd();
         DeltaLakeFileStatistics updateStats = updateAddFileEntry.getStats().orElseThrow();
-        assertThat(updateStats.getMinValues().orElseThrow().get("UPPER_CASE")).isEqualTo(10);
-        assertThat(updateStats.getMaxValues().orElseThrow().get("UPPER_CASE")).isEqualTo(20);
+        assertThat(updateStats.getMinValues().orElseThrow().get("UPPER_CASE")).isEqualTo(20);
+        assertThat(updateStats.getMaxValues().orElseThrow().get("UPPER_CASE")).isEqualTo(30);
         assertThat(updateStats.getNullCount("UPPER_CASE").orElseThrow()).isEqualTo(1);
+
+        assertQuery(
+                "SHOW STATS FOR " + tableName,
+                """
+                        VALUES
+                        ('upper_case', null, 2.0, 0.3333333333333333, null, 20, 30),
+                        ('part', null, 1.0, 0.0, null, null, null),
+                        (null, null, null, null, 3.0, null, null)
+                        """);
+
+        assertUpdate(format("ANALYZE %s WITH(mode = 'full_refresh')", tableName));
+
+        assertQuery(
+                "SHOW STATS FOR " + tableName,
+                """
+                        VALUES
+                        ('upper_case', null, 2.0, 0.3333333333333333, null, 20, 30),
+                        ('part', null, 1.0, 0.0, null, null, null),
+                        (null, null, null, null, 3.0, null, null)
+                        """);
     }
 
     @DataProvider
@@ -541,6 +563,43 @@ public class TestDeltaLakeBasic
                 "Table .* requires Delta Lake writer version 7 which is not supported");
     }
 
+    /**
+     * @see databricks.identity_columns
+     */
+    @Test
+    public void testIdentityColumns()
+            throws Exception
+    {
+        String tableName = "test_identity_columns_" + randomNameSuffix();
+        Path tableLocation = Files.createTempFile(tableName, null);
+        copyDirectoryContents(new File(Resources.getResource("databricks/identity_columns").toURI()).toPath(), tableLocation);
+
+        assertUpdate("CALL system.register_table('%s', '%s', '%s')".formatted(getSession().getSchema().orElseThrow(), tableName, tableLocation.toUri()));
+        assertQueryReturnsEmptyResult("SELECT * FROM " + tableName);
+
+        List<DeltaLakeTransactionLogEntry> transactionLog = getEntriesFromJson(0, tableLocation.resolve("_delta_log").toString(), FILE_SYSTEM).orElseThrow();
+        assertThat(transactionLog).hasSize(3);
+        MetadataEntry metadataEntry = transactionLog.get(2).getMetaData();
+        assertThat(getColumnsMetadata(metadataEntry).get("b"))
+                .containsExactly(
+                        entry("delta.identity.start", 1),
+                        entry("delta.identity.step", 1),
+                        entry("delta.identity.allowExplicitInsert", false));
+
+        // Verify a column operation preserves delta.identity.* column properties
+        assertUpdate("COMMENT ON COLUMN " + tableName + ".b IS 'test column comment'");
+
+        List<DeltaLakeTransactionLogEntry> transactionLogAfterComment = getEntriesFromJson(1, tableLocation.resolve("_delta_log").toString(), FILE_SYSTEM).orElseThrow();
+        assertThat(transactionLogAfterComment).hasSize(3);
+        MetadataEntry commentMetadataEntry = transactionLogAfterComment.get(2).getMetaData();
+        assertThat(getColumnsMetadata(commentMetadataEntry).get("b"))
+                .containsExactly(
+                        entry("comment", "test column comment"),
+                        entry("delta.identity.start", 1),
+                        entry("delta.identity.step", 1),
+                        entry("delta.identity.allowExplicitInsert", false));
+    }
+
     @Test
     public void testCorruptedManagedTableLocation()
             throws Exception
@@ -577,8 +636,8 @@ public class TestDeltaLakeBasic
 
         // Assert queries fail cleanly
         assertQueryFails("TABLE " + tableName, "Metadata not found in transaction log for tpch." + tableName);
-        assertQueryFails("SELECT * FROM \"" + tableName + "$history\"", ".* Table '.*\\$history' does not exist");
-        assertQueryFails("SELECT * FROM \"" + tableName + "$properties\"", ".* Table '.*\\$properties' does not exist");
+        assertQueryFails("SELECT * FROM \"" + tableName + "$history\"", "Metadata not found in transaction log for tpch." + tableName);
+        assertQueryFails("SELECT * FROM \"" + tableName + "$properties\"", "Metadata not found in transaction log for tpch." + tableName);
         assertQueryFails("SELECT * FROM " + tableName + " WHERE false", "Metadata not found in transaction log for tpch." + tableName);
         assertQueryFails("SELECT 1 FROM " + tableName + " WHERE false", "Metadata not found in transaction log for tpch." + tableName);
         assertQueryFails("SHOW CREATE TABLE " + tableName, "Metadata not found in transaction log for tpch." + tableName);
