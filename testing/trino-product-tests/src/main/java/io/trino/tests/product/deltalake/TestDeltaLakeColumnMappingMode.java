@@ -50,7 +50,6 @@ import static io.trino.tests.product.deltalake.util.DeltaLakeTestUtils.getTableC
 import static io.trino.tests.product.deltalake.util.DeltaLakeTestUtils.getTablePropertyOnDelta;
 import static io.trino.tests.product.utils.QueryExecutors.onDelta;
 import static io.trino.tests.product.utils.QueryExecutors.onTrino;
-import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -1011,6 +1010,57 @@ public class TestDeltaLakeColumnMappingMode
         }
     }
 
+    @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_OSS, DELTA_LAKE_EXCLUDE_73, DELTA_LAKE_EXCLUDE_91, PROFILE_SPECIFIC_TESTS}, dataProvider = "columnMappingDataProvider")
+    @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
+    public void testRecalculateStatsForColumnMappingModeAndNoInitialStatistics(String mode)
+    {
+        String tableName = "test_recalculate_stats_for_column_mapping_mode_" + randomNameSuffix();
+
+        onDelta().executeQuery("" +
+                "CREATE TABLE default." + tableName +
+                " (a_number INT, a_string STRING)" +
+                " USING delta " +
+                " LOCATION 's3://" + bucketName + "/databricks-compatibility-test-" + tableName + "'" +
+                " TBLPROPERTIES (" +
+                " 'delta.columnMapping.mode' = '" + mode + "', " +
+                " 'delta.dataSkippingNumIndexedCols' = 0" +
+                ")");
+
+        try {
+            List<Row> expectedRows = ImmutableList.of(
+                    row(1, "a"),
+                    row(2, "bc"),
+                    row(null, null));
+
+            onDelta().executeQuery("INSERT INTO default." + tableName + " VALUES (1, 'a'), (2, 'bc'), (null, null)");
+            assertThat(onDelta().executeQuery("SELECT * FROM default." + tableName))
+                    .containsOnly(expectedRows);
+            assertThat(onTrino().executeQuery("SELECT * FROM delta.default." + tableName))
+                    .containsOnly(expectedRows);
+
+            assertThat(onTrino().executeQuery("SHOW STATS FOR delta.default." + tableName))
+                    .containsOnly(
+                            row("a_number", null, null, null, null, null, null),
+                            row("a_string", null, null, null, null, null, null),
+                            row(null, null, null, null, 3.0, null, null));
+
+            onTrino().executeQuery("ANALYZE delta.default." + tableName);
+            assertThat(onTrino().executeQuery("SHOW STATS FOR delta.default." + tableName))
+                    .containsOnly(ImmutableList.of(
+                            row("a_number", null, 2.0, 0.33333333333, null, "1", "2"),
+                            row("a_string", 3.0, 2.0, 0.33333333333, null, null, null),
+                            row(null, null, null, null, 3.0, null, null)));
+
+            assertThat(onDelta().executeQuery("SELECT * FROM default." + tableName))
+                    .containsOnly(expectedRows);
+            assertThat(onTrino().executeQuery("SELECT * FROM delta.default." + tableName))
+                    .containsOnly(expectedRows);
+        }
+        finally {
+            dropDeltaTableWithRetry("default." + tableName);
+        }
+    }
+
     @DataProvider
     public Object[][] changeColumnMappingDataProvider()
     {
@@ -1389,56 +1439,6 @@ public class TestDeltaLakeColumnMappingMode
         }
         finally {
             dropDeltaTableWithRetry("default." + sourceTableName);
-            dropDeltaTableWithRetry("default." + targetTableName);
-        }
-    }
-
-    @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_EXCLUDE_73, DELTA_LAKE_EXCLUDE_91, PROFILE_SPECIFIC_TESTS}, dataProvider = "columnMappingDataProvider")
-    @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
-    public void testUnsupportedColumnMappingModeChangeDataFeed(String mode)
-    {
-        String sourceTableName = "test_dl_cdf_target_column_mapping_mode_" + randomNameSuffix();
-        String targetTableName = "test_dl_cdf_source_column_mapping_mode_" + randomNameSuffix();
-
-        onDelta().executeQuery("" +
-                "CREATE TABLE default." + targetTableName +
-                " (nationkey INT, name STRING, regionkey INT)" +
-                " USING delta " +
-                " LOCATION 's3://" + bucketName + "/databricks-compatibility-test-" + targetTableName + "'" +
-                " TBLPROPERTIES (" +
-                " 'delta.columnMapping.mode'='" + mode + "'," +
-                " 'delta.enableChangeDataFeed' = true" +
-                ")");
-        onDelta().executeQuery("CREATE TABLE default." + sourceTableName + " (nationkey INT, name STRING, regionkey INT) " +
-                " USING DELTA" +
-                " LOCATION 's3://" + bucketName + "/databricks-compatibility-test-" + sourceTableName + "'");
-
-        try {
-            onDelta().executeQuery("INSERT INTO default." + targetTableName + " VALUES (1, 'nation1', 100)");
-            onDelta().executeQuery("INSERT INTO default." + targetTableName + " VALUES (2, 'nation2', 200)");
-            onDelta().executeQuery("INSERT INTO default." + targetTableName + " VALUES (3, 'nation3', 300)");
-
-            // Column mapping mode 'none' is tested in TestDeltaLakeDatabricksChangeDataFeedCompatibility
-            assertQueryFailure(() -> onTrino().executeQuery("UPDATE delta.default." + targetTableName + " SET regionkey = 10"))
-                    .hasMessageContaining("Unsupported column mapping mode for tables with change data feed enabled: " + mode.toUpperCase(ENGLISH));
-            assertQueryFailure(() -> onTrino().executeQuery("DELETE FROM delta.default." + targetTableName))
-                    .hasMessageContaining("Unsupported column mapping mode for tables with change data feed enabled: " + mode.toUpperCase(ENGLISH));
-            assertQueryFailure(() -> onTrino().executeQuery("MERGE INTO delta.default." + targetTableName + " cdf USING delta.default." + sourceTableName + " n " +
-                    "ON (cdf.nationkey = n.nationkey) " +
-                    "WHEN MATCHED " +
-                    "THEN UPDATE SET nationkey = (cdf.nationkey + n.nationkey + n.regionkey) " +
-                    "WHEN NOT MATCHED " +
-                    "THEN INSERT (nationkey, name, regionkey) VALUES (n.nationkey, n.name, n.regionkey)"))
-                    .hasMessageContaining("Unsupported column mapping mode for tables with change data feed enabled: " + mode.toUpperCase(ENGLISH));
-
-            assertThat(onDelta().executeQuery("SELECT nationkey, name, regionkey, _change_type, _commit_version " +
-                    "FROM table_changes('default." + targetTableName + "', 0)"))
-                    .containsOnly(
-                            row(1, "nation1", 100, "insert", 1),
-                            row(2, "nation2", 200, "insert", 2),
-                            row(3, "nation3", 300, "insert", 3));
-        }
-        finally {
             dropDeltaTableWithRetry("default." + targetTableName);
         }
     }

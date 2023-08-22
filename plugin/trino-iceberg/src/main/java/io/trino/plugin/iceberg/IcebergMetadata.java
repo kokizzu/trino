@@ -88,6 +88,7 @@ import io.trino.spi.connector.SchemaTablePrefix;
 import io.trino.spi.connector.SystemTable;
 import io.trino.spi.connector.TableColumnsMetadata;
 import io.trino.spi.connector.TableNotFoundException;
+import io.trino.spi.connector.WriterScalingOptions;
 import io.trino.spi.expression.ConnectorExpression;
 import io.trino.spi.expression.FunctionName;
 import io.trino.spi.expression.Variable;
@@ -718,8 +719,19 @@ public class IcebergMetadata
     }
 
     @Override
-    public void dropSchema(ConnectorSession session, String schemaName)
+    public void dropSchema(ConnectorSession session, String schemaName, boolean cascade)
     {
+        if (cascade) {
+            for (SchemaTableName materializedView : listMaterializedViews(session, Optional.of(schemaName))) {
+                dropMaterializedView(session, materializedView);
+            }
+            for (SchemaTableName viewName : listViews(session, Optional.of(schemaName))) {
+                dropView(session, viewName);
+            }
+            for (SchemaTableName tableName : listTables(session, Optional.of(schemaName))) {
+                dropTable(session, getTableHandle(session, tableName, Optional.empty(), Optional.empty()));
+            }
+        }
         catalog.dropNamespace(session, schemaName);
     }
 
@@ -2882,6 +2894,18 @@ public class IcebergMetadata
             return Optional.empty();
         }
         return catalog.redirectTable(session, tableName, targetCatalogName.get());
+    }
+
+    @Override
+    public WriterScalingOptions getNewTableWriterScalingOptions(ConnectorSession session, SchemaTableName tableName, Map<String, Object> tableProperties)
+    {
+        return WriterScalingOptions.ENABLED;
+    }
+
+    @Override
+    public WriterScalingOptions getInsertWriterScalingOptions(ConnectorSession session, ConnectorTableHandle tableHandle)
+    {
+        return WriterScalingOptions.ENABLED;
     }
 
     private static CollectedStatistics processComputedTableStatistics(Table table, Collection<ComputedStatistics> computedStatistics)
