@@ -212,29 +212,17 @@ public abstract class BaseIcebergConnectorTest
         }
     }
 
-    @SuppressWarnings("DuplicateBranchesInSwitch")
     @Override
     protected boolean hasBehavior(TestingConnectorBehavior connectorBehavior)
     {
-        switch (connectorBehavior) {
-            case SUPPORTS_TRUNCATE:
-                return false;
-
-            case SUPPORTS_TOPN_PUSHDOWN:
-                return false;
-
-            case SUPPORTS_RENAME_MATERIALIZED_VIEW_ACROSS_SCHEMAS:
-                return false;
-
-            case SUPPORTS_ADD_COLUMN_NOT_NULL_CONSTRAINT:
-                return false;
-
-            case SUPPORTS_REPORTING_WRITTEN_BYTES:
-                return true;
-
-            default:
-                return super.hasBehavior(connectorBehavior);
-        }
+        return switch (connectorBehavior) {
+            case SUPPORTS_REPORTING_WRITTEN_BYTES -> true;
+            case SUPPORTS_ADD_COLUMN_NOT_NULL_CONSTRAINT,
+                    SUPPORTS_RENAME_MATERIALIZED_VIEW_ACROSS_SCHEMAS,
+                    SUPPORTS_TOPN_PUSHDOWN,
+                    SUPPORTS_TRUNCATE -> false;
+            default -> super.hasBehavior(connectorBehavior);
+        };
     }
 
     @Test
@@ -4870,22 +4858,23 @@ public abstract class BaseIcebergConnectorTest
     public void testSchemaEvolutionWithDereferenceProjections()
     {
         // Fields are identified uniquely based on unique id's. If a column is dropped and recreated with the same name it should not return dropped data.
-        assertUpdate("CREATE TABLE evolve_test (dummy BIGINT, a row(b BIGINT, c VARCHAR))");
-        assertUpdate("INSERT INTO evolve_test VALUES (1, ROW(1, 'abc'))", 1);
-        assertUpdate("ALTER TABLE evolve_test DROP COLUMN a");
-        assertUpdate("ALTER TABLE evolve_test ADD COLUMN a ROW(b VARCHAR, c BIGINT)");
-        assertQuery("SELECT a.b FROM evolve_test", "VALUES NULL");
-        assertUpdate("DROP TABLE evolve_test");
+        String tableName = "evolve_test_" + randomNameSuffix();
+        assertUpdate("CREATE TABLE " + tableName + " (dummy BIGINT, a row(b BIGINT, c VARCHAR))");
+        assertUpdate("INSERT INTO " + tableName + " VALUES (1, ROW(1, 'abc'))", 1);
+        assertUpdate("ALTER TABLE " + tableName + " DROP COLUMN a");
+        assertUpdate("ALTER TABLE " + tableName + " ADD COLUMN a ROW(b VARCHAR, c BIGINT)");
+        assertQuery("SELECT a.b FROM " + tableName, "VALUES NULL");
+        assertUpdate("DROP TABLE " + tableName);
 
         // Very changing subfield ordering does not revive dropped data
-        assertUpdate("CREATE TABLE evolve_test (dummy BIGINT, a ROW(b BIGINT, c VARCHAR), d BIGINT) with (partitioning = ARRAY['d'])");
-        assertUpdate("INSERT INTO evolve_test VALUES (1, ROW(2, 'abc'), 3)", 1);
-        assertUpdate("ALTER TABLE evolve_test DROP COLUMN a");
-        assertUpdate("ALTER TABLE evolve_test ADD COLUMN a ROW(c VARCHAR, b BIGINT)");
-        assertUpdate("INSERT INTO evolve_test VALUES (4, 5, ROW('def', 6))", 1);
-        assertQuery("SELECT a.b FROM evolve_test WHERE d = 3", "VALUES NULL");
-        assertQuery("SELECT a.b FROM evolve_test WHERE d = 5", "VALUES 6");
-        assertUpdate("DROP TABLE evolve_test");
+        assertUpdate("CREATE TABLE " + tableName + " (dummy BIGINT, a ROW(b BIGINT, c VARCHAR), d BIGINT) with (partitioning = ARRAY['d'])");
+        assertUpdate("INSERT INTO " + tableName + " VALUES (1, ROW(2, 'abc'), 3)", 1);
+        assertUpdate("ALTER TABLE " + tableName + " DROP COLUMN a");
+        assertUpdate("ALTER TABLE " + tableName + " ADD COLUMN a ROW(c VARCHAR, b BIGINT)");
+        assertUpdate("INSERT INTO " + tableName + " VALUES (4, 5, ROW('def', 6))", 1);
+        assertQuery("SELECT a.b FROM " + tableName + " WHERE d = 3", "VALUES NULL");
+        assertQuery("SELECT a.b FROM " + tableName + " WHERE d = 5", "VALUES 6");
+        assertUpdate("DROP TABLE " + tableName);
     }
 
     @Test
@@ -5310,6 +5299,42 @@ public abstract class BaseIcebergConnectorTest
                 // as target_max_file_size is set to quite low value it can happen that created files are bigger,
                 // so just to be safe we check if it is not much bigger
                 .forEach(row -> assertThat((Long) row.getField(0)).isBetween(1L, maxSize.toBytes() * 6));
+    }
+
+    @Test
+    public void testTargetMaxFileSizeOnSortedTable()
+    {
+        String tableName = "test_default_max_file_size_sorted_" + randomNameSuffix();
+        @Language("SQL") String createTableSql = format("CREATE TABLE %s WITH (sorted_by = ARRAY['shipdate']) AS SELECT * FROM tpch.sf1.lineitem LIMIT 100000", tableName);
+
+        Session session = Session.builder(getSession())
+                .setSystemProperty("task_writer_count", "1")
+                // task scale writers should be disabled since we want to write with a single task writer
+                .setSystemProperty("task_scale_writers_enabled", "false")
+                .build();
+        assertUpdate(session, createTableSql, 100000);
+        List<String> initialFiles = getActiveFiles(tableName);
+        assertThat(initialFiles.size()).isLessThanOrEqualTo(3);
+        assertUpdate(format("DROP TABLE %s", tableName));
+
+        DataSize maxSize = DataSize.of(40, DataSize.Unit.KILOBYTE);
+        session = Session.builder(getSession())
+                .setSystemProperty("task_writer_count", "1")
+                // task scale writers should be disabled since we want to write with a single task writer
+                .setSystemProperty("task_scale_writers_enabled", "false")
+                .setCatalogSessionProperty("iceberg", "target_max_file_size", maxSize.toString())
+                .build();
+
+        assertUpdate(session, createTableSql, 100000);
+        assertThat(query(format("SELECT count(*) FROM %s", tableName))).matches("VALUES BIGINT '100000'");
+        List<String> updatedFiles = getActiveFiles(tableName);
+        assertThat(updatedFiles.size()).isGreaterThan(5);
+
+        computeActual(format("SELECT file_size_in_bytes FROM \"%s$files\"", tableName))
+                .getMaterializedRows()
+                // as target_max_file_size is set to quite low value it can happen that created files are bigger,
+                // so just to be safe we check if it is not much bigger
+                .forEach(row -> assertThat((Long) row.getField(0)).isBetween(1L, maxSize.toBytes() * 20));
     }
 
     @Test

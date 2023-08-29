@@ -33,8 +33,12 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static com.google.common.base.MoreObjects.firstNonNull;
 import static com.google.inject.util.Modules.EMPTY_MODULE;
+import static io.trino.filesystem.TrackingFileSystemFactory.OperationType.INPUT_FILE_EXISTS;
+import static io.trino.filesystem.TrackingFileSystemFactory.OperationType.INPUT_FILE_GET_LENGTH;
 import static io.trino.filesystem.TrackingFileSystemFactory.OperationType.INPUT_FILE_NEW_STREAM;
+import static io.trino.filesystem.TrackingFileSystemFactory.OperationType.OUTPUT_FILE_CREATE;
 import static io.trino.plugin.base.util.Closables.closeAllSuppress;
 import static io.trino.plugin.deltalake.TestDeltaLakeFileOperations.FileType.CDF_DATA;
 import static io.trino.plugin.deltalake.TestDeltaLakeFileOperations.FileType.DATA;
@@ -90,6 +94,46 @@ public class TestDeltaLakeFileOperations
     }
 
     @Test
+    public void testReadUnpartitionedTable()
+    {
+        assertUpdate("DROP TABLE IF EXISTS test_read_unpartitioned");
+        assertUpdate("CREATE TABLE test_read_unpartitioned(key varchar, data varchar)");
+
+        // Create multiple files
+        assertUpdate("INSERT INTO test_read_unpartitioned(key, data) VALUES ('p1', '1-abc'), ('p1', '1-def'), ('p2', '2-abc'), ('p2', '2-def')", 4);
+        assertUpdate("INSERT INTO test_read_unpartitioned(key, data) VALUES ('p1', '1-baz'), ('p2', '2-baz')", 2);
+
+        // Read all columns
+        assertUpdate("CALL system.flush_metadata_cache(schema_name => CURRENT_SCHEMA, table_name => 'test_read_unpartitioned')");
+        assertFileSystemAccesses(
+                "TABLE test_read_unpartitioned",
+                ImmutableMultiset.<FileOperation>builder()
+                        .addCopies(new FileOperation(LAST_CHECKPOINT, "_last_checkpoint", INPUT_FILE_NEW_STREAM), 2) // TODO (https://github.com/trinodb/trino/issues/16782) should be checked once per query
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000000.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000001.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000002.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000003.json", INPUT_FILE_NEW_STREAM), 2) // TODO (https://github.com/trinodb/trino/issues/16780) why is last transaction log accessed more times than others?
+                        .addCopies(new FileOperation(DATA, "no partition", INPUT_FILE_NEW_STREAM), 2)
+                        .build());
+
+        // Read with aggregation (this may involve fetching stats so may incur more file system accesses)
+        assertUpdate("CALL system.flush_metadata_cache(schema_name => CURRENT_SCHEMA, table_name => 'test_read_unpartitioned')");
+        assertFileSystemAccesses(
+                "SELECT key, max(data) FROM test_read_unpartitioned GROUP BY key",
+                ImmutableMultiset.<FileOperation>builder()
+                        .addCopies(new FileOperation(LAST_CHECKPOINT, "_last_checkpoint", INPUT_FILE_NEW_STREAM), 3) // TODO (https://github.com/trinodb/trino/issues/16782) should be checked once per query
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000000.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000001.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000002.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000003.json", INPUT_FILE_NEW_STREAM), 3) // TODO (https://github.com/trinodb/trino/issues/16780) why is last transaction log accessed more times than others?
+                        .addCopies(new FileOperation(TRINO_EXTENDED_STATS_JSON, "extended_stats.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(DATA, "no partition", INPUT_FILE_NEW_STREAM), 2)
+                        .build());
+
+        assertUpdate("DROP TABLE test_read_unpartitioned");
+    }
+
+    @Test
     public void testReadWholePartition()
     {
         assertUpdate("DROP TABLE IF EXISTS test_read_part_key");
@@ -100,6 +144,20 @@ public class TestDeltaLakeFileOperations
         assertUpdate("INSERT INTO test_read_part_key(key, data) VALUES ('p1', '1-baz'), ('p2', '2-baz')", 2);
 
         // Read partition and data columns
+        assertUpdate("CALL system.flush_metadata_cache(schema_name => CURRENT_SCHEMA, table_name => 'test_read_part_key')");
+        assertFileSystemAccesses(
+                "TABLE test_read_part_key",
+                ImmutableMultiset.<FileOperation>builder()
+                        .addCopies(new FileOperation(LAST_CHECKPOINT, "_last_checkpoint", INPUT_FILE_NEW_STREAM), 2) // TODO (https://github.com/trinodb/trino/issues/16782) should be checked once per query
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000000.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000001.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000002.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000003.json", INPUT_FILE_NEW_STREAM), 2) // TODO (https://github.com/trinodb/trino/issues/16780) why is last transaction log accessed more times than others?
+                        .addCopies(new FileOperation(DATA, "key=p1/", INPUT_FILE_NEW_STREAM), 2)
+                        .addCopies(new FileOperation(DATA, "key=p2/", INPUT_FILE_NEW_STREAM), 2)
+                        .build());
+
+        // Read with aggregation (this may involve fetching stats so may incur more file system accesses)
         assertUpdate("CALL system.flush_metadata_cache(schema_name => CURRENT_SCHEMA, table_name => 'test_read_part_key')");
         assertFileSystemAccesses(
                 "SELECT key, max(data) FROM test_read_part_key GROUP BY key",
@@ -153,6 +211,94 @@ public class TestDeltaLakeFileOperations
                         .build());
 
         assertUpdate("DROP TABLE test_read_part_key");
+    }
+
+    @Test
+    public void testDeleteWholePartition()
+    {
+        assertUpdate("DROP TABLE IF EXISTS test_delete_part_key");
+        assertUpdate("CREATE TABLE test_delete_part_key(key varchar, data varchar) WITH (partitioned_by=ARRAY['key'])");
+
+        // Create multiple files per partition
+        assertUpdate("INSERT INTO test_delete_part_key(key, data) VALUES ('p1', '1-abc'), ('p1', '1-def'), ('p2', '2-abc'), ('p2', '2-def')", 4);
+        assertUpdate("INSERT INTO test_delete_part_key(key, data) VALUES ('p1', '1-baz'), ('p2', '2-baz')", 2);
+
+        // Delete partition column only
+        assertUpdate("CALL system.flush_metadata_cache(schema_name => CURRENT_SCHEMA, table_name => 'test_delete_part_key')");
+        assertFileSystemAccesses(
+                "DELETE FROM test_delete_part_key WHERE key = 'p1'",
+                ImmutableMultiset.<FileOperation>builder()
+                        .addCopies(new FileOperation(LAST_CHECKPOINT, "_last_checkpoint", INPUT_FILE_NEW_STREAM), 6) // TODO (https://github.com/trinodb/trino/issues/16782) should be checked once per query
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000000.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000001.json", INPUT_FILE_EXISTS), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000001.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000002.json", INPUT_FILE_EXISTS), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000002.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000003.json", INPUT_FILE_EXISTS), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000003.json", INPUT_FILE_NEW_STREAM), 5) // TODO (https://github.com/trinodb/trino/issues/16780) why is last transaction log accessed more times than others?
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000004.json", INPUT_FILE_NEW_STREAM), 1)
+                        .build());
+
+        assertUpdate("DROP TABLE test_delete_part_key");
+    }
+
+    @Test
+    public void testDeleteWholeTable()
+    {
+        assertUpdate("DROP TABLE IF EXISTS test_delete_whole_table");
+        assertUpdate("CREATE TABLE test_delete_whole_table(key varchar, data varchar)");
+
+        // Create multiple files per partition
+        assertUpdate("INSERT INTO test_delete_whole_table(key, data) VALUES ('p1', '1-abc'), ('p1', '1-def'), ('p2', '2-abc'), ('p2', '2-def')", 4);
+        assertUpdate("INSERT INTO test_delete_whole_table(key, data) VALUES ('p1', '1-baz'), ('p2', '2-baz')", 2);
+
+        assertUpdate("CALL system.flush_metadata_cache(schema_name => CURRENT_SCHEMA, table_name => 'test_delete_whole_table')");
+        assertFileSystemAccesses(
+                "DELETE FROM test_delete_whole_table WHERE true",
+                ImmutableMultiset.<FileOperation>builder()
+                        .addCopies(new FileOperation(LAST_CHECKPOINT, "_last_checkpoint", INPUT_FILE_NEW_STREAM), 6) // TODO (https://github.com/trinodb/trino/issues/16782) should be checked once per query
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000000.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000001.json", INPUT_FILE_EXISTS), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000001.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000002.json", INPUT_FILE_EXISTS), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000002.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000003.json", INPUT_FILE_EXISTS), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000003.json", INPUT_FILE_NEW_STREAM), 5) // TODO (https://github.com/trinodb/trino/issues/16780) why is last transaction log accessed more times than others?
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000004.json", INPUT_FILE_NEW_STREAM), 1)
+                        .build());
+
+        assertUpdate("DROP TABLE test_delete_whole_table");
+    }
+
+    @Test
+    public void testDeleteWithNonPartitionFilter()
+    {
+        assertUpdate("CREATE TABLE test_delete_with_non_partition_filter (page_url VARCHAR, key VARCHAR, views INTEGER) WITH (partitioned_by=ARRAY['key'])");
+        assertUpdate("INSERT INTO test_delete_with_non_partition_filter VALUES('url1', 'domain1', 1)", 1);
+        assertUpdate("INSERT INTO test_delete_with_non_partition_filter VALUES('url2', 'domain2', 2)", 1);
+        assertUpdate("INSERT INTO test_delete_with_non_partition_filter VALUES('url3', 'domain3', 3)", 1);
+
+        assertUpdate("CALL system.flush_metadata_cache(schema_name => CURRENT_SCHEMA, table_name => 'test_delete_with_non_partition_filter')");
+        assertFileSystemAccesses(
+                "DELETE FROM test_delete_with_non_partition_filter WHERE page_url ='url1'",
+                ImmutableMultiset.<FileOperation>builder()
+                        .addCopies(new FileOperation(LAST_CHECKPOINT, "_last_checkpoint", INPUT_FILE_NEW_STREAM), 7) // TODO (https://github.com/trinodb/trino/issues/16782) should be checked once per query
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000000.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000001.json", INPUT_FILE_EXISTS), 2)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000001.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000002.json", INPUT_FILE_EXISTS), 2)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000002.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000003.json", INPUT_FILE_EXISTS), 2)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000003.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000004.json", INPUT_FILE_EXISTS), 2)
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000004.json", INPUT_FILE_NEW_STREAM), 5) // TODO (https://github.com/trinodb/trino/issues/16780) why is last transaction log accessed more times than others?
+                        .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000005.json", INPUT_FILE_NEW_STREAM), 1)
+                        .addCopies(new FileOperation(DATA, "key=domain1/", INPUT_FILE_NEW_STREAM), 2)
+                        .addCopies(new FileOperation(DATA, "key=domain1/", INPUT_FILE_GET_LENGTH), 2)
+                        .addCopies(new FileOperation(DATA, "key=domain1/", OUTPUT_FILE_CREATE), 1)
+                        .build());
+
+        assertUpdate("DROP TABLE test_delete_with_non_partition_filter");
     }
 
     @Test
@@ -282,7 +428,7 @@ public class TestDeltaLakeFileOperations
     {
         public static FileOperation create(String path, OperationType operationType)
         {
-            Pattern dataFilePattern = Pattern.compile(".*/(?<partition>key=[^/]*/)(?<queryId>\\d{8}_\\d{6}_\\d{5}_\\w{5})-(?<uuid>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})");
+            Pattern dataFilePattern = Pattern.compile(".*?/(?<partition>key=[^/]*/)?(?<queryId>\\d{8}_\\d{6}_\\d{5}_\\w{5})_(?<uuid>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})");
             String fileName = path.replaceFirst(".*/", "");
             if (path.matches(".*/_delta_log/_last_checkpoint")) {
                 return new FileOperation(LAST_CHECKPOINT, fileName, operationType);
@@ -302,7 +448,7 @@ public class TestDeltaLakeFileOperations
             if (!path.contains("_delta_log")) {
                 Matcher matcher = dataFilePattern.matcher(path);
                 if (matcher.matches()) {
-                    return new FileOperation(DATA, matcher.group("partition"), operationType);
+                    return new FileOperation(DATA, firstNonNull(matcher.group("partition"), "no partition"), operationType);
                 }
             }
             throw new IllegalArgumentException("File not recognized: " + path);

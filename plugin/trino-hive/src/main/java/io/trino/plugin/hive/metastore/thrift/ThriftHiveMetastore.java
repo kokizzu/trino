@@ -83,6 +83,7 @@ import io.trino.spi.security.ConnectorIdentity;
 import io.trino.spi.security.RoleGrant;
 import io.trino.spi.type.Type;
 import org.apache.thrift.TException;
+import org.apache.thrift.transport.TTransportException;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -162,6 +163,7 @@ public class ThriftHiveMetastore
     private final boolean translateHiveViews;
     private final boolean assumeCanonicalPartitionKeys;
     private final boolean useSparkTableStatisticsFallback;
+    private final boolean batchMetadataFetchEnabled;
     private final ThriftMetastoreStats stats;
     private final ExecutorService writeStatisticsExecutor;
 
@@ -179,6 +181,7 @@ public class ThriftHiveMetastore
             boolean translateHiveViews,
             boolean assumeCanonicalPartitionKeys,
             boolean useSparkTableStatisticsFallback,
+            boolean batchMetadataFetchEnabled,
             ThriftMetastoreStats stats,
             ExecutorService writeStatisticsExecutor)
     {
@@ -195,6 +198,7 @@ public class ThriftHiveMetastore
         this.translateHiveViews = translateHiveViews;
         this.assumeCanonicalPartitionKeys = assumeCanonicalPartitionKeys;
         this.useSparkTableStatisticsFallback = useSparkTableStatisticsFallback;
+        this.batchMetadataFetchEnabled = batchMetadataFetchEnabled;
         this.stats = requireNonNull(stats, "stats is null");
         this.writeStatisticsExecutor = requireNonNull(writeStatisticsExecutor, "writeStatisticsExecutor is null");
     }
@@ -886,6 +890,10 @@ public class ThriftHiveMetastore
     @Override
     public Optional<List<SchemaTableName>> getAllTables()
     {
+        if (!batchMetadataFetchEnabled) {
+            return Optional.empty();
+        }
+
         try {
             return retry()
                     .stopOn(UnknownDBException.class)
@@ -895,6 +903,11 @@ public class ThriftHiveMetastore
                             return client.getAllTables();
                         }
                     }));
+        }
+        catch (TTransportException e) {
+            log.warn(e, "Failed to get all views");
+            // fallback in case of HMS error
+            return Optional.empty();
         }
         catch (TException e) {
             throw new TrinoException(HIVE_METASTORE_ERROR, e);
@@ -913,6 +926,10 @@ public class ThriftHiveMetastore
             return Optional.empty();
         }
 
+        if (!batchMetadataFetchEnabled) {
+            return Optional.empty();
+        }
+
         try {
             return retry()
                     .stopOn(UnknownDBException.class)
@@ -922,6 +939,11 @@ public class ThriftHiveMetastore
                             return client.getAllViews();
                         }
                     }));
+        }
+        catch (TTransportException e) {
+            log.warn(e, "Failed to get all tables");
+            // fallback in case of HMS error
+            return Optional.empty();
         }
         catch (TException e) {
             throw new TrinoException(HIVE_METASTORE_ERROR, e);

@@ -95,37 +95,24 @@ public class TestMongoConnectorTest
         client = null;
     }
 
-    @SuppressWarnings("DuplicateBranchesInSwitch")
     @Override
     protected boolean hasBehavior(TestingConnectorBehavior connectorBehavior)
     {
-        switch (connectorBehavior) {
-            case SUPPORTS_DELETE:
-                return true;
-            case SUPPORTS_UPDATE:
-            case SUPPORTS_MERGE:
-            case SUPPORTS_TRUNCATE:
-                return false;
-
-            case SUPPORTS_RENAME_SCHEMA:
-                return false;
-
-            case SUPPORTS_ADD_FIELD:
-            case SUPPORTS_RENAME_FIELD:
-            case SUPPORTS_DROP_FIELD:
-            case SUPPORTS_SET_FIELD_TYPE:
-                return false;
-
-            case SUPPORTS_CREATE_VIEW:
-            case SUPPORTS_CREATE_MATERIALIZED_VIEW:
-                return false;
-
-            case SUPPORTS_NOT_NULL_CONSTRAINT:
-                return false;
-
-            default:
-                return super.hasBehavior(connectorBehavior);
-        }
+        return switch (connectorBehavior) {
+            case SUPPORTS_DELETE -> true;
+            case SUPPORTS_ADD_FIELD,
+                    SUPPORTS_CREATE_MATERIALIZED_VIEW,
+                    SUPPORTS_CREATE_VIEW,
+                    SUPPORTS_DROP_FIELD,
+                    SUPPORTS_MERGE,
+                    SUPPORTS_NOT_NULL_CONSTRAINT,
+                    SUPPORTS_RENAME_FIELD,
+                    SUPPORTS_RENAME_SCHEMA,
+                    SUPPORTS_SET_FIELD_TYPE,
+                    SUPPORTS_TRUNCATE,
+                    SUPPORTS_UPDATE -> false;
+            default -> super.hasBehavior(connectorBehavior);
+        };
     }
 
     @Override
@@ -540,6 +527,37 @@ public class TestMongoConnectorTest
         client.getDatabase("test").getCollection(tableName).insertOne(document);
         assertQuery("SHOW COLUMNS FROM test." + tableName, "SELECT 'col', 'bigint', '', ''");
         assertQuery("SELECT col FROM test." + tableName, "SELECT 1");
+
+        assertUpdate("DROP TABLE test." + tableName);
+    }
+
+    @Test
+    public void testNegativeZeroDecimal()
+    {
+        String tableName = "test_negative_zero" + randomNameSuffix();
+
+        assertUpdate("CREATE TABLE test." + tableName + "(id int, short_decimal decimal(1), long_decimal decimal(38))");
+        client.getDatabase("test").getCollection(tableName)
+                .insertOne(new Document(ImmutableMap.<String, Object>builder()
+                        .put("id", 1)
+                        .put("short_decimal", Decimal128.NEGATIVE_ZERO)
+                        .put("long_decimal", Decimal128.NEGATIVE_ZERO)
+                        .buildOrThrow()));
+        client.getDatabase("test").getCollection(tableName)
+                .insertOne(new Document(ImmutableMap.<String, Object>builder()
+                        .put("id", 2)
+                        .put("short_decimal", Decimal128.parse("-0.000"))
+                        .put("long_decimal", Decimal128.parse("-0.000"))
+                        .buildOrThrow()));
+
+        assertThat(query("SELECT * FROM test." + tableName))
+                .matches("VALUES (1, CAST('0' AS decimal(1)), CAST('0' AS decimal(38))), (2, CAST('0' AS decimal(1)), CAST('0' AS decimal(38)))");
+
+        assertThat(query("SELECT id FROM test." + tableName + " WHERE short_decimal = decimal '0'"))
+                .matches("VALUES 1, 2");
+
+        assertThat(query("SELECT id FROM test." + tableName + " WHERE long_decimal = decimal '0'"))
+                .matches("VALUES 1, 2");
 
         assertUpdate("DROP TABLE test." + tableName);
     }

@@ -15,6 +15,7 @@ package io.trino.operator;
 
 import com.google.common.annotations.VisibleForTesting;
 import io.trino.Session;
+import io.trino.annotation.NotThreadSafe;
 import io.trino.spi.Page;
 import io.trino.spi.PageBuilder;
 import io.trino.spi.type.Type;
@@ -27,6 +28,7 @@ import static io.trino.SystemSessionProperties.isDictionaryAggregationEnabled;
 import static io.trino.SystemSessionProperties.isFlatGroupByHash;
 import static io.trino.spi.type.BigintType.BIGINT;
 
+@NotThreadSafe
 public interface GroupByHash
 {
     static GroupByHash createGroupByHash(
@@ -78,13 +80,6 @@ public interface GroupByHash
      * group ids: 1 2 3 2 4 1 5
      */
     Work<int[]> getGroupIds(Page page);
-
-    boolean contains(int position, Page page);
-
-    default boolean contains(int position, Page page, long rawHash)
-    {
-        return contains(position, page);
-    }
 
     long getRawHash(int groupId);
 
