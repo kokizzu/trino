@@ -334,6 +334,29 @@ public class MapType
         });
     }
 
+    // FLAT MEMORY LAYOUT
+    //
+    // All data of the map is stored in the variable width section. Within the variable width section,
+    // fixed data for all keys and values are stored first, followed by variable length data for all keys
+    // and values. This simplifies the read implementation as we can simply step through the fixed
+    // section without knowing the variable length of each value, since each value stores the offset
+    // to its variable length data inside its fixed length data.
+    //
+    // In the current implementation, the keys and values are stored in an interleaved flat record along
+    // with null flags. This layout is not required by the format, and could be changed to a columnar
+    // if it is determined to be more efficient. Additionally, this layout allows for a null key, since
+    // non-null keys is not always enforced, and null keys may be allowed in the future.
+    //
+    // Fixed:
+    //   int positionCount, int variableSizeOffset
+    // Variable:
+    //   byte key1Null, keyFixedSize key1FixedData, byte value1Null, valueFixedSize value1FixedData
+    //   byte key2Null, keyFixedSize key2FixedData, byte value2Null, valueFixedSize value2FixedData
+    //   ...
+    //   key1VariableSize key1VariableData, value1VariableSize value1VariableData
+    //   key2VariableSize key2VariableData, value2VariableSize value2VariableData
+    //   ...
+
     @Override
     public int getFlatFixedSize()
     {
@@ -387,33 +410,36 @@ public class MapType
 
     private int relocateVariableWidthData(int positionCount, int keyFixedSize, int valueFixedSize, byte[] slice, int offset)
     {
-        int writeVariableWidthOffset = positionCount / 2 * (2 + keyFixedSize + valueFixedSize);
+        int writeFixedOffset = offset;
+        // variable width data starts after fixed width data for the keys and values
+        // there is one extra byte per key and value for a null flag
+        int writeVariableWidthOffset = offset + (positionCount / 2 * (2 + keyFixedSize + valueFixedSize));
         for (int index = 0; index < positionCount; index += 2) {
-            if (!keyType.isFlatVariableWidth() || slice[offset] != 0) {
-                offset++;
+            if (!keyType.isFlatVariableWidth() || slice[writeFixedOffset] != 0) {
+                writeFixedOffset++;
             }
             else {
                 // skip null byte
-                offset++;
+                writeFixedOffset++;
 
-                int keyVariableSize = keyType.relocateFlatVariableWidthOffsets(slice, offset, slice, offset + writeVariableWidthOffset);
+                int keyVariableSize = keyType.relocateFlatVariableWidthOffsets(slice, writeFixedOffset, slice, writeVariableWidthOffset);
                 writeVariableWidthOffset += keyVariableSize;
             }
-            offset += keyFixedSize;
+            writeFixedOffset += keyFixedSize;
 
-            if (!valueType.isFlatVariableWidth() || slice[offset] != 0) {
-                offset++;
+            if (!valueType.isFlatVariableWidth() || slice[writeFixedOffset] != 0) {
+                writeFixedOffset++;
             }
             else {
                 // skip null byte
-                offset++;
+                writeFixedOffset++;
 
-                int valueVariableSize = valueType.relocateFlatVariableWidthOffsets(slice, offset, slice, offset + writeVariableWidthOffset);
+                int valueVariableSize = valueType.relocateFlatVariableWidthOffsets(slice, writeFixedOffset, slice, writeVariableWidthOffset);
                 writeVariableWidthOffset += valueVariableSize;
             }
-            offset += valueFixedSize;
+            writeFixedOffset += valueFixedSize;
         }
-        return writeVariableWidthOffset;
+        return writeVariableWidthOffset - offset;
     }
 
     @Override
@@ -636,7 +662,9 @@ public class MapType
             int offset)
             throws Throwable
     {
-        int writeVariableWidthOffset = offset + map.getPositionCount() / 2 * (2 + keyFixedSize + valueFixedSize);
+        // variable width data starts after fixed width data for the keys and values
+        // there is one extra byte per key and value for a null flag
+        int writeVariableWidthOffset = offset + (map.getPositionCount() / 2 * (2 + keyFixedSize + valueFixedSize));
         for (int index = 0; index < map.getPositionCount(); index += 2) {
             if (map.isNull(index)) {
                 slice[offset] = 1;
@@ -656,7 +684,7 @@ public class MapType
                         slice,
                         offset,
                         slice,
-                        offset + writeVariableWidthOffset);
+                        writeVariableWidthOffset);
                 writeVariableWidthOffset += keyVariableSize;
             }
             offset += keyFixedSize;
@@ -679,7 +707,7 @@ public class MapType
                         slice,
                         offset,
                         slice,
-                        offset + writeVariableWidthOffset);
+                        writeVariableWidthOffset);
                 writeVariableWidthOffset += valueVariableSize;
             }
             offset += valueFixedSize;

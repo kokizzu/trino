@@ -94,28 +94,12 @@ public class AllowAllSystemAccessControl
     }
 
     @Override
-    public void checkCanViewQueryOwnedBy(SystemSecurityContext context, String queryOwner)
-    {
-    }
-
-    @Override
     public void checkCanKillQueryOwnedBy(SystemSecurityContext context, Identity queryOwner)
     {
     }
 
     @Override
-    public void checkCanKillQueryOwnedBy(SystemSecurityContext context, String queryOwner)
-    {
-    }
-
-    @Override
     public Collection<Identity> filterViewQueryOwnedBy(SystemSecurityContext context, Collection<Identity> queryOwners)
-    {
-        return queryOwners;
-    }
-
-    @Override
-    public Set<String> filterViewQueryOwnedBy(SystemSecurityContext context, Set<String> queryOwners)
     {
         return queryOwners;
     }
@@ -470,11 +454,5 @@ public class AllowAllSystemAccessControl
     public Optional<ViewExpression> getColumnMask(SystemSecurityContext context, CatalogSchemaTableName tableName, String columnName, Type type)
     {
         return Optional.empty();
-    }
-
-    @Override
-    public List<ViewExpression> getColumnMasks(SystemSecurityContext context, CatalogSchemaTableName tableName, String columnName, Type type)
-    {
-        return emptyList();
     }
 }

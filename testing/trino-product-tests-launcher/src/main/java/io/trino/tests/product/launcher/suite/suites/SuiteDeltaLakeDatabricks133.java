@@ -15,7 +15,7 @@ package io.trino.tests.product.launcher.suite.suites;
 
 import com.google.common.collect.ImmutableList;
 import io.trino.tests.product.launcher.env.EnvironmentConfig;
-import io.trino.tests.product.launcher.env.environment.EnvSinglenodeDeltaLakeDatabricks73;
+import io.trino.tests.product.launcher.env.environment.EnvSinglenodeDeltaLakeDatabricks133;
 import io.trino.tests.product.launcher.suite.SuiteDeltaLakeDatabricks;
 import io.trino.tests.product.launcher.suite.SuiteTestRun;
 
@@ -23,16 +23,16 @@ import java.util.List;
 
 import static io.trino.tests.product.launcher.suite.SuiteTestRun.testOnEnvironment;
 
-public class SuiteDeltaLakeDatabricks73
+public class SuiteDeltaLakeDatabricks133
         extends SuiteDeltaLakeDatabricks
 {
     @Override
     public List<SuiteTestRun> getTestRuns(EnvironmentConfig config)
     {
         return ImmutableList.of(
-                testOnEnvironment(EnvSinglenodeDeltaLakeDatabricks73.class)
+                testOnEnvironment(EnvSinglenodeDeltaLakeDatabricks133.class)
                         .withGroups("configured_features", "delta-lake-databricks")
-                        .withExcludedGroups("delta-lake-exclude-73")
+                        .withExcludedGroups("delta-lake-exclude-133")
                         .withExcludedTests(getExcludedTests())
                         .build());
     }

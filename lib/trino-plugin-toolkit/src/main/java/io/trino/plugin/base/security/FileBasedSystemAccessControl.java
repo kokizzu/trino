@@ -36,6 +36,7 @@ import io.trino.spi.security.ViewExpression;
 import io.trino.spi.type.Type;
 
 import java.security.Principal;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -288,29 +289,29 @@ public class FileBasedSystemAccessControl
     }
 
     @Override
-    public void checkCanViewQueryOwnedBy(SystemSecurityContext context, String queryOwner)
+    public void checkCanViewQueryOwnedBy(SystemSecurityContext context, Identity queryOwner)
     {
-        if (!canAccessQuery(context.getIdentity(), Optional.of(queryOwner), QueryAccessRule.AccessMode.VIEW)) {
+        if (!canAccessQuery(context.getIdentity(), Optional.of(queryOwner.getUser()), QueryAccessRule.AccessMode.VIEW)) {
             denyViewQuery();
         }
     }
 
     @Override
-    public Set<String> filterViewQueryOwnedBy(SystemSecurityContext context, Set<String> queryOwners)
+    public Collection<Identity> filterViewQueryOwnedBy(SystemSecurityContext context, Collection<Identity> queryOwners)
     {
         if (queryAccessRules.isEmpty()) {
             return queryOwners;
         }
         Identity identity = context.getIdentity();
         return queryOwners.stream()
-                .filter(owner -> canAccessQuery(identity, Optional.of(owner), QueryAccessRule.AccessMode.VIEW))
+                .filter(owner -> canAccessQuery(identity, Optional.of(owner.getUser()), QueryAccessRule.AccessMode.VIEW))
                 .collect(toImmutableSet());
     }
 
     @Override
-    public void checkCanKillQueryOwnedBy(SystemSecurityContext context, String queryOwner)
+    public void checkCanKillQueryOwnedBy(SystemSecurityContext context, Identity queryOwner)
     {
-        if (!canAccessQuery(context.getIdentity(), Optional.of(queryOwner), QueryAccessRule.AccessMode.KILL)) {
+        if (!canAccessQuery(context.getIdentity(), Optional.of(queryOwner.getUser()), QueryAccessRule.AccessMode.KILL)) {
             denyViewQuery();
         }
     }
@@ -1001,12 +1002,6 @@ public class FileBasedSystemAccessControl
         }
 
         return masks.stream().findFirst();
-    }
-
-    @Override
-    public List<ViewExpression> getColumnMasks(SystemSecurityContext context, CatalogSchemaTableName table, String columnName, Type type)
-    {
-        throw new UnsupportedOperationException();
     }
 
     private boolean checkAnyCatalogAccess(SystemSecurityContext context, String catalogName)

@@ -21,12 +21,11 @@ import io.trino.tests.product.launcher.env.common.TestsEnvironment;
 import static java.util.Objects.requireNonNull;
 
 @TestsEnvironment
-public class EnvSinglenodeDeltaLakeDatabricks73
+public class EnvSinglenodeDeltaLakeDatabricks133
         extends AbstractSinglenodeDeltaLakeDatabricks
-
 {
     @Inject
-    public EnvSinglenodeDeltaLakeDatabricks73(Standard standard, DockerFiles dockerFiles)
+    public EnvSinglenodeDeltaLakeDatabricks133(Standard standard, DockerFiles dockerFiles)
     {
         super(standard, dockerFiles);
     }
@@ -34,6 +33,6 @@ public class EnvSinglenodeDeltaLakeDatabricks73
     @Override
     String databricksTestJdbcUrl()
     {
-        return requireNonNull(System.getenv("DATABRICKS_73_JDBC_URL"), "Environment DATABRICKS_73_JDBC_URL was not set");
+        return requireNonNull(System.getenv("DATABRICKS_133_JDBC_URL"), "Environment DATABRICKS_133_JDBC_URL was not set");
     }
 }

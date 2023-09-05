@@ -134,6 +134,7 @@ import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.Future;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.stream.Stream;
 
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static com.google.common.base.Verify.verify;
@@ -333,8 +334,10 @@ public class GlueHiveMetastore
             // When the table has partitions, but row count statistics are set to zero, we treat this case as empty
             // statistics to avoid underestimation in the CBO. This scenario may be caused when other engines are
             // used to ingest data into partitioned hive tables.
-            partitionBasicStatistics = partitionBasicStatistics.keySet().stream()
-                    .map(key -> new SimpleEntry<>(key, PartitionStatistics.empty()))
+            partitionBasicStatistics = partitionBasicStatistics.entrySet().stream()
+                    .map(entry -> new SimpleEntry<>(
+                                entry.getKey(),
+                                entry.getValue().withBasicStatistics(entry.getValue().getBasicStatistics().withEmptyRowCount())))
                     .collect(toImmutableMap(SimpleEntry::getKey, SimpleEntry::getValue));
         }
 
@@ -462,15 +465,7 @@ public class GlueHiveMetastore
     private List<String> getTableNames(String databaseName, Predicate<com.amazonaws.services.glue.model.Table> filter)
     {
         try {
-            List<String> tableNames = getPaginatedResults(
-                    glueClient::getTables,
-                    new GetTablesRequest()
-                            .withDatabaseName(databaseName),
-                    GetTablesRequest::setNextToken,
-                    GetTablesResult::getNextToken,
-                    stats.getGetTables())
-                    .map(GetTablesResult::getTableList)
-                    .flatMap(List::stream)
+            List<String> tableNames = getGlueTables(databaseName)
                     .filter(filter)
                     .map(com.amazonaws.services.glue.model.Table::getName)
                     .collect(toImmutableList());
@@ -1162,6 +1157,19 @@ public class GlueHiveMetastore
     public void checkSupportsTransactions()
     {
         throw new TrinoException(NOT_SUPPORTED, "Glue does not support ACID tables");
+    }
+
+    private Stream<com.amazonaws.services.glue.model.Table> getGlueTables(String databaseName)
+    {
+        return getPaginatedResults(
+                glueClient::getTables,
+                new GetTablesRequest()
+                        .withDatabaseName(databaseName),
+                GetTablesRequest::setNextToken,
+                GetTablesResult::getNextToken,
+                stats.getGetTables())
+                .map(GetTablesResult::getTableList)
+                .flatMap(List::stream);
     }
 
     static class StatsRecordingAsyncHandler<Request extends AmazonWebServiceRequest, Result>

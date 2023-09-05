@@ -45,7 +45,6 @@ import static io.trino.filesystem.TrackingFileSystemFactory.OperationType.OUTPUT
 import static io.trino.plugin.hive.HiveTestUtils.HDFS_ENVIRONMENT;
 import static io.trino.plugin.hive.HiveTestUtils.HDFS_FILE_SYSTEM_STATS;
 import static io.trino.plugin.hive.metastore.file.TestingFileHiveMetastore.createTestingFileHiveMetastore;
-import static io.trino.plugin.hive.util.MultisetAssertions.assertMultisetsEqual;
 import static io.trino.plugin.iceberg.IcebergQueryRunner.ICEBERG_CATALOG;
 import static io.trino.plugin.iceberg.IcebergSessionProperties.COLLECT_EXTENDED_STATISTICS_ON_WRITE;
 import static io.trino.plugin.iceberg.TestIcebergMetadataFileOperations.FileType.DATA;
@@ -54,6 +53,7 @@ import static io.trino.plugin.iceberg.TestIcebergMetadataFileOperations.FileType
 import static io.trino.plugin.iceberg.TestIcebergMetadataFileOperations.FileType.SNAPSHOT;
 import static io.trino.plugin.iceberg.TestIcebergMetadataFileOperations.FileType.STATS;
 import static io.trino.plugin.iceberg.TestIcebergMetadataFileOperations.FileType.fromFilePath;
+import static io.trino.testing.MultisetAssertions.assertMultisetsEqual;
 import static io.trino.testing.TestingNames.randomNameSuffix;
 import static io.trino.testing.TestingSession.testSessionBuilder;
 import static java.lang.Math.min;
@@ -495,9 +495,22 @@ public class TestIcebergMetadataFileOperations
             assertUpdate(session, "CREATE TABLE test_other_select_i_s_columns" + i + "(id varchar, age integer)"); // won't match the filter
         }
 
+        // Bulk retrieval
         assertFileSystemAccesses(session, "SELECT * FROM information_schema.columns WHERE table_schema = CURRENT_SCHEMA AND table_name LIKE 'test_select_i_s_columns%'",
                 ImmutableMultiset.<FileOperation>builder()
                         .addCopies(new FileOperation(METADATA_JSON, INPUT_FILE_NEW_STREAM), tables * 2)
+                        .build());
+
+        // Pointed lookup
+        assertFileSystemAccesses(session, "SELECT * FROM information_schema.columns WHERE table_schema = CURRENT_SCHEMA AND table_name = 'test_select_i_s_columns0'",
+                ImmutableMultiset.<FileOperation>builder()
+                        .add(new FileOperation(FileType.METADATA_JSON, INPUT_FILE_NEW_STREAM))
+                        .build());
+
+        // Pointed lookup via DESCRIBE (which does some additional things before delegating to information_schema.columns)
+        assertFileSystemAccesses(session, "DESCRIBE test_select_i_s_columns0",
+                ImmutableMultiset.<FileOperation>builder()
+                        .add(new FileOperation(FileType.METADATA_JSON, INPUT_FILE_NEW_STREAM))
                         .build());
 
         for (int i = 0; i < tables; i++) {

@@ -367,14 +367,14 @@ public interface ConnectorMetadata
     default Iterator<RelationCommentMetadata> streamRelationComments(ConnectorSession session, Optional<String> schemaName, UnaryOperator<Set<SchemaTableName>> relationFilter)
     {
         List<RelationCommentMetadata> materializedViews = getMaterializedViews(session, schemaName).entrySet().stream()
-                .map(entry -> RelationCommentMetadata.forTable(entry.getKey(), entry.getValue().getComment()))
+                .map(entry -> RelationCommentMetadata.forRelation(entry.getKey(), entry.getValue().getComment()))
                 .toList();
         Set<SchemaTableName> mvNames = materializedViews.stream()
                 .map(RelationCommentMetadata::name)
                 .collect(toUnmodifiableSet());
 
         List<RelationCommentMetadata> views = getViews(session, schemaName).entrySet().stream()
-                .map(entry -> RelationCommentMetadata.forTable(entry.getKey(), entry.getValue().getComment()))
+                .map(entry -> RelationCommentMetadata.forRelation(entry.getKey(), entry.getValue().getComment()))
                 .filter(commentMetadata -> !mvNames.contains(commentMetadata.name()))
                 .toList();
         Set<SchemaTableName> mvAndViewNames = Stream.concat(mvNames.stream(), views.stream().map(RelationCommentMetadata::name))
@@ -393,13 +393,13 @@ public interface ConnectorMetadata
                             // disappeared during listing
                             return null;
                         }
-                        return RelationCommentMetadata.forTable(tableName, getTableMetadata(session, tableHandle).getComment());
+                        return RelationCommentMetadata.forRelation(tableName, getTableMetadata(session, tableHandle).getComment());
                     }
                     catch (RuntimeException e) {
                         // getTableHandle or getTableMetadata failed call may fail if table disappeared during listing or is unsupported.
                         Helper.juliLogger.log(Level.WARNING, () -> "Failed to get metadata for table: " + tableName);
                         // Since the getTableHandle did not return null (i.e. succeeded or failed), we assume the table would be returned by listTables
-                        return RelationCommentMetadata.forTable(tableName, Optional.empty());
+                        return RelationCommentMetadata.forRelation(tableName, Optional.empty());
                     }
                 })
                 .filter(Objects::nonNull)
@@ -634,6 +634,16 @@ public interface ConnectorMetadata
      * Get the physical layout for a new table.
      */
     default Optional<ConnectorTableLayout> getNewTableLayout(ConnectorSession session, ConnectorTableMetadata tableMetadata)
+    {
+        return Optional.empty();
+    }
+
+    /**
+     * Return the effective {@link io.trino.spi.type.Type} that is supported by the connector for the given type.
+     * If {@link Optional#empty()} is returned, the type will be used as is during table creation which may or may not be supported by the connector.
+     * The effective type shall be a type that is cast-compatible with the input type.
+     */
+    default Optional<Type> getSupportedType(ConnectorSession session, Type type)
     {
         return Optional.empty();
     }

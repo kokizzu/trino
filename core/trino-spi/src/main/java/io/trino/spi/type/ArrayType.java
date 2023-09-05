@@ -271,6 +271,28 @@ public class ArrayType
         });
     }
 
+    // FLAT MEMORY LAYOUT
+    //
+    // All data of the array is stored in the variable width section. Within the variable width section,
+    // fixed data for all elements is stored first, followed by variable length data for all elements
+    // This simplifies the read implementation as we can simply step through the fixed section without
+    // knowing the variable length of each element, since each element stores the offset to its variable
+    // length data inside its fixed length data.
+    //
+    // In the current implementation, the element and null flag are stored in an interleaved flat record.
+    // This layout is not required by the format, and could be changed to a columnar if it is determined
+    // to be more efficient.
+    //
+    // Fixed:
+    //   int positionCount, int variableSizeOffset
+    // Variable:
+    //   byte element1Null, elementFixedSize element1FixedData
+    //   byte element2Null, elementFixedSize element2FixedData
+    //   ...
+    //   element1VariableSize element1VariableData
+    //   element2VariableSize element2VariableData
+    //   ...
+
     @Override
     public int getFlatFixedSize()
     {
@@ -320,21 +342,24 @@ public class ArrayType
 
     private int relocateVariableWidthData(int positionCount, int elementFixedSize, byte[] slice, int offset)
     {
-        int writeVariableWidthOffset = positionCount * (1 + elementFixedSize);
+        int writeFixedOffset = offset;
+        // variable width data starts after fixed width data
+        // there is one extra byte per position for the null flag
+        int writeVariableWidthOffset = offset + positionCount * (1 + elementFixedSize);
         for (int index = 0; index < positionCount; index++) {
-            if (slice[offset] != 0) {
-                offset++;
+            if (slice[writeFixedOffset] != 0) {
+                writeFixedOffset++;
             }
             else {
                 // skip null byte
-                offset++;
+                writeFixedOffset++;
 
-                int elementVariableSize = elementType.relocateFlatVariableWidthOffsets(slice, offset, slice, offset + writeVariableWidthOffset);
+                int elementVariableSize = elementType.relocateFlatVariableWidthOffsets(slice, writeFixedOffset, slice, writeVariableWidthOffset);
                 writeVariableWidthOffset += elementVariableSize;
             }
-            offset += elementFixedSize;
+            writeFixedOffset += elementFixedSize;
         }
-        return writeVariableWidthOffset;
+        return writeVariableWidthOffset - offset;
     }
 
     @Override
@@ -433,6 +458,8 @@ public class ArrayType
             throws Throwable
     {
         int positionCount = array.getPositionCount();
+        // variable width data starts after fixed width data
+        // there is one extra byte per position for the null flag
         int writeVariableWidthOffset = offset + positionCount * (1 + elementFixedSize);
         for (int index = 0; index < positionCount; index++) {
             if (array.isNull(index)) {

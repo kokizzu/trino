@@ -279,9 +279,9 @@ import static io.trino.plugin.hive.util.AcidTables.isTransactionalTable;
 import static io.trino.plugin.hive.util.AcidTables.writeAcidVersionFile;
 import static io.trino.plugin.hive.util.HiveBucketing.getHiveBucketHandle;
 import static io.trino.plugin.hive.util.HiveBucketing.isSupportedBucketing;
-import static io.trino.plugin.hive.util.HiveUtil.columnMetadataGetter;
 import static io.trino.plugin.hive.util.HiveUtil.getPartitionKeyColumnHandles;
 import static io.trino.plugin.hive.util.HiveUtil.getRegularColumnHandles;
+import static io.trino.plugin.hive.util.HiveUtil.getTableColumnMetadata;
 import static io.trino.plugin.hive.util.HiveUtil.hiveColumnHandles;
 import static io.trino.plugin.hive.util.HiveUtil.isDeltaLakeTable;
 import static io.trino.plugin.hive.util.HiveUtil.isHiveSystemSchema;
@@ -318,6 +318,7 @@ import static io.trino.spi.type.TypeUtils.isFloatingPointNaN;
 import static io.trino.spi.type.VarcharType.createUnboundedVarcharType;
 import static java.lang.Boolean.parseBoolean;
 import static java.lang.String.format;
+import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
 import static java.util.stream.Collectors.joining;
@@ -458,6 +459,20 @@ public class HiveMetadata
     public DirectoryLister getDirectoryLister()
     {
         return directoryLister;
+    }
+
+    @Override
+    public boolean schemaExists(ConnectorSession session, String schemaName)
+    {
+        if (!schemaName.equals(schemaName.toLowerCase(ENGLISH))) {
+            // Currently, Trino schemas are always lowercase, so this one cannot exist (https://github.com/trinodb/trino/issues/17)
+            // In fact, some metastores (e.g. Glue) store database names lowercase only, but accepted mixed case on lookup, so we need to filter out here.
+            return false;
+        }
+        if (isHiveSystemSchema(schemaName)) {
+            return false;
+        }
+        return metastore.getDatabase(schemaName).isPresent();
     }
 
     @Override
@@ -634,11 +649,7 @@ public class HiveMetadata
             throw new TableNotFoundException(tableName);
         }
 
-        Function<HiveColumnHandle, ColumnMetadata> metadataGetter = columnMetadataGetter(table);
-        ImmutableList.Builder<ColumnMetadata> columns = ImmutableList.builder();
-        for (HiveColumnHandle columnHandle : hiveColumnHandles(table, typeManager, getTimestampPrecision(session))) {
-            columns.add(metadataGetter.apply(columnHandle));
-        }
+        List<ColumnMetadata> columns = getTableColumnMetadata(session, table, typeManager);
 
         // External location property
         ImmutableMap.Builder<String, Object> properties = ImmutableMap.builder();
@@ -737,7 +748,7 @@ public class HiveMetadata
         // Partition Projection specific properties
         properties.putAll(partitionProjectionService.getPartitionProjectionTrinoTableProperties(table));
 
-        return new ConnectorTableMetadata(tableName, columns.build(), properties.buildOrThrow(), comment);
+        return new ConnectorTableMetadata(tableName, columns, properties.buildOrThrow(), comment);
     }
 
     private static Optional<String> getCsvSerdeProperty(Table table, String key)

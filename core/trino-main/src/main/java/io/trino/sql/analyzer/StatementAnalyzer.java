@@ -204,6 +204,7 @@ import io.trino.sql.tree.RenameSchema;
 import io.trino.sql.tree.RenameTable;
 import io.trino.sql.tree.RenameView;
 import io.trino.sql.tree.ResetSession;
+import io.trino.sql.tree.ResetSessionAuthorization;
 import io.trino.sql.tree.Revoke;
 import io.trino.sql.tree.Rollback;
 import io.trino.sql.tree.Row;
@@ -216,6 +217,7 @@ import io.trino.sql.tree.SetOperation;
 import io.trino.sql.tree.SetProperties;
 import io.trino.sql.tree.SetSchemaAuthorization;
 import io.trino.sql.tree.SetSession;
+import io.trino.sql.tree.SetSessionAuthorization;
 import io.trino.sql.tree.SetTableAuthorization;
 import io.trino.sql.tree.SetTimeZone;
 import io.trino.sql.tree.SetViewAuthorization;
@@ -930,7 +932,7 @@ class StatementAnalyzer
             // analyze the query that creates the table
             Scope queryScope = analyze(node.getQuery());
 
-            ImmutableList.Builder<ColumnMetadata> columns = ImmutableList.builder();
+            ImmutableList.Builder<ColumnMetadata> columnsBuilder = ImmutableList.builder();
 
             // analyze target table columns and column aliases
             ImmutableList.Builder<OutputColumn> outputColumns = ImmutableList.builder();
@@ -943,15 +945,15 @@ class StatementAnalyzer
                         throw semanticException(COLUMN_TYPE_UNKNOWN, node, "Column type is unknown at position %s", queryScope.getRelationType().indexOf(field) + 1);
                     }
                     String columnName = node.getColumnAliases().get().get(aliasPosition).getValue();
-                    columns.add(new ColumnMetadata(columnName, field.getType()));
+                    columnsBuilder.add(new ColumnMetadata(columnName, metadata.getSupportedType(session, catalogHandle, field.getType()).orElse(field.getType())));
                     outputColumns.add(new OutputColumn(new Column(columnName, field.getType().toString()), analysis.getSourceColumns(field)));
                     aliasPosition++;
                 }
             }
             else {
                 validateColumns(node, queryScope.getRelationType());
-                columns.addAll(queryScope.getRelationType().getVisibleFields().stream()
-                        .map(field -> new ColumnMetadata(field.getName().orElseThrow(), field.getType()))
+                columnsBuilder.addAll(queryScope.getRelationType().getVisibleFields().stream()
+                        .map(field -> new ColumnMetadata(field.getName().orElseThrow(), metadata.getSupportedType(session, catalogHandle, field.getType()).orElse(field.getType())))
                         .collect(toImmutableList()));
                 queryScope.getRelationType().getVisibleFields().stream()
                         .map(this::createOutputColumn)
@@ -959,12 +961,13 @@ class StatementAnalyzer
             }
 
             // create target table metadata
-            ConnectorTableMetadata tableMetadata = new ConnectorTableMetadata(targetTable.asSchemaTableName(), columns.build(), properties, node.getComment());
+            List<ColumnMetadata> columns = columnsBuilder.build();
+            ConnectorTableMetadata tableMetadata = new ConnectorTableMetadata(targetTable.asSchemaTableName(), columns, properties, node.getComment());
 
             // analyze target table layout
             Optional<TableLayout> newTableLayout = metadata.getNewTableLayout(session, catalogName, tableMetadata);
 
-            Set<String> columnNames = columns.build().stream()
+            Set<String> columnNames = columns.stream()
                     .map(ColumnMetadata::getName)
                     .collect(toImmutableSet());
 
@@ -1031,6 +1034,18 @@ class StatementAnalyzer
 
         @Override
         protected Scope visitResetSession(ResetSession node, Optional<Scope> scope)
+        {
+            return createAndAssignScope(node, scope);
+        }
+
+        @Override
+        protected Scope visitSetSessionAuthorization(SetSessionAuthorization node, Optional<Scope> scope)
+        {
+            return createAndAssignScope(node, scope);
+        }
+
+        @Override
+        protected Scope visitResetSessionAuthorization(ResetSessionAuthorization node, Optional<Scope> scope)
         {
             return createAndAssignScope(node, scope);
         }
@@ -5550,6 +5565,7 @@ class StatementAnalyzer
                 .setQueryId(session.getQueryId())
                 .setTransactionId(session.getTransactionId().orElse(null))
                 .setIdentity(identity)
+                .setOriginalIdentity(session.getOriginalIdentity())
                 .setSource(session.getSource().orElse(null))
                 .setCatalog(catalog)
                 .setSchema(schema)
