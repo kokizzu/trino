@@ -24,6 +24,7 @@ import io.trino.plugin.jdbc.JdbcQueryEventListener;
 import io.trino.plugin.jdbc.JdbcTableHandle;
 import io.trino.plugin.jdbc.JdbcTypeHandle;
 import io.trino.plugin.jdbc.RemoteTableName;
+import io.trino.plugin.jdbc.SyntheticColumnHandleBuilder;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.AggregateFunction;
 import io.trino.spi.connector.AggregationApplicationResult;
@@ -44,6 +45,7 @@ import io.trino.spi.connector.RetryMode;
 import io.trino.spi.connector.RowChangeParadigm;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.SortingProperty;
+import io.trino.spi.expression.Constant;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.security.TrinoPrincipal;
 import io.trino.spi.statistics.ComputedStatistics;
@@ -84,9 +86,12 @@ public class PhoenixMetadata
     private final IdentifierMapping identifierMapping;
 
     @Inject
-    public PhoenixMetadata(PhoenixClient phoenixClient, IdentifierMapping identifierMapping, Set<JdbcQueryEventListener> jdbcQueryEventListeners)
+    public PhoenixMetadata(PhoenixClient phoenixClient,
+            IdentifierMapping identifierMapping,
+            Set<JdbcQueryEventListener> jdbcQueryEventListeners,
+            SyntheticColumnHandleBuilder syntheticColumnHandleBuilder)
     {
-        super(phoenixClient, false, jdbcQueryEventListeners);
+        super(phoenixClient, false, jdbcQueryEventListeners, syntheticColumnHandleBuilder);
         this.phoenixClient = requireNonNull(phoenixClient, "phoenixClient is null");
         this.identifierMapping = requireNonNull(identifierMapping, "identifierMapping is null");
     }
@@ -180,6 +185,13 @@ public class PhoenixMetadata
         catch (SQLException e) {
             throw new TrinoException(PHOENIX_METADATA_ERROR, "Couldn't get casing for the schema name", e);
         }
+    }
+
+    @Override
+    public Optional<ConnectorTableHandle> applyUpdate(ConnectorSession session, ConnectorTableHandle handle, Map<ColumnHandle, Constant> assignments)
+    {
+        // Phoenix support row level update, so we should reject this path, earlier than in JDBC client
+        return Optional.empty();
     }
 
     @Override

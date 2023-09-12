@@ -261,6 +261,22 @@ public abstract class BaseHiveConnectorTest
     }
 
     @Override
+    public void verifySupportsUpdateDeclaration()
+    {
+        try (TestTable table = new TestTable(getQueryRunner()::execute, "test_row_update", "AS SELECT * FROM nation")) {
+            assertQueryFails("UPDATE " + table.getName() + " SET nationkey = 100 WHERE regionkey = 2", MODIFYING_NON_TRANSACTIONAL_TABLE_MESSAGE);
+        }
+    }
+
+    @Override
+    public void verifySupportsRowLevelUpdateDeclaration()
+    {
+        try (TestTable table = new TestTable(getQueryRunner()::execute, "test_supports_update", "AS SELECT * FROM nation")) {
+            assertQueryFails("UPDATE " + table.getName() + " SET nationkey = nationkey * 100 WHERE regionkey = 2", MODIFYING_NON_TRANSACTIONAL_TABLE_MESSAGE);
+        }
+    }
+
+    @Override
     protected String createTableForWrites(String createTable)
     {
         return createTable + " WITH (transactional = true)";
@@ -312,6 +328,13 @@ public abstract class BaseHiveConnectorTest
     public void testUpdate()
     {
         assertThatThrownBy(super::testUpdate)
+                .hasMessage(MODIFYING_NON_TRANSACTIONAL_TABLE_MESSAGE);
+    }
+
+    @Override
+    public void testRowLevelUpdate()
+    {
+        assertThatThrownBy(super::testRowLevelUpdate)
                 .hasMessage(MODIFYING_NON_TRANSACTIONAL_TABLE_MESSAGE);
     }
 
@@ -8789,24 +8812,7 @@ public abstract class BaseHiveConnectorTest
                 continue;
             }
 
-            Session defaultSession = getSession();
-            String catalogName = defaultSession.getCatalog().orElseThrow();
-            for (boolean enabled : List.of(true, false)) {
-                Session session = Session.builder(defaultSession)
-                        .setCatalogSessionProperty(catalogName, "avro_native_reader_enabled", Boolean.toString(enabled))
-                        .setCatalogSessionProperty(catalogName, "avro_native_writer_enabled", Boolean.toString(enabled))
-                        .setCatalogSessionProperty(catalogName, "csv_native_reader_enabled", Boolean.toString(enabled))
-                        .setCatalogSessionProperty(catalogName, "csv_native_writer_enabled", Boolean.toString(enabled))
-                        .setCatalogSessionProperty(catalogName, "json_native_reader_enabled", Boolean.toString(enabled))
-                        .setCatalogSessionProperty(catalogName, "json_native_writer_enabled", Boolean.toString(enabled))
-                        .setCatalogSessionProperty(catalogName, "regex_native_reader_enabled", Boolean.toString(enabled))
-                        .setCatalogSessionProperty(catalogName, "text_file_native_reader_enabled", Boolean.toString(enabled))
-                        .setCatalogSessionProperty(catalogName, "text_file_native_writer_enabled", Boolean.toString(enabled))
-                        .setCatalogSessionProperty(catalogName, "sequence_file_native_reader_enabled", Boolean.toString(enabled))
-                        .setCatalogSessionProperty(catalogName, "sequence_file_native_writer_enabled", Boolean.toString(enabled))
-                        .build();
-                formats.add(new TestingHiveStorageFormat(session, hiveStorageFormat));
-            }
+            formats.add(new TestingHiveStorageFormat(getSession(), hiveStorageFormat));
         }
         return formats.build();
     }

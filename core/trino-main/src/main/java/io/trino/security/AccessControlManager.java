@@ -17,6 +17,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import com.google.inject.Inject;
 import io.airlift.log.Logger;
 import io.airlift.stats.CounterStat;
@@ -46,7 +47,6 @@ import io.trino.spi.security.Privilege;
 import io.trino.spi.security.SystemAccessControl;
 import io.trino.spi.security.SystemAccessControlFactory;
 import io.trino.spi.security.SystemAccessControlFactory.SystemAccessControlContext;
-import io.trino.spi.security.SystemSecurityContext;
 import io.trino.spi.security.TrinoPrincipal;
 import io.trino.spi.security.ViewExpression;
 import io.trino.spi.type.Type;
@@ -232,16 +232,6 @@ public class AccessControlManager
     }
 
     @VisibleForTesting
-    public void addSystemAccessControl(SystemAccessControl systemAccessControl)
-    {
-        systemAccessControls.updateAndGet(currentControls ->
-                ImmutableList.<SystemAccessControl>builder()
-                        .addAll(currentControls)
-                        .add(systemAccessControl)
-                        .build());
-    }
-
-    @VisibleForTesting
     public void setSystemAccessControls(List<SystemAccessControl> systemAccessControls)
     {
         checkState(this.systemAccessControls.compareAndSet(null, systemAccessControls), "System access control already initialized");
@@ -253,7 +243,7 @@ public class AccessControlManager
         requireNonNull(identity, "identity is null");
         requireNonNull(userName, "userName is null");
 
-        systemAuthorizationCheck(control -> control.checkCanImpersonateUser(new SystemSecurityContext(identity, Optional.empty()), userName));
+        systemAuthorizationCheck(control -> control.checkCanImpersonateUser(identity, userName));
     }
 
     @Override
@@ -271,7 +261,7 @@ public class AccessControlManager
     {
         requireNonNull(identity, "identity is null");
 
-        systemAuthorizationCheck(control -> control.checkCanReadSystemInformation(new SystemSecurityContext(identity, Optional.empty())));
+        systemAuthorizationCheck(control -> control.checkCanReadSystemInformation(identity));
     }
 
     @Override
@@ -279,7 +269,7 @@ public class AccessControlManager
     {
         requireNonNull(identity, "identity is null");
 
-        systemAuthorizationCheck(control -> control.checkCanWriteSystemInformation(new SystemSecurityContext(identity, Optional.empty())));
+        systemAuthorizationCheck(control -> control.checkCanWriteSystemInformation(identity));
     }
 
     @Override
@@ -287,7 +277,7 @@ public class AccessControlManager
     {
         requireNonNull(identity, "identity is null");
 
-        systemAuthorizationCheck(control -> control.checkCanExecuteQuery(new SystemSecurityContext(identity, Optional.empty())));
+        systemAuthorizationCheck(control -> control.checkCanExecuteQuery(identity));
     }
 
     @Override
@@ -295,7 +285,7 @@ public class AccessControlManager
     {
         requireNonNull(identity, "identity is null");
 
-        systemAuthorizationCheck(control -> control.checkCanViewQueryOwnedBy(new SystemSecurityContext(identity, Optional.empty()), queryOwner));
+        systemAuthorizationCheck(control -> control.checkCanViewQueryOwnedBy(identity, queryOwner));
     }
 
     @Override
@@ -306,7 +296,7 @@ public class AccessControlManager
             return ImmutableSet.of();
         }
         for (SystemAccessControl systemAccessControl : getSystemAccessControls()) {
-            queryOwners = systemAccessControl.filterViewQueryOwnedBy(new SystemSecurityContext(identity, Optional.empty()), queryOwners);
+            queryOwners = systemAccessControl.filterViewQueryOwnedBy(identity, queryOwners);
         }
         return queryOwners;
     }
@@ -317,7 +307,7 @@ public class AccessControlManager
         requireNonNull(identity, "identity is null");
         requireNonNull(queryOwner, "queryOwner is null");
 
-        systemAuthorizationCheck(control -> control.checkCanKillQueryOwnedBy(new SystemSecurityContext(identity, Optional.empty()), queryOwner));
+        systemAuthorizationCheck(control -> control.checkCanKillQueryOwnedBy(identity, queryOwner));
     }
 
     @Override
@@ -643,6 +633,34 @@ public class AccessControlManager
             columns = connectorAccessControl.filterColumns(toConnectorSecurityContext(table.getCatalogName(), securityContext), table.getSchemaTableName(), columns);
         }
         return columns;
+    }
+
+    @Override
+    public Map<SchemaTableName, Set<String>> filterColumns(SecurityContext securityContext, String catalogName, Map<SchemaTableName, Set<String>> tableColumns)
+    {
+        requireNonNull(securityContext, "securityContext is null");
+        requireNonNull(catalogName, "catalogName is null");
+        requireNonNull(tableColumns, "tableColumns is null");
+
+        Set<SchemaTableName> filteredTables = filterTables(securityContext, catalogName, tableColumns.keySet());
+        if (!filteredTables.equals(tableColumns.keySet())) {
+            tableColumns = Maps.filterKeys(tableColumns, filteredTables::contains);
+        }
+
+        if (tableColumns.isEmpty()) {
+            // Do not call plugin-provided implementation unnecessarily.
+            return ImmutableMap.of();
+        }
+
+        for (SystemAccessControl systemAccessControl : getSystemAccessControls()) {
+            tableColumns = systemAccessControl.filterColumns(securityContext.toSystemSecurityContext(), catalogName, tableColumns);
+        }
+
+        ConnectorAccessControl connectorAccessControl = getConnectorAccessControl(securityContext.getTransactionId(), catalogName);
+        if (connectorAccessControl != null) {
+            tableColumns = connectorAccessControl.filterColumns(toConnectorSecurityContext(catalogName, securityContext), tableColumns);
+        }
+        return tableColumns;
     }
 
     @Override
@@ -1048,7 +1066,7 @@ public class AccessControlManager
         requireNonNull(identity, "identity is null");
         requireNonNull(propertyName, "propertyName is null");
 
-        systemAuthorizationCheck(control -> control.checkCanSetSystemSessionProperty(new SystemSecurityContext(identity, Optional.empty()), propertyName));
+        systemAuthorizationCheck(control -> control.checkCanSetSystemSessionProperty(identity, propertyName));
     }
 
     @Override

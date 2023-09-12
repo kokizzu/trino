@@ -14,25 +14,25 @@
 package io.trino.execution;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import io.airlift.units.Duration;
 import io.trino.client.ClientSession;
 import io.trino.client.QueryData;
 import io.trino.client.StatementClient;
-import io.trino.plugin.base.security.FileBasedSystemAccessControl;
 import io.trino.spi.ErrorCode;
-import io.trino.spi.security.SystemAccessControl;
 import io.trino.testing.AbstractTestQueryFramework;
 import io.trino.testing.DistributedQueryRunner;
 import io.trino.testing.QueryRunner;
 import okhttp3.OkHttpClient;
 import org.testng.annotations.Test;
 
+import java.io.File;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
+import static com.google.common.io.Resources.getResource;
 import static io.trino.SessionTestUtils.TEST_SESSION;
 import static io.trino.client.StatementClientFactory.newStatementClient;
 import static io.trino.spi.StandardErrorCode.GENERIC_USER_ERROR;
@@ -48,24 +48,9 @@ public class TestSetSessionAuthorization
             throws Exception
     {
         DistributedQueryRunner queryRunner = DistributedQueryRunner.builder(TEST_SESSION)
-                .setSystemAccessControl(newFileBasedSystemAccessControl("set_session_authorization_permissions.json"))
+                .setSystemAccessControl("file", Map.of("security.config-file", new File(getResource("set_session_authorization_permissions.json").toURI()).getPath()))
                 .build();
         return queryRunner;
-    }
-
-    private SystemAccessControl newFileBasedSystemAccessControl(String resourceName)
-    {
-        return newFileBasedSystemAccessControl(ImmutableMap.of("security.config-file", getResourcePath(resourceName)));
-    }
-
-    private SystemAccessControl newFileBasedSystemAccessControl(ImmutableMap<String, String> config)
-    {
-        return new FileBasedSystemAccessControl.Factory().create(config);
-    }
-
-    private String getResourcePath(String resourceName)
-    {
-        return this.getClass().getClassLoader().getResource(resourceName).getPath();
     }
 
     @Test

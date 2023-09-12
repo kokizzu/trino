@@ -45,6 +45,7 @@ import io.trino.spi.connector.JoinType;
 import io.trino.spi.connector.LimitApplicationResult;
 import io.trino.spi.connector.ProjectionApplicationResult;
 import io.trino.spi.connector.RetryMode;
+import io.trino.spi.connector.RowChangeParadigm;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.SchemaTablePrefix;
 import io.trino.spi.connector.SortItem;
@@ -96,6 +97,7 @@ import static io.trino.plugin.jdbc.JdbcMetadataSessionProperties.isTopNPushdownE
 import static io.trino.plugin.jdbc.JdbcWriteSessionProperties.isNonTransactionalInsert;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.connector.RetryMode.NO_RETRIES;
+import static io.trino.spi.connector.RowChangeParadigm.CHANGE_ONLY_UPDATED_COLUMNS;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static java.lang.Math.max;
 import static java.util.Objects.requireNonNull;
@@ -113,11 +115,17 @@ public class DefaultJdbcMetadata
 
     private final AtomicReference<Runnable> rollbackAction = new AtomicReference<>();
 
-    public DefaultJdbcMetadata(JdbcClient jdbcClient, boolean precalculateStatisticsForPushdown, Set<JdbcQueryEventListener> jdbcQueryEventListeners)
+    private final SyntheticColumnHandleBuilder syntheticColumnBuilder;
+
+    public DefaultJdbcMetadata(JdbcClient jdbcClient,
+            boolean precalculateStatisticsForPushdown,
+            Set<JdbcQueryEventListener> jdbcQueryEventListeners,
+            SyntheticColumnHandleBuilder syntheticColumnBuilder)
     {
         this.jdbcClient = requireNonNull(jdbcClient, "jdbcClient is null");
         this.precalculateStatisticsForPushdown = precalculateStatisticsForPushdown;
         this.jdbcQueryEventListeners = ImmutableSet.copyOf(requireNonNull(jdbcQueryEventListeners, "queryEventListeners is null"));
+        this.syntheticColumnBuilder = requireNonNull(syntheticColumnBuilder, "syntheticColumnBuilder is null");
     }
 
     @Override
@@ -241,7 +249,8 @@ public class DefaultJdbcMetadata
                 handle.getColumns(),
                 handle.getOtherReferencedTables(),
                 handle.getNextSyntheticColumnId(),
-                handle.getAuthorization());
+                handle.getAuthorization(),
+                handle.getUpdateAssignments());
 
         return Optional.of(
                 remainingExpression.isPresent()
@@ -263,7 +272,8 @@ public class DefaultJdbcMetadata
                 Optional.of(columns),
                 handle.getAllReferencedTables(),
                 handle.getNextSyntheticColumnId(),
-                handle.getAuthorization());
+                handle.getAuthorization(),
+                handle.getUpdateAssignments());
     }
 
     @Override
@@ -309,7 +319,8 @@ public class DefaultJdbcMetadata
                         Optional.of(newColumns),
                         handle.getOtherReferencedTables(),
                         handle.getNextSyntheticColumnId(),
-                        handle.getAuthorization()),
+                        handle.getAuthorization(),
+                        handle.getUpdateAssignments()),
                 projections,
                 assignments.entrySet().stream()
                         .map(assignment -> new Assignment(
@@ -419,7 +430,8 @@ public class DefaultJdbcMetadata
                 Optional.of(newColumnsList),
                 handle.getAllReferencedTables(),
                 nextSyntheticColumnId,
-                handle.getAuthorization());
+                handle.getAuthorization(),
+                handle.getUpdateAssignments());
 
         return Optional.of(new AggregationApplicationResult<>(handle, projections.build(), resultAssignments.build(), ImmutableMap.of(), precalculateStatisticsForPushdown));
     }
@@ -453,18 +465,14 @@ public class DefaultJdbcMetadata
 
         ImmutableMap.Builder<JdbcColumnHandle, JdbcColumnHandle> newLeftColumnsBuilder = ImmutableMap.builder();
         for (JdbcColumnHandle column : jdbcClient.getColumns(session, leftHandle)) {
-            newLeftColumnsBuilder.put(column, JdbcColumnHandle.builderFrom(column)
-                    .setColumnName(column.getColumnName() + "_" + nextSyntheticColumnId)
-                    .build());
+            newLeftColumnsBuilder.put(column, syntheticColumnBuilder.get(column, nextSyntheticColumnId));
             nextSyntheticColumnId++;
         }
         Map<JdbcColumnHandle, JdbcColumnHandle> newLeftColumns = newLeftColumnsBuilder.buildOrThrow();
 
         ImmutableMap.Builder<JdbcColumnHandle, JdbcColumnHandle> newRightColumnsBuilder = ImmutableMap.builder();
         for (JdbcColumnHandle column : jdbcClient.getColumns(session, rightHandle)) {
-            newRightColumnsBuilder.put(column, JdbcColumnHandle.builderFrom(column)
-                    .setColumnName(column.getColumnName() + "_" + nextSyntheticColumnId)
-                    .build());
+            newRightColumnsBuilder.put(column, syntheticColumnBuilder.get(column, nextSyntheticColumnId));
             nextSyntheticColumnId++;
         }
         Map<JdbcColumnHandle, JdbcColumnHandle> newRightColumns = newRightColumnsBuilder.buildOrThrow();
@@ -514,7 +522,8 @@ public class DefaultJdbcMetadata
                                                 .addAll(rightReferencedTables)
                                                 .build())),
                         nextSyntheticColumnId,
-                        leftHandle.getAuthorization()),
+                        leftHandle.getAuthorization(),
+                        leftHandle.getUpdateAssignments()),
                 ImmutableMap.copyOf(newLeftColumns),
                 ImmutableMap.copyOf(newRightColumns),
                 precalculateStatisticsForPushdown));
@@ -576,7 +585,8 @@ public class DefaultJdbcMetadata
                 handle.getColumns(),
                 handle.getOtherReferencedTables(),
                 handle.getNextSyntheticColumnId(),
-                handle.getAuthorization());
+                handle.getAuthorization(),
+                handle.getUpdateAssignments());
 
         return Optional.of(new LimitApplicationResult<>(handle, jdbcClient.isLimitGuaranteed(session), precalculateStatisticsForPushdown));
     }
@@ -630,7 +640,8 @@ public class DefaultJdbcMetadata
                 handle.getColumns(),
                 handle.getOtherReferencedTables(),
                 handle.getNextSyntheticColumnId(),
-                handle.getAuthorization());
+                handle.getAuthorization(),
+                handle.getUpdateAssignments());
 
         return Optional.of(new TopNApplicationResult<>(sortedTableHandle, jdbcClient.isTopNGuaranteed(session), precalculateStatisticsForPushdown));
     }
@@ -897,6 +908,24 @@ public class DefaultJdbcMetadata
     public OptionalLong executeDelete(ConnectorSession session, ConnectorTableHandle handle)
     {
         return jdbcClient.delete(session, (JdbcTableHandle) handle);
+    }
+
+    @Override
+    public Optional<ConnectorTableHandle> applyUpdate(ConnectorSession session, ConnectorTableHandle handle, Map<ColumnHandle, Constant> assignments)
+    {
+        return Optional.of(((JdbcTableHandle) handle).withAssignments(assignments));
+    }
+
+    @Override
+    public RowChangeParadigm getRowChangeParadigm(ConnectorSession session, ConnectorTableHandle tableHandle)
+    {
+        return CHANGE_ONLY_UPDATED_COLUMNS;
+    }
+
+    @Override
+    public OptionalLong executeUpdate(ConnectorSession session, ConnectorTableHandle handle)
+    {
+        return jdbcClient.update(session, (JdbcTableHandle) handle);
     }
 
     @Override
