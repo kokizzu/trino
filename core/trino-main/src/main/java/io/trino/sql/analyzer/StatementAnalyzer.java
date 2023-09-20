@@ -31,7 +31,6 @@ import io.trino.SystemSessionProperties;
 import io.trino.execution.Column;
 import io.trino.execution.warnings.WarningCollector;
 import io.trino.metadata.AnalyzePropertyManager;
-import io.trino.metadata.CatalogSchemaFunctionName;
 import io.trino.metadata.MaterializedViewDefinition;
 import io.trino.metadata.Metadata;
 import io.trino.metadata.OperatorNotFoundException;
@@ -71,6 +70,7 @@ import io.trino.spi.connector.MaterializedViewFreshness;
 import io.trino.spi.connector.PointerType;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.TableProcedureMetadata;
+import io.trino.spi.function.CatalogSchemaFunctionName;
 import io.trino.spi.function.FunctionKind;
 import io.trino.spi.function.OperatorType;
 import io.trino.spi.function.table.Argument;
@@ -285,7 +285,6 @@ import static com.google.common.collect.Iterables.getOnlyElement;
 import static io.trino.SystemSessionProperties.getMaxGroupingSets;
 import static io.trino.SystemSessionProperties.isLegacyMaterializedViewGracePeriod;
 import static io.trino.metadata.FunctionResolver.toPath;
-import static io.trino.metadata.MetadataManager.toQualifiedFunctionName;
 import static io.trino.metadata.MetadataUtil.createQualifiedObjectName;
 import static io.trino.metadata.MetadataUtil.getRequiredCatalogHandle;
 import static io.trino.spi.StandardErrorCode.AMBIGUOUS_NAME;
@@ -1778,7 +1777,7 @@ class StatementAnalyzer
 
         private Optional<TableFunctionMetadata> resolveTableFunction(TableFunctionInvocation node)
         {
-            for (CatalogSchemaFunctionName name : toPath(session, toQualifiedFunctionName(node.getName()))) {
+            for (CatalogSchemaFunctionName name : toPath(session, node.getName())) {
                 CatalogHandle catalogHandle = getRequiredCatalogHandle(metadata, session, node, name.getCatalogName());
                 Optional<ConnectorTableFunction> resolved = tableFunctionRegistry.resolve(catalogHandle, name.getSchemaFunctionName());
                 if (resolved.isPresent()) {
@@ -2562,7 +2561,7 @@ class StatementAnalyzer
 
                 if (!tableField.getType().equals(viewField.getType())) {
                     try {
-                        metadata.getCoercion(session, viewField.getType(), tableField.getType());
+                        metadata.getCoercion(viewField.getType(), tableField.getType());
                     }
                     catch (TrinoException e) {
                         throw semanticException(
@@ -3684,7 +3683,7 @@ class StatementAnalyzer
 
                 // ensure a comparison operator exists for the given types (applying coercions if necessary)
                 try {
-                    metadata.resolveOperator(session, OperatorType.EQUAL, ImmutableList.of(
+                    metadata.resolveOperator(OperatorType.EQUAL, ImmutableList.of(
                             leftField.getType(), rightField.getType()));
                 }
                 catch (OperatorNotFoundException e) {
@@ -4356,7 +4355,7 @@ class StatementAnalyzer
                 return fields;
             }
 
-            List<Field> accessibleFields = new ArrayList<>();
+            ImmutableSet.Builder<Field> accessibleFields = ImmutableSet.builder();
 
             //collect fields by table
             ListMultimap<QualifiedObjectName, Field> tableFieldsMap = ArrayListMultimap.create();
@@ -4384,7 +4383,7 @@ class StatementAnalyzer
             });
 
             return fields.stream()
-                    .filter(field -> accessibleFields.contains(field))
+                    .filter(accessibleFields.build()::contains)
                     .collect(toImmutableList());
         }
 
@@ -5553,7 +5552,7 @@ class StatementAnalyzer
             if (sourceType.equals(targetType)) {
                 return value;
             }
-            ResolvedFunction coercion = metadata.getCoercion(session, sourceType, targetType);
+            ResolvedFunction coercion = metadata.getCoercion(sourceType, targetType);
             InterpretedFunctionInvoker functionInvoker = new InterpretedFunctionInvoker(plannerContext.getFunctionManager());
             return functionInvoker.invoke(coercion, session.toConnectorSession(), value);
         }

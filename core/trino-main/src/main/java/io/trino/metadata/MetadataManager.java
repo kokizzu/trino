@@ -91,11 +91,12 @@ import io.trino.spi.expression.Variable;
 import io.trino.spi.function.AggregationFunctionMetadata;
 import io.trino.spi.function.AggregationFunctionMetadata.AggregationFunctionMetadataBuilder;
 import io.trino.spi.function.BoundSignature;
+import io.trino.spi.function.CatalogSchemaFunctionName;
 import io.trino.spi.function.FunctionDependencyDeclaration;
 import io.trino.spi.function.FunctionId;
 import io.trino.spi.function.FunctionMetadata;
 import io.trino.spi.function.OperatorType;
-import io.trino.spi.function.QualifiedFunctionName;
+import io.trino.spi.function.SchemaFunctionName;
 import io.trino.spi.function.Signature;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.security.GrantInfo;
@@ -158,6 +159,8 @@ import static io.trino.cache.SafeCaches.buildNonEvictableCache;
 import static io.trino.client.NodeVersion.UNKNOWN;
 import static io.trino.metadata.CatalogMetadata.SecurityManagement.CONNECTOR;
 import static io.trino.metadata.CatalogMetadata.SecurityManagement.SYSTEM;
+import static io.trino.metadata.GlobalFunctionCatalog.BUILTIN_SCHEMA;
+import static io.trino.metadata.GlobalFunctionCatalog.builtinFunctionName;
 import static io.trino.metadata.OperatorNameUtil.mangleOperatorName;
 import static io.trino.metadata.QualifiedObjectName.convertFromSchemaTableName;
 import static io.trino.metadata.RedirectionAwareTableHandle.noRedirection;
@@ -168,6 +171,7 @@ import static io.trino.spi.StandardErrorCode.FUNCTION_IMPLEMENTATION_ERROR;
 import static io.trino.spi.StandardErrorCode.FUNCTION_IMPLEMENTATION_MISSING;
 import static io.trino.spi.StandardErrorCode.FUNCTION_NOT_FOUND;
 import static io.trino.spi.StandardErrorCode.INVALID_VIEW;
+import static io.trino.spi.StandardErrorCode.MISSING_CATALOG_NAME;
 import static io.trino.spi.StandardErrorCode.NOT_FOUND;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.StandardErrorCode.SCHEMA_NOT_FOUND;
@@ -175,8 +179,9 @@ import static io.trino.spi.StandardErrorCode.SYNTAX_ERROR;
 import static io.trino.spi.StandardErrorCode.TABLE_REDIRECTION_ERROR;
 import static io.trino.spi.StandardErrorCode.UNSUPPORTED_TABLE_TYPE;
 import static io.trino.spi.connector.MaterializedViewFreshness.Freshness.STALE;
+import static io.trino.spi.function.FunctionKind.AGGREGATE;
+import static io.trino.spi.function.FunctionKind.WINDOW;
 import static io.trino.sql.analyzer.TypeSignatureProvider.fromTypeSignatures;
-import static io.trino.sql.analyzer.TypeSignatureProvider.fromTypes;
 import static io.trino.transaction.InMemoryTransactionManager.createTestTransactionManager;
 import static io.trino.type.InternalTypeManager.TESTING_TYPE_MANAGER;
 import static java.lang.String.format;
@@ -2276,7 +2281,7 @@ public final class MetadataManager
         functions.addAll(this.functions.listFunctions());
         for (SqlPathElement sqlPathElement : session.getPath().getParsedPath()) {
             String catalog = sqlPathElement.getCatalog().map(Identifier::getValue).or(session::getCatalog)
-                    .orElseThrow(() -> new IllegalArgumentException("Session default catalog must be set to resolve a partial function name: " + sqlPathElement));
+                    .orElseThrow(() -> new TrinoException(MISSING_CATALOG_NAME, "Session default catalog must be set to resolve a partial function name: " + sqlPathElement));
             getOptionalCatalogMetadata(session, catalog).ifPresent(metadata -> {
                 ConnectorSession connectorSession = session.toConnectorSession(metadata.getCatalogHandle());
                 functions.addAll(metadata.getMetadata(session).listFunctions(connectorSession, sqlPathElement.getSchema().getValue().toLowerCase(ENGLISH)));
@@ -2295,19 +2300,37 @@ public final class MetadataManager
     @Override
     public ResolvedFunction resolveFunction(Session session, QualifiedName name, List<TypeSignatureProvider> parameterTypes)
     {
-        return resolvedFunctionInternal(session, name, parameterTypes);
+        Optional<ResolvedFunction> resolvedFunction = functionDecoder.fromQualifiedName(name);
+        if (resolvedFunction.isPresent()) {
+            return resolvedFunction.get();
+        }
+
+        CatalogFunctionBinding catalogFunctionBinding = functionResolver.resolveFunction(
+                session,
+                name,
+                parameterTypes,
+                catalogSchemaFunctionName -> getFunctions(session, catalogSchemaFunctionName));
+        return resolve(session, catalogFunctionBinding);
     }
 
     @Override
-    public ResolvedFunction resolveOperator(Session session, OperatorType operatorType, List<? extends Type> argumentTypes)
+    public ResolvedFunction resolveBuiltinFunction(String name, List<TypeSignatureProvider> parameterTypes)
+    {
+        FunctionBinding functionBinding = functionResolver.resolveFullyQualifiedFunction(builtinFunctionName(name), parameterTypes, getBuiltinFunctions(name)).functionBinding();
+        return resolveBuiltin(functionBinding);
+    }
+
+    @Override
+    public ResolvedFunction resolveOperator(OperatorType operatorType, List<? extends Type> argumentTypes)
             throws OperatorNotFoundException
     {
         try {
-            // todo we should not be caching functions across session
-            return uncheckedCacheGet(operatorCache, new OperatorCacheKey(operatorType, argumentTypes), () -> {
-                String name = mangleOperatorName(operatorType);
-                return resolvedFunctionInternal(session, QualifiedName.of(name), fromTypes(argumentTypes));
-            });
+            return uncheckedCacheGet(operatorCache, new OperatorCacheKey(operatorType, argumentTypes), () -> resolveBuiltinFunction(
+                    mangleOperatorName(operatorType),
+                    argumentTypes.stream()
+                            .map(Type::getTypeSignature)
+                            .map(TypeSignatureProvider::new)
+                            .collect(toImmutableList())));
         }
         catch (UncheckedExecutionException e) {
             if (e.getCause() instanceof TrinoException cause) {
@@ -2320,54 +2343,21 @@ public final class MetadataManager
         }
     }
 
-    private ResolvedFunction resolvedFunctionInternal(Session session, QualifiedName name, List<TypeSignatureProvider> parameterTypes)
-    {
-        return functionDecoder.fromQualifiedName(name)
-                .orElseGet(() -> resolvedFunctionInternal(session, toQualifiedFunctionName(name), parameterTypes));
-    }
-
-    private ResolvedFunction resolvedFunctionInternal(Session session, QualifiedFunctionName name, List<TypeSignatureProvider> parameterTypes)
-    {
-        CatalogFunctionBinding catalogFunctionBinding = functionResolver.resolveFunction(
-                session,
-                name,
-                parameterTypes,
-                catalogSchemaFunctionName -> getFunctions(session, catalogSchemaFunctionName));
-        return resolve(session, catalogFunctionBinding);
-    }
-
-    // this is only public for TableFunctionRegistry, which is effectively part of MetadataManager but for some reason is a separate class
-    public static QualifiedFunctionName toQualifiedFunctionName(QualifiedName qualifiedName)
-    {
-        List<String> parts = qualifiedName.getParts();
-        checkArgument(parts.size() <= 3, "Function name can only have 3 parts: " + qualifiedName);
-        if (parts.size() == 3) {
-            return QualifiedFunctionName.of(parts.get(0), parts.get(1), parts.get(2));
-        }
-        if (parts.size() == 2) {
-            return QualifiedFunctionName.of(parts.get(0), parts.get(1));
-        }
-        return QualifiedFunctionName.of(parts.get(0));
-    }
-
     @Override
-    public ResolvedFunction getCoercion(Session session, OperatorType operatorType, Type fromType, Type toType)
+    public ResolvedFunction getCoercion(OperatorType operatorType, Type fromType, Type toType)
     {
         checkArgument(operatorType == OperatorType.CAST || operatorType == OperatorType.SATURATED_FLOOR_CAST);
         try {
-            // todo we should not be caching functions across session
             return uncheckedCacheGet(coercionCache, new CoercionCacheKey(operatorType, fromType, toType), () -> {
-                String name = mangleOperatorName(operatorType);
+                String functionName = mangleOperatorName(operatorType);
                 CatalogFunctionBinding functionBinding = functionResolver.resolveCoercion(
-                        session,
-                        QualifiedFunctionName.of(name),
                         Signature.builder()
-                                .name(name)
+                                .name(functionName)
                                 .returnType(toType)
                                 .argumentType(fromType)
                                 .build(),
-                        catalogSchemaFunctionName -> getFunctions(session, catalogSchemaFunctionName));
-                return resolve(session, functionBinding);
+                        getBuiltinFunctions(functionName));
+                return resolveBuiltin(functionBinding.functionBinding());
             });
         }
         catch (UncheckedExecutionException e) {
@@ -2382,33 +2372,65 @@ public final class MetadataManager
     }
 
     @Override
-    public ResolvedFunction getCoercion(Session session, QualifiedName name, Type fromType, Type toType)
+    public ResolvedFunction getCoercion(CatalogSchemaFunctionName name, Type fromType, Type toType)
     {
+        // coercion can only be resolved for builtin functions
+        if (!name.getCatalogName().equals(GlobalSystemConnector.NAME) || !name.getSchemaName().equals(BUILTIN_SCHEMA)) {
+            throw new TrinoException(FUNCTION_IMPLEMENTATION_MISSING, format("%s not found", name));
+        }
         CatalogFunctionBinding catalogFunctionBinding = functionResolver.resolveCoercion(
-                session,
-                toQualifiedFunctionName(name),
                 Signature.builder()
-                        .name(name.getSuffix())
+                        .name(name.getFunctionName())
                         .returnType(toType)
                         .argumentType(fromType)
                         .build(),
-                catalogSchemaFunctionName -> getFunctions(session, catalogSchemaFunctionName));
-        return resolve(session, catalogFunctionBinding);
+                getBuiltinFunctions(name.getFunctionName()));
+        return resolveBuiltin(catalogFunctionBinding.functionBinding());
+    }
+
+    private ResolvedFunction resolveBuiltin(FunctionBinding functionBinding)
+    {
+        FunctionDependencyDeclaration dependencies = functions.getFunctionDependencies(functionBinding.getFunctionId(), functionBinding.getBoundSignature());
+        FunctionMetadata functionMetadata = bindFunctionMetadata(functionBinding.getBoundSignature(), functions.getFunctionMetadata(functionBinding.getFunctionId()));
+
+        return resolve(
+                GlobalSystemConnector.CATALOG_HANDLE,
+                functionBinding,
+                functionMetadata,
+                dependencies,
+                catalogSchemaFunctionName -> {
+                    // builtin functions can only depend on other builtin functions
+                    if (!isBuiltinFunction(catalogSchemaFunctionName)) {
+                        throw new TrinoException(
+                                FUNCTION_IMPLEMENTATION_ERROR,
+                                format("Builtin function %s cannot depend on a non-builtin function: %s", functionBinding.getBoundSignature().getName(), catalogSchemaFunctionName));
+                    }
+                    return getBuiltinFunctions(catalogSchemaFunctionName.getFunctionName());
+                },
+                catalogFunctionBinding -> resolveBuiltin(catalogFunctionBinding.functionBinding()));
     }
 
     private ResolvedFunction resolve(Session session, CatalogFunctionBinding functionBinding)
     {
         FunctionDependencyDeclaration dependencies = getDependencies(
                 session,
-                functionBinding.getCatalogHandle(),
-                functionBinding.getFunctionBinding().getFunctionId(),
-                functionBinding.getFunctionBinding().getBoundSignature());
+                functionBinding.catalogHandle(),
+                functionBinding.functionBinding().getFunctionId(),
+                functionBinding.functionBinding().getBoundSignature());
+
         FunctionMetadata functionMetadata = getFunctionMetadata(
                 session,
-                functionBinding.getCatalogHandle(),
-                functionBinding.getFunctionBinding().getFunctionId(),
-                functionBinding.getFunctionBinding().getBoundSignature());
-        return resolve(session, functionBinding.getCatalogHandle(), functionBinding.getFunctionBinding(), functionMetadata, dependencies);
+                functionBinding.catalogHandle(),
+                functionBinding.functionBinding().getFunctionId(),
+                functionBinding.functionBinding().getBoundSignature());
+
+        return resolve(
+                functionBinding.catalogHandle(),
+                functionBinding.functionBinding(),
+                functionMetadata,
+                dependencies,
+                catalogSchemaFunctionName -> getFunctions(session, catalogSchemaFunctionName),
+                catalogFunctionBinding -> resolve(session, catalogFunctionBinding));
     }
 
     private FunctionDependencyDeclaration getDependencies(Session session, CatalogHandle catalogHandle, FunctionId functionId, BoundSignature boundSignature)
@@ -2424,6 +2446,23 @@ public final class MetadataManager
     @VisibleForTesting
     public ResolvedFunction resolve(Session session, CatalogHandle catalogHandle, FunctionBinding functionBinding, FunctionMetadata functionMetadata, FunctionDependencyDeclaration dependencies)
     {
+        return resolve(
+                catalogHandle,
+                functionBinding,
+                functionMetadata,
+                dependencies,
+                catalogSchemaFunctionName -> getFunctions(session, catalogSchemaFunctionName),
+                catalogFunctionBinding -> resolve(session, catalogFunctionBinding));
+    }
+
+    private ResolvedFunction resolve(
+            CatalogHandle catalogHandle,
+            FunctionBinding functionBinding,
+            FunctionMetadata functionMetadata,
+            FunctionDependencyDeclaration dependencies,
+            Function<CatalogSchemaFunctionName, Collection<CatalogFunctionMetadata>> candidateLoader,
+            Function<CatalogFunctionBinding, ResolvedFunction> resolver)
+    {
         Map<TypeSignature, Type> dependentTypes = dependencies.getTypeDependencies().stream()
                 .map(typeSignature -> applyBoundVariables(typeSignature, functionBinding))
                 .collect(toImmutableMap(Function.identity(), typeManager::getType, (left, right) -> left));
@@ -2432,8 +2471,19 @@ public final class MetadataManager
         dependencies.getFunctionDependencies().stream()
                 .map(functionDependency -> {
                     try {
-                        List<TypeSignature> argumentTypes = applyBoundVariables(functionDependency.getArgumentTypes(), functionBinding);
-                        return resolvedFunctionInternal(session, functionDependency.getName(), fromTypeSignatures(argumentTypes));
+                        CatalogSchemaFunctionName name = functionDependency.getName();
+
+                        Optional<ResolvedFunction> resolvedFunction = functionDecoder.fromCatalogSchemaFunctionName(name);
+                        if (resolvedFunction.isPresent()) {
+                            return resolvedFunction.get();
+                        }
+
+                        CatalogFunctionBinding catalogFunctionBinding = functionResolver.resolveFullyQualifiedFunction(
+                                name,
+                                fromTypeSignatures(applyBoundVariables(functionDependency.getArgumentTypes(), functionBinding)),
+                                candidateLoader.apply(name));
+
+                        return resolver.apply(catalogFunctionBinding);
                     }
                     catch (TrinoException e) {
                         if (functionDependency.isOptional()) {
@@ -2449,7 +2499,7 @@ public final class MetadataManager
                 .map(operatorDependency -> {
                     try {
                         List<TypeSignature> argumentTypes = applyBoundVariables(operatorDependency.getArgumentTypes(), functionBinding);
-                        return resolvedFunctionInternal(session, QualifiedName.of(mangleOperatorName(operatorDependency.getOperatorType())), fromTypeSignatures(argumentTypes));
+                        return resolveBuiltinFunction(mangleOperatorName(operatorDependency.getOperatorType()), fromTypeSignatures(argumentTypes));
                     }
                     catch (TrinoException e) {
                         if (operatorDependency.isOptional()) {
@@ -2466,7 +2516,7 @@ public final class MetadataManager
                     try {
                         Type fromType = typeManager.getType(applyBoundVariables(castDependency.getFromType(), functionBinding));
                         Type toType = typeManager.getType(applyBoundVariables(castDependency.getToType(), functionBinding));
-                        return getCoercion(session, fromType, toType);
+                        return getCoercion(fromType, toType);
                     }
                     catch (TrinoException e) {
                         if (castDependency.isOptional()) {
@@ -2492,29 +2542,43 @@ public final class MetadataManager
     @Override
     public boolean isAggregationFunction(Session session, QualifiedName name)
     {
-        return functionResolver.isAggregationFunction(session, toQualifiedFunctionName(name), catalogSchemaFunctionName -> getFunctions(session, catalogSchemaFunctionName));
+        return functionDecoder.fromQualifiedName(name)
+                .map(function -> function.getFunctionKind() == AGGREGATE)
+                .orElseGet(() -> functionResolver.isAggregationFunction(session, name, catalogSchemaFunctionName -> getFunctions(session, catalogSchemaFunctionName)));
     }
 
     @Override
     public boolean isWindowFunction(Session session, QualifiedName name)
     {
-        return functionResolver.isWindowFunction(session, toQualifiedFunctionName(name), catalogSchemaFunctionName -> getFunctions(session, catalogSchemaFunctionName));
+        return functionDecoder.fromQualifiedName(name)
+                .map(function -> function.getFunctionKind() == WINDOW)
+                .orElseGet(() -> functionResolver.isWindowFunction(session, name, catalogSchemaFunctionName -> getFunctions(session, catalogSchemaFunctionName)));
     }
 
     private Collection<CatalogFunctionMetadata> getFunctions(Session session, CatalogSchemaFunctionName name)
     {
-        if (name.getCatalogName().equals(GlobalSystemConnector.NAME)) {
-            return functions.getFunctions(name.getSchemaFunctionName()).stream()
-                    .map(function -> new CatalogFunctionMetadata(GlobalSystemConnector.CATALOG_HANDLE, function))
-                    .collect(toImmutableList());
+        if (isBuiltinFunction(name)) {
+            return getBuiltinFunctions(name.getFunctionName());
         }
 
         return getOptionalCatalogMetadata(session, name.getCatalogName())
-                .map(metadata -> metadata.getMetadata(session)
-                        .getFunctions(session.toConnectorSession(metadata.getCatalogHandle()), name.getSchemaFunctionName()).stream()
-                        .map(function -> new CatalogFunctionMetadata(metadata.getCatalogHandle(), function))
-                        .collect(toImmutableList()))
+                .map(metadata -> getFunctions(session, metadata.getMetadata(session), metadata.getCatalogHandle(), name.getSchemaFunctionName()))
                 .orElse(ImmutableList.of());
+    }
+
+    private Collection<CatalogFunctionMetadata> getBuiltinFunctions(String functionName)
+    {
+        CatalogSchemaFunctionName name = builtinFunctionName(functionName);
+        return functions.getBuiltInFunctions(functionName).stream()
+                .map(function -> new CatalogFunctionMetadata(name, GlobalSystemConnector.CATALOG_HANDLE, function))
+                .collect(toImmutableList());
+    }
+
+    private static List<CatalogFunctionMetadata> getFunctions(Session session, ConnectorMetadata metadata, CatalogHandle catalogHandle, SchemaFunctionName name)
+    {
+        return metadata.getFunctions(session.toConnectorSession(catalogHandle), name).stream()
+                .map(function -> new CatalogFunctionMetadata(new CatalogSchemaFunctionName(catalogHandle.getCatalogName(), name), catalogHandle, function))
+                .collect(toImmutableList());
     }
 
     @Override
@@ -2530,11 +2594,13 @@ public final class MetadataManager
             functionMetadata = functions.getFunctionMetadata(functionId);
         }
         else {
-            ConnectorSession connectorSession = session.toConnectorSession(catalogHandle);
-            functionMetadata = getMetadata(session, catalogHandle)
-                    .getFunctionMetadata(connectorSession, functionId);
+            functionMetadata = getMetadata(session, catalogHandle).getFunctionMetadata(session.toConnectorSession(catalogHandle), functionId);
         }
+        return bindFunctionMetadata(signature, functionMetadata);
+    }
 
+    private static FunctionMetadata bindFunctionMetadata(BoundSignature signature, FunctionMetadata functionMetadata)
+    {
         FunctionMetadata.Builder newMetadata = FunctionMetadata.builder(functionMetadata.getKind())
                 .functionId(functionMetadata.getFunctionId())
                 .signature(signature.toSignature())
@@ -2613,6 +2679,11 @@ public final class MetadataManager
                 functionId,
                 functionSignature,
                 boundSignature);
+    }
+
+    private static boolean isBuiltinFunction(CatalogSchemaFunctionName name)
+    {
+        return name.getCatalogName().equals(GlobalSystemConnector.NAME) && name.getSchemaFunctionName().getSchemaName().equals(BUILTIN_SCHEMA);
     }
 
     //

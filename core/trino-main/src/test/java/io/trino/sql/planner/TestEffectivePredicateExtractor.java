@@ -95,6 +95,7 @@ import java.util.stream.IntStream;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static io.trino.metadata.GlobalFunctionCatalog.builtinFunctionName;
 import static io.trino.spi.function.FunctionId.toFunctionId;
 import static io.trino.spi.function.FunctionKind.SCALAR;
 import static io.trino.spi.type.BigintType.BIGINT;
@@ -150,15 +151,21 @@ public class TestEffectivePredicateExtractor
         }
 
         @Override
+        public ResolvedFunction resolveBuiltinFunction(String name, List<TypeSignatureProvider> parameterTypes)
+        {
+            return delegate.resolveBuiltinFunction(name, parameterTypes);
+        }
+
+        @Override
         public FunctionMetadata getFunctionMetadata(Session session, ResolvedFunction resolvedFunction)
         {
             return delegate.getFunctionMetadata(session, resolvedFunction);
         }
 
         @Override
-        public ResolvedFunction getCoercion(Session session, Type fromType, Type toType)
+        public ResolvedFunction getCoercion(Type fromType, Type toType)
         {
-            return delegate.getCoercion(session, fromType, toType);
+            return delegate.getCoercion(fromType, toType);
         }
 
         @Override
@@ -280,7 +287,7 @@ public class TestEffectivePredicateExtractor
                         greaterThan(
                                 AE,
                                 functionResolution
-                                        .functionCallBuilder(QualifiedName.of("rand"))
+                                        .functionCallBuilder("rand")
                                         .build()),
                         lessThan(BE, bigintLiteral(10))));
 
@@ -729,7 +736,7 @@ public class TestEffectivePredicateExtractor
                         or(new ComparisonExpression(EQUAL, BE, bigintLiteral(200)), new IsNullPredicate(BE))));
 
         // non-deterministic
-        ResolvedFunction rand = functionResolution.resolveFunction(QualifiedName.of("rand"), ImmutableList.of());
+        ResolvedFunction rand = functionResolution.resolveFunction("rand", ImmutableList.of());
         ValuesNode node = new ValuesNode(
                 newId(),
                 ImmutableList.of(A, B),
@@ -1207,7 +1214,7 @@ public class TestEffectivePredicateExtractor
 
     private static ResolvedFunction fakeFunction(String name)
     {
-        BoundSignature boundSignature = new BoundSignature(name, UNKNOWN, ImmutableList.of());
+        BoundSignature boundSignature = new BoundSignature(builtinFunctionName(name), UNKNOWN, ImmutableList.of());
         return new ResolvedFunction(
                 boundSignature,
                 GlobalSystemConnector.CATALOG_HANDLE,

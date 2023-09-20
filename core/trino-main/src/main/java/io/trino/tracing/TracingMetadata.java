@@ -78,6 +78,7 @@ import io.trino.spi.connector.WriterScalingOptions;
 import io.trino.spi.expression.ConnectorExpression;
 import io.trino.spi.expression.Constant;
 import io.trino.spi.function.AggregationFunctionMetadata;
+import io.trino.spi.function.CatalogSchemaFunctionName;
 import io.trino.spi.function.FunctionMetadata;
 import io.trino.spi.function.OperatorType;
 import io.trino.spi.predicate.TupleDomain;
@@ -1182,32 +1183,42 @@ public class TracingMetadata
     }
 
     @Override
-    public ResolvedFunction resolveOperator(Session session, OperatorType operatorType, List<? extends Type> argumentTypes)
+    public ResolvedFunction resolveBuiltinFunction(String name, List<TypeSignatureProvider> parameterTypes)
+    {
+        Span span = startSpan("resolveBuiltinFunction")
+                .setAllAttributes(attribute(TrinoAttributes.FUNCTION, name));
+        try (var ignored = scopedSpan(span)) {
+            return delegate.resolveBuiltinFunction(name, parameterTypes);
+        }
+    }
+
+    @Override
+    public ResolvedFunction resolveOperator(OperatorType operatorType, List<? extends Type> argumentTypes)
             throws OperatorNotFoundException
     {
         // no tracing since it doesn't call any connector
-        return delegate.resolveOperator(session, operatorType, argumentTypes);
+        return delegate.resolveOperator(operatorType, argumentTypes);
     }
 
     @Override
-    public ResolvedFunction getCoercion(Session session, Type fromType, Type toType)
+    public ResolvedFunction getCoercion(Type fromType, Type toType)
     {
         // no tracing since it doesn't call any connector
-        return delegate.getCoercion(session, fromType, toType);
+        return delegate.getCoercion(fromType, toType);
     }
 
     @Override
-    public ResolvedFunction getCoercion(Session session, OperatorType operatorType, Type fromType, Type toType)
+    public ResolvedFunction getCoercion(OperatorType operatorType, Type fromType, Type toType)
     {
         // no tracing since it doesn't call any connector
-        return delegate.getCoercion(session, operatorType, fromType, toType);
+        return delegate.getCoercion(operatorType, fromType, toType);
     }
 
     @Override
-    public ResolvedFunction getCoercion(Session session, QualifiedName name, Type fromType, Type toType)
+    public ResolvedFunction getCoercion(CatalogSchemaFunctionName name, Type fromType, Type toType)
     {
         // no tracing since it doesn't call any connector
-        return delegate.getCoercion(session, name, fromType, toType);
+        return delegate.getCoercion(name, fromType, toType);
     }
 
     @Override
@@ -1235,7 +1246,7 @@ public class TracingMetadata
     {
         Span span = startSpan("getFunctionMetadata")
                 .setAttribute(TrinoAttributes.CATALOG, resolvedFunction.getCatalogHandle().getCatalogName())
-                .setAttribute(TrinoAttributes.FUNCTION, resolvedFunction.getSignature().getName());
+                .setAttribute(TrinoAttributes.FUNCTION, resolvedFunction.getSignature().getName().toString());
         try (var ignored = scopedSpan(span)) {
             return delegate.getFunctionMetadata(session, resolvedFunction);
         }
@@ -1246,7 +1257,7 @@ public class TracingMetadata
     {
         Span span = startSpan("getAggregationFunctionMetadata")
                 .setAttribute(TrinoAttributes.CATALOG, resolvedFunction.getCatalogHandle().getCatalogName())
-                .setAttribute(TrinoAttributes.FUNCTION, resolvedFunction.getSignature().getName());
+                .setAttribute(TrinoAttributes.FUNCTION, resolvedFunction.getSignature().getName().toString());
         try (var ignored = scopedSpan(span)) {
             return delegate.getAggregationFunctionMetadata(session, resolvedFunction);
         }
@@ -1484,11 +1495,9 @@ public class TracingMetadata
 
     private static Optional<String> extractFunctionName(QualifiedName name)
     {
-        try {
-            return Optional.of(ResolvedFunction.extractFunctionName(name));
+        if (ResolvedFunction.isResolved(name)) {
+            return Optional.of(ResolvedFunction.extractFunctionName(name).toString());
         }
-        catch (IllegalArgumentException e) {
-            return Optional.empty();
-        }
+        return Optional.empty();
     }
 }

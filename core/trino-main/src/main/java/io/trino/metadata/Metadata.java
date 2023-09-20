@@ -51,6 +51,7 @@ import io.trino.spi.connector.WriterScalingOptions;
 import io.trino.spi.expression.ConnectorExpression;
 import io.trino.spi.expression.Constant;
 import io.trino.spi.function.AggregationFunctionMetadata;
+import io.trino.spi.function.CatalogSchemaFunctionName;
 import io.trino.spi.function.FunctionMetadata;
 import io.trino.spi.function.OperatorType;
 import io.trino.spi.predicate.TupleDomain;
@@ -663,17 +664,19 @@ public interface Metadata
 
     ResolvedFunction resolveFunction(Session session, QualifiedName name, List<TypeSignatureProvider> parameterTypes);
 
-    ResolvedFunction resolveOperator(Session session, OperatorType operatorType, List<? extends Type> argumentTypes)
+    ResolvedFunction resolveBuiltinFunction(String name, List<TypeSignatureProvider> parameterTypes);
+
+    ResolvedFunction resolveOperator(OperatorType operatorType, List<? extends Type> argumentTypes)
             throws OperatorNotFoundException;
 
-    default ResolvedFunction getCoercion(Session session, Type fromType, Type toType)
+    default ResolvedFunction getCoercion(Type fromType, Type toType)
     {
-        return getCoercion(session, CAST, fromType, toType);
+        return getCoercion(CAST, fromType, toType);
     }
 
-    ResolvedFunction getCoercion(Session session, OperatorType operatorType, Type fromType, Type toType);
+    ResolvedFunction getCoercion(OperatorType operatorType, Type fromType, Type toType);
 
-    ResolvedFunction getCoercion(Session session, QualifiedName name, Type fromType, Type toType);
+    ResolvedFunction getCoercion(CatalogSchemaFunctionName name, Type fromType, Type toType);
 
     /**
      * Is the named function an aggregation function?  This does not need type parameters
