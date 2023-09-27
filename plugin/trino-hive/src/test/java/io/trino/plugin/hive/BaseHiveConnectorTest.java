@@ -121,11 +121,13 @@ import static io.trino.SystemSessionProperties.FAULT_TOLERANT_EXECUTION_ARBITRAR
 import static io.trino.SystemSessionProperties.FAULT_TOLERANT_EXECUTION_HASH_DISTRIBUTION_COMPUTE_TASK_TARGET_SIZE;
 import static io.trino.SystemSessionProperties.FAULT_TOLERANT_EXECUTION_HASH_DISTRIBUTION_WRITE_TASK_TARGET_SIZE;
 import static io.trino.SystemSessionProperties.MAX_WRITER_TASKS_COUNT;
+import static io.trino.SystemSessionProperties.QUERY_MAX_MEMORY_PER_NODE;
 import static io.trino.SystemSessionProperties.REDISTRIBUTE_WRITES;
 import static io.trino.SystemSessionProperties.SCALE_WRITERS;
+import static io.trino.SystemSessionProperties.SKEWED_PARTITION_MIN_DATA_PROCESSED_REBALANCE_THRESHOLD;
+import static io.trino.SystemSessionProperties.TASK_MAX_WRITER_COUNT;
+import static io.trino.SystemSessionProperties.TASK_MIN_WRITER_COUNT;
 import static io.trino.SystemSessionProperties.TASK_SCALE_WRITERS_ENABLED;
-import static io.trino.SystemSessionProperties.TASK_SCALE_WRITERS_MAX_WRITER_COUNT;
-import static io.trino.SystemSessionProperties.TASK_WRITER_COUNT;
 import static io.trino.SystemSessionProperties.USE_TABLE_SCAN_NODE_PARTITIONING;
 import static io.trino.SystemSessionProperties.WRITER_SCALING_MIN_DATA_PROCESSED;
 import static io.trino.plugin.hive.HiveColumnHandle.BUCKET_COLUMN_NAME;
@@ -1964,7 +1966,7 @@ public abstract class BaseHiveConnectorTest
 
         // verify the default behavior is one file per node
         Session session = Session.builder(getSession())
-                .setSystemProperty("task_writer_count", "1")
+                .setSystemProperty("task_min_writer_count", "1")
                 .setSystemProperty("scale_writers", "false")
                 .setSystemProperty("redistribute_writes", "false")
                 // task scale writers should be disabled since we want to write with a single task writer
@@ -1978,7 +1980,7 @@ public abstract class BaseHiveConnectorTest
         // Writer writes chunks of rows that are about 1MB
         DataSize maxSize = DataSize.of(1, MEGABYTE);
         session = Session.builder(getSession())
-                .setSystemProperty("task_writer_count", "1")
+                .setSystemProperty("task_min_writer_count", "1")
                 // task scale writers should be disabled since we want to write with a single task writer
                 .setSystemProperty("task_scale_writers_enabled", "false")
                 .setCatalogSessionProperty("hive", "target_max_file_size", maxSize.toString())
@@ -2007,8 +2009,8 @@ public abstract class BaseHiveConnectorTest
 
         // verify the default behavior is one file per node per partition
         Session session = Session.builder(getSession())
-                .setSystemProperty("task_writer_count", "1")
-                .setSystemProperty("task_partitioned_writer_count", "1")
+                .setSystemProperty("task_min_writer_count", "1")
+                .setSystemProperty("task_max_writer_count", "1")
                 // task scale writers should be disabled since we want to write a single file
                 .setSystemProperty("task_scale_writers_enabled", "false")
                 .setSystemProperty("scale_writers", "false")
@@ -2023,8 +2025,8 @@ public abstract class BaseHiveConnectorTest
         // Writer writes chunks of rows that are about 1MB
         DataSize maxSize = DataSize.of(1, MEGABYTE);
         session = Session.builder(getSession())
-                .setSystemProperty("task_writer_count", "1")
-                .setSystemProperty("task_partitioned_writer_count", "1")
+                .setSystemProperty("task_min_writer_count", "1")
+                .setSystemProperty("task_max_writer_count", "1")
                 // task scale writers should be disabled since we want to write with a single task writer
                 .setSystemProperty("task_scale_writers_enabled", "false")
                 .setSystemProperty("use_preferred_write_partitioning", "false")
@@ -2179,7 +2181,7 @@ public abstract class BaseHiveConnectorTest
 
         // make sure that we will get one file per bucket regardless of writer count configured
         Session session = Session.builder(baseSession)
-                .setSystemProperty("task_writer_count", "4")
+                .setSystemProperty("task_min_writer_count", "4")
                 .setCatalogSessionProperty(catalog, "create_empty_bucket_files", String.valueOf(createEmpty))
                 .build();
         assertUpdate(session, "INSERT INTO " + tableName + " VALUES ('a0', 'b0', 'c0')", 1);
@@ -2575,7 +2577,7 @@ public abstract class BaseHiveConnectorTest
     private Session singleWriterWithTinyTargetFileSize()
     {
         return Session.builder(getSession())
-                .setSystemProperty("task_writer_count", "1")
+                .setSystemProperty("task_min_writer_count", "1")
                 .setSystemProperty("task_scale_writers_enabled", "false")
                 .setSystemProperty("query_max_memory_per_node", "100MB")
                 .setCatalogSessionProperty(catalog, "target_max_file_size", "1B")
@@ -4059,7 +4061,7 @@ public abstract class BaseHiveConnectorTest
                             "SELECT * FROM tpch.tiny.orders";
             assertUpdate(
                     Session.builder(getSession())
-                            .setSystemProperty("task_writer_count", "1")
+                            .setSystemProperty("task_min_writer_count", "1")
                             .setSystemProperty("scale_writers", "true")
                             .setSystemProperty("task_scale_writers_enabled", "false")
                             .setSystemProperty("writer_scaling_min_data_processed", "100MB")
@@ -4084,7 +4086,7 @@ public abstract class BaseHiveConnectorTest
                     "SELECT * FROM tpch.sf2.orders";
             assertUpdate(
                     Session.builder(getSession())
-                            .setSystemProperty("task_writer_count", "1")
+                            .setSystemProperty("task_min_writer_count", "1")
                             .setSystemProperty("scale_writers", "true")
                             .setSystemProperty("task_scale_writers_enabled", "false")
                             .setSystemProperty("writer_scaling_min_data_processed", "1MB")
@@ -4114,7 +4116,7 @@ public abstract class BaseHiveConnectorTest
             @Language("SQL") String createTableSql = "CREATE TABLE scale_writers_skewed WITH (format = 'PARQUET') AS " + selectSql;
             assertUpdate(
                     Session.builder(getSession())
-                            .setSystemProperty("task_writer_count", "1")
+                            .setSystemProperty("task_min_writer_count", "1")
                             .setSystemProperty("scale_writers", "true")
                             .setSystemProperty("task_scale_writers_enabled", "false")
                             .setSystemProperty("writer_scaling_min_data_processed", "1MB")
@@ -4139,7 +4141,7 @@ public abstract class BaseHiveConnectorTest
     {
         long workers = (long) computeScalar("SELECT count(*) FROM system.runtime.nodes");
         int taskMaxScaleWriterCount = 4;
-        testTaskScaleWriters(getSession(), DataSize.of(200, KILOBYTE), taskMaxScaleWriterCount, false)
+        testTaskScaleWriters(getSession(), DataSize.of(200, KILOBYTE), taskMaxScaleWriterCount, false, DataSize.of(64, GIGABYTE))
                 .isBetween(workers + 1, workers * taskMaxScaleWriterCount);
     }
 
@@ -4148,7 +4150,8 @@ public abstract class BaseHiveConnectorTest
     {
         long workers = (long) computeScalar("SELECT count(*) FROM system.runtime.nodes");
         // In the case of streaming, the number of writers is equal to the number of workers
-        testTaskScaleWriters(getSession(), DataSize.of(2, GIGABYTE), 4, false).isEqualTo(workers);
+        testTaskScaleWriters(getSession(), DataSize.of(2, GIGABYTE), 4, false, DataSize.of(64, GIGABYTE))
+                .isEqualTo(workers);
     }
 
     @Test
@@ -4159,8 +4162,18 @@ public abstract class BaseHiveConnectorTest
         // It is only applicable for pipeline execution mode, since we are testing
         // when both "scaleWriters" and "taskScaleWriters" are enabled, the writers are
         // scaling upto multiple worker nodes.
-        testTaskScaleWriters(getSession(), DataSize.of(200, KILOBYTE), taskMaxScaleWriterCount, true)
+        testTaskScaleWriters(getSession(), DataSize.of(200, KILOBYTE), taskMaxScaleWriterCount, true, DataSize.of(64, GIGABYTE))
                 .isBetween((long) taskMaxScaleWriterCount + workers, workers * taskMaxScaleWriterCount);
+    }
+
+    @Test
+    public void testMultipleWritersWhenTaskScaleWritersIsEnabledWithMemoryLimit()
+    {
+        long workers = (long) computeScalar("SELECT count(*) FROM system.runtime.nodes");
+        int taskMaxScaleWriterCount = 4;
+        testTaskScaleWriters(getSession(), DataSize.of(200, KILOBYTE), taskMaxScaleWriterCount, false, DataSize.of(256, MEGABYTE))
+                // There shouldn't be no scaling as the memory limit is too low
+                .isBetween(0L, workers);
     }
 
     @DataProvider(name = "taskWritersLimitParams")
@@ -4196,9 +4209,10 @@ public abstract class BaseHiveConnectorTest
                 .setSystemProperty(SCALE_WRITERS, Boolean.toString(scaleWritersEnabled))
                 .setSystemProperty(MAX_WRITER_TASKS_COUNT, Integer.toString(maxWriterTasks))
                 .setSystemProperty(REDISTRIBUTE_WRITES, Boolean.toString(redistributeWrites))
-                .setSystemProperty(TASK_WRITER_COUNT, "1")
+                .setSystemProperty(TASK_MIN_WRITER_COUNT, "1")
                 .setSystemProperty(WRITER_SCALING_MIN_DATA_PROCESSED, writerScalingMinDataProcessed.toString())
                 .setSystemProperty(TASK_SCALE_WRITERS_ENABLED, "false")
+                .setSystemProperty(SKEWED_PARTITION_MIN_DATA_PROCESSED_REBALANCE_THRESHOLD, "10MB")
                 .build();
         String tableName = "writing_tasks_limit_%s".formatted(randomNameSuffix());
         @Language("SQL") String createTableSql = format(
@@ -4218,7 +4232,8 @@ public abstract class BaseHiveConnectorTest
             Session session,
             DataSize writerScalingMinDataProcessed,
             int taskMaxScaleWriterCount,
-            boolean scaleWriters)
+            boolean scaleWriters,
+            DataSize queryMaxMemory)
     {
         String tableName = "task_scale_writers_" + randomNameSuffix();
         try {
@@ -4230,7 +4245,8 @@ public abstract class BaseHiveConnectorTest
                             .setSystemProperty(SCALE_WRITERS, String.valueOf(scaleWriters))
                             .setSystemProperty(TASK_SCALE_WRITERS_ENABLED, "true")
                             .setSystemProperty(WRITER_SCALING_MIN_DATA_PROCESSED, writerScalingMinDataProcessed.toString())
-                            .setSystemProperty(TASK_SCALE_WRITERS_MAX_WRITER_COUNT, String.valueOf(taskMaxScaleWriterCount))
+                            .setSystemProperty(TASK_MAX_WRITER_COUNT, String.valueOf(taskMaxScaleWriterCount))
+                            .setSystemProperty(QUERY_MAX_MEMORY_PER_NODE, queryMaxMemory.toString())
                             // Set the value higher than sf1 input data size such that fault-tolerant scheduler
                             // shouldn't add new task and scaling only happens through the local scaling exchange.
                             .setSystemProperty(FAULT_TOLERANT_EXECUTION_ARBITRARY_DISTRIBUTION_COMPUTE_TASK_TARGET_SIZE_MIN, "2GB")
@@ -8087,7 +8103,7 @@ public abstract class BaseHiveConnectorTest
                 .setSystemProperty("writer_scaling_min_data_processed", writerScalingMinDataProcessed.toString())
                 // task_scale_writers_enabled shouldn't have any effect on writing data in the optimize command
                 .setSystemProperty("task_scale_writers_enabled", String.valueOf(taskScaleWritersEnabled))
-                .setSystemProperty("task_writer_count", "1");
+                .setSystemProperty("task_min_writer_count", "1");
 
         if (!scaleWriters) {
             writerScalingSessionBuilder.setSystemProperty("max_writer_tasks_count", "1");
@@ -8748,8 +8764,8 @@ public abstract class BaseHiveConnectorTest
     private Session getParallelWriteSession(Session baseSession)
     {
         return Session.builder(baseSession)
-                .setSystemProperty("task_writer_count", "4")
-                .setSystemProperty("task_partitioned_writer_count", "4")
+                .setSystemProperty("task_min_writer_count", "4")
+                .setSystemProperty("task_max_writer_count", "4")
                 .setSystemProperty("task_scale_writers_enabled", "false")
                 .build();
     }

@@ -29,6 +29,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.plugin.deltalake.transactionlog.TransactionLogParser.parseJson;
 import static io.trino.plugin.deltalake.transactionlog.TransactionLogUtil.getTransactionLogDir;
@@ -70,6 +71,7 @@ public class TransactionLogTail
 
         long version = startVersion.orElse(0L);
         long entryNumber = startVersion.map(start -> start + 1).orElse(0L);
+        checkArgument(endVersion.isEmpty() || entryNumber <= endVersion.get(), "Invalid start/end versions: %s, %s", startVersion, endVersion);
 
         String transactionLogDir = getTransactionLogDir(tableLocation);
         Optional<List<DeltaLakeTransactionLogEntry>> results;
@@ -97,34 +99,20 @@ public class TransactionLogTail
         return new TransactionLogTail(entriesBuilder.build(), version);
     }
 
-    public Optional<TransactionLogTail> getUpdatedTail(TrinoFileSystem fileSystem, String tableLocation)
+    public Optional<TransactionLogTail> getUpdatedTail(TrinoFileSystem fileSystem, String tableLocation, Optional<Long> endVersion)
             throws IOException
     {
-        ImmutableList.Builder<Transaction> entriesBuilder = ImmutableList.builder();
-
-        long newVersion = version;
-
-        Optional<List<DeltaLakeTransactionLogEntry>> results;
-        boolean endOfTail = false;
-        while (!endOfTail) {
-            results = getEntriesFromJson(newVersion + 1, getTransactionLogDir(tableLocation), fileSystem);
-            if (results.isPresent()) {
-                if (version == newVersion) {
-                    // initialize entriesBuilder with entries we have already read
-                    entriesBuilder.addAll(entries);
-                }
-                entriesBuilder.add(new Transaction(newVersion + 1, results.get()));
-                newVersion++;
-            }
-            else {
-                endOfTail = true;
-            }
-        }
-
-        if (newVersion == version) {
+        checkArgument(endVersion.isEmpty() || endVersion.get() > version, "Invalid endVersion, expected higher than %s, but got %s", version, endVersion);
+        TransactionLogTail newTail = loadNewTail(fileSystem, tableLocation, Optional.of(version), endVersion);
+        if (newTail.version == version) {
             return Optional.empty();
         }
-        return Optional.of(new TransactionLogTail(entriesBuilder.build(), newVersion));
+        return Optional.of(new TransactionLogTail(
+                ImmutableList.<Transaction>builder()
+                        .addAll(entries)
+                        .addAll(newTail.entries)
+                        .build(),
+                newTail.version));
     }
 
     public static Optional<List<DeltaLakeTransactionLogEntry>> getEntriesFromJson(long entryNumber, String transactionLogDir, TrinoFileSystem fileSystem)

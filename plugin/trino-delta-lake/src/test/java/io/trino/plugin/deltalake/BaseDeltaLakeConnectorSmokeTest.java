@@ -26,7 +26,6 @@ import io.trino.plugin.deltalake.transactionlog.AddFileEntry;
 import io.trino.plugin.deltalake.transactionlog.TransactionLogAccess;
 import io.trino.plugin.hive.TestingHivePlugin;
 import io.trino.plugin.hive.containers.HiveHadoop;
-import io.trino.plugin.hive.containers.HiveMinioDataLake;
 import io.trino.plugin.hive.metastore.HiveMetastore;
 import io.trino.plugin.hive.metastore.thrift.BridgingHiveMetastore;
 import io.trino.spi.QueryId;
@@ -38,11 +37,11 @@ import io.trino.testing.MaterializedResultWithQueryId;
 import io.trino.testing.MaterializedRow;
 import io.trino.testing.QueryRunner;
 import io.trino.testing.TestingConnectorBehavior;
-import io.trino.testing.minio.MinioClient;
 import io.trino.testing.sql.TestTable;
 import io.trino.tpch.TpchTable;
 import org.intellij.lang.annotations.Language;
 import org.testng.SkipException;
+import org.testng.annotations.AfterClass;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
@@ -54,6 +53,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static com.google.common.base.Verify.verify;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.collect.MoreCollectors.onlyElement;
 import static com.google.common.collect.Sets.union;
@@ -123,13 +123,13 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
 
     protected final String bucketName = "test-delta-lake-integration-smoke-test-" + randomNameSuffix();
 
-    protected HiveMinioDataLake hiveMinioDataLake;
+    protected HiveHadoop hiveHadoop;
     private HiveMetastore metastore;
     private TransactionLogAccess transactionLogAccess;
 
     protected void environmentSetup() {}
 
-    protected abstract HiveMinioDataLake createHiveMinioDataLake()
+    protected abstract HiveHadoop createHiveHadoop()
             throws Exception;
 
     protected abstract Map<String, String> hiveStorageConfiguration();
@@ -142,7 +142,7 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
 
     protected abstract List<String> getTableFiles(String tableName);
 
-    protected abstract List<String> listCheckpointFiles(String transactionLogDirectory);
+    protected abstract List<String> listFiles(String directory);
 
     protected abstract void deleteFile(String filePath);
 
@@ -152,10 +152,10 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
     {
         environmentSetup();
 
-        this.hiveMinioDataLake = closeAfterClass(createHiveMinioDataLake());
+        this.hiveHadoop = closeAfterClass(createHiveHadoop());
         this.metastore = new BridgingHiveMetastore(
                 testingThriftHiveMetastoreBuilder()
-                        .metastoreClient(hiveMinioDataLake.getHiveHadoop().getHiveMetastoreEndpoint())
+                        .metastoreClient(hiveHadoop.getHiveMetastoreEndpoint())
                         .build());
 
         DistributedQueryRunner queryRunner = createDeltaLakeQueryRunner();
@@ -195,7 +195,7 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
                     "hive",
                     "hive",
                     ImmutableMap.<String, String>builder()
-                            .put("hive.metastore.uri", "thrift://" + hiveMinioDataLake.getHiveHadoop().getHiveMetastoreEndpoint())
+                            .put("hive.metastore.uri", "thrift://" + hiveHadoop.getHiveMetastoreEndpoint())
                             .put("hive.allow-drop-table", "true")
                             .putAll(hiveStorageConfiguration())
                             .buildOrThrow());
@@ -224,8 +224,14 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
                         .put("hive.metastore-timeout", "1m") // read timed out sometimes happens with the default timeout
                         .putAll(deltaStorageConfiguration())
                         .buildOrThrow(),
-                hiveMinioDataLake.getHiveHadoop(),
+                hiveHadoop,
                 queryRunner -> {});
+    }
+
+    @AfterClass(alwaysRun = true)
+    public void cleanUp()
+    {
+        hiveHadoop = null; // closed by closeAfterClass
     }
 
     @Override
@@ -246,32 +252,30 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
         String subDir = schemaDir + "subdir/";
         String externalFile = subDir + "external-file";
 
-        HiveHadoop hadoopContainer = hiveMinioDataLake.getHiveHadoop();
-
         // Create file in a subdirectory of the schema directory before creating schema
-        hadoopContainer.executeInContainerFailOnError("hdfs", "dfs", "-mkdir", "-p", subDir);
-        hadoopContainer.executeInContainerFailOnError("hdfs", "dfs", "-touchz", externalFile);
+        hiveHadoop.executeInContainerFailOnError("hdfs", "dfs", "-mkdir", "-p", subDir);
+        hiveHadoop.executeInContainerFailOnError("hdfs", "dfs", "-touchz", externalFile);
 
         query(format("CREATE SCHEMA %s WITH (location = '%s')", schemaName, schemaDir));
-        assertThat(hadoopContainer.executeInContainer("hdfs", "dfs", "-test", "-e", externalFile).getExitCode())
+        assertThat(hiveHadoop.executeInContainer("hdfs", "dfs", "-test", "-e", externalFile).getExitCode())
                 .as("external file exists after creating schema")
                 .isEqualTo(0);
 
         query("DROP SCHEMA " + schemaName);
-        assertThat(hadoopContainer.executeInContainer("hdfs", "dfs", "-test", "-e", externalFile).getExitCode())
+        assertThat(hiveHadoop.executeInContainer("hdfs", "dfs", "-test", "-e", externalFile).getExitCode())
                 .as("external file exists after dropping schema")
                 .isEqualTo(0);
 
         // Test behavior without external file
-        hadoopContainer.executeInContainerFailOnError("hdfs", "dfs", "-rm", "-r", subDir);
+        hiveHadoop.executeInContainerFailOnError("hdfs", "dfs", "-rm", "-r", subDir);
 
         query(format("CREATE SCHEMA %s WITH (location = '%s')", schemaName, schemaDir));
-        assertThat(hadoopContainer.executeInContainer("hdfs", "dfs", "-test", "-d", schemaDir).getExitCode())
+        assertThat(hiveHadoop.executeInContainer("hdfs", "dfs", "-test", "-d", schemaDir).getExitCode())
                 .as("schema directory exists after creating schema")
                 .isEqualTo(0);
 
         query("DROP SCHEMA " + schemaName);
-        assertThat(hadoopContainer.executeInContainer("hdfs", "dfs", "-test", "-e", externalFile).getExitCode())
+        assertThat(hiveHadoop.executeInContainer("hdfs", "dfs", "-test", "-e", externalFile).getExitCode())
                 .as("schema directory deleted after dropping schema without external file")
                 .isEqualTo(1);
     }
@@ -360,6 +364,62 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
     }
 
     @Test
+    public void testOptimizeRewritesTable()
+    {
+        String tableName = "test_optimize_rewrites_table_" + randomNameSuffix();
+        String tableLocation = getLocationForTable(bucketName, tableName);
+        assertUpdate("CREATE TABLE " + tableName + " (key integer, value varchar) WITH (location = '" + tableLocation + "')");
+        try {
+            // DistributedQueryRunner sets node-scheduler.include-coordinator by default, so include coordinator
+            int workerCount = getQueryRunner().getNodeCount();
+
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'one')", 1);
+
+            for (int i = 0; i < 3; i++) {
+                Set<String> initialFiles = getActiveFiles(tableName);
+                computeActual("ALTER TABLE " + tableName + " EXECUTE OPTIMIZE");
+                Set<String> filesAfterOptimize = getActiveFiles(tableName);
+                assertThat(filesAfterOptimize)
+                        .hasSizeBetween(1, workerCount)
+                        .containsExactlyElementsOf(initialFiles);
+            }
+
+            assertQuery("SELECT * FROM " + tableName, "VALUES(1, 'one')");
+        }
+        finally {
+            assertUpdate("DROP TABLE " + tableName);
+        }
+    }
+
+    @Test
+    public void testOptimizeRewritesPartitionedTable()
+    {
+        String tableName = "test_optimize_rewrites_partitioned_table_" + randomNameSuffix();
+        String tableLocation = getLocationForTable(bucketName, tableName);
+        assertUpdate("CREATE TABLE " + tableName + " (key integer, value varchar) WITH (location = '" + tableLocation + "', partitioned_by = ARRAY['key'])");
+        try {
+            // DistributedQueryRunner sets node-scheduler.include-coordinator by default, so include coordinator
+            int workerCount = getQueryRunner().getNodeCount();
+
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'one')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (2, 'two')", 1);
+
+            for (int i = 0; i < 3; i++) {
+                Set<String> initialFiles = getActiveFiles(tableName);
+                computeActual("ALTER TABLE " + tableName + " EXECUTE OPTIMIZE");
+                Set<String> filesAfterOptimize = getActiveFiles(tableName);
+                assertThat(filesAfterOptimize)
+                        .hasSizeBetween(1, workerCount)
+                        .containsExactlyInAnyOrderElementsOf(initialFiles);
+            }
+            assertQuery("SELECT * FROM " + tableName, "VALUES(1, 'one'), (2, 'two')");
+        }
+        finally {
+            assertUpdate("DROP TABLE " + tableName);
+        }
+    }
+
+    @Test
     @Override
     public void testShowCreateTable()
     {
@@ -420,20 +480,20 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
     public void testHiveViewsCannotBeAccessed()
     {
         String viewName = "dummy_view";
-        hiveMinioDataLake.getHiveHadoop().runOnHive(format("CREATE VIEW %1$s.%2$s AS SELECT * FROM %1$s.customer", SCHEMA, viewName));
+        hiveHadoop.runOnHive(format("CREATE VIEW %1$s.%2$s AS SELECT * FROM %1$s.customer", SCHEMA, viewName));
         assertEquals(computeScalar(format("SHOW TABLES LIKE '%s'", viewName)), viewName);
         assertThatThrownBy(() -> computeActual("DESCRIBE " + viewName)).hasMessageContaining(format("%s.%s is not a Delta Lake table", SCHEMA, viewName));
-        hiveMinioDataLake.getHiveHadoop().runOnHive("DROP VIEW " + viewName);
+        hiveHadoop.runOnHive("DROP VIEW " + viewName);
     }
 
     @Test
     public void testNonDeltaTablesCannotBeAccessed()
     {
         String tableName = "hive_table";
-        hiveMinioDataLake.getHiveHadoop().runOnHive(format("CREATE TABLE %s.%s (id BIGINT)", SCHEMA, tableName));
+        hiveHadoop.runOnHive(format("CREATE TABLE %s.%s (id BIGINT)", SCHEMA, tableName));
         assertEquals(computeScalar(format("SHOW TABLES LIKE '%s'", tableName)), tableName);
         assertThatThrownBy(() -> computeActual("DESCRIBE " + tableName)).hasMessageContaining(tableName + " is not a Delta Lake table");
-        hiveMinioDataLake.getHiveHadoop().runOnHive(format("DROP TABLE %s.%s", SCHEMA, tableName));
+        hiveHadoop.runOnHive(format("DROP TABLE %s.%s", SCHEMA, tableName));
     }
 
     @Test
@@ -2066,12 +2126,10 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
         String tableLocation = getTableLocation(tableName);
 
         // Break the table by deleting files from the storage
-        String key = tableLocation.substring(bucketUrl().length());
-        MinioClient minio = hiveMinioDataLake.getMinioClient();
-        for (String file : minio.listObjects(bucketName, key)) {
-            minio.removeObject(bucketName, file);
+        String directory = tableLocation.substring(bucketUrl().length());
+        for (String file : listFiles(directory)) {
+            deleteFile(file);
         }
-        assertThat(minio.listObjects(bucketName, key)).isEmpty();
 
         // Verify unregister_table successfully deletes the table from metastore
         assertUpdate("CALL system.unregister_table(CURRENT_SCHEMA, '" + tableName + "')");
@@ -2189,6 +2247,13 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
             assertQueryFails(session, "SELECT * FROM %s WHERE x='a'".formatted(table.getName()), "Filter required on .*" + table.getName() + " for at least one partition column:.*");
             assertQuery(session, "SELECT * FROM %s WHERE part='part_a'".formatted(table.getName()), "VALUES ('a', 'part_a')");
         }
+    }
+
+    protected List<String> listCheckpointFiles(String transactionLogDirectory)
+    {
+        return listFiles(transactionLogDirectory).stream()
+                .filter(path -> path.contains("checkpoint.parquet"))
+                .collect(toImmutableList());
     }
 
     private Set<String> getActiveFiles(String tableName)
