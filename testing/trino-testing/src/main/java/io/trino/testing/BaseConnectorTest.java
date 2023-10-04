@@ -1289,12 +1289,13 @@ public abstract class BaseConnectorTest
                     node(AggregationNode.class, // final
                             anyTree(// exchanges
                                     node(AggregationNode.class, // partial
-                                            tableScan(table.getName())))));
+                                            node(ProjectNode.class, // format()
+                                                    tableScan(table.getName()))))));
             PlanMatchPattern readFromStorageTable = node(OutputNode.class, node(TableScanNode.class));
 
             assertUpdate("CREATE MATERIALIZED VIEW " + viewName + " " +
                     "GRACE PERIOD INTERVAL '1' HOUR " +
-                    "AS SELECT DISTINCT regionkey, CAST(name AS varchar) name FROM " + table.getName());
+                    "AS SELECT DISTINCT regionkey, format('%s', name) name FROM " + table.getName());
 
             String initialResults = "SELECT DISTINCT regionkey, CAST(name AS varchar) FROM region";
 
@@ -4629,7 +4630,7 @@ public abstract class BaseConnectorTest
     @Test
     public void testRowLevelDelete()
     {
-        skipTestUnless(hasBehavior(SUPPORTS_CREATE_TABLE) && hasBehavior(SUPPORTS_ROW_LEVEL_DELETE));
+        skipTestUnless(hasBehavior(SUPPORTS_CREATE_TABLE_WITH_DATA) && hasBehavior(SUPPORTS_ROW_LEVEL_DELETE));
         // TODO (https://github.com/trinodb/trino/issues/5901) Use longer table name once Oracle version is updated
         try (TestTable table = new TestTable(getQueryRunner()::execute, "test_row_delete", "AS SELECT * FROM region")) {
             assertUpdate("DELETE FROM " + table.getName() + " WHERE regionkey = 2", 1);
@@ -4645,7 +4646,7 @@ public abstract class BaseConnectorTest
             return;
         }
 
-        skipTestUnless(hasBehavior(SUPPORTS_CREATE_TABLE));
+        skipTestUnless(hasBehavior(SUPPORTS_CREATE_TABLE_WITH_DATA));
         try (TestTable table = new TestTable(getQueryRunner()::execute, "test_supports_update", "AS SELECT * FROM nation")) {
             assertQueryFails("UPDATE " + table.getName() + " SET nationkey = 100 WHERE regionkey = 2", MODIFYING_ROWS_MESSAGE);
         }
@@ -4659,7 +4660,7 @@ public abstract class BaseConnectorTest
             return;
         }
 
-        skipTestUnless(hasBehavior(SUPPORTS_CREATE_TABLE));
+        skipTestUnless(hasBehavior(SUPPORTS_CREATE_TABLE_WITH_DATA));
         try (TestTable table = new TestTable(getQueryRunner()::execute, "test_supports_update", "AS SELECT * FROM nation")) {
             assertQueryFails("UPDATE " + table.getName() + " SET nationkey = nationkey * 100 WHERE regionkey = 2", MODIFYING_ROWS_MESSAGE);
         }
@@ -4682,6 +4683,7 @@ public abstract class BaseConnectorTest
     @Test
     public void testRowLevelUpdate()
     {
+        skipTestUnless(hasBehavior(SUPPORTS_CREATE_TABLE_WITH_DATA));
         if (!hasBehavior(SUPPORTS_ROW_LEVEL_UPDATE)) {
             // Note this change is a no-op, if actually run
             assertQueryFails("UPDATE nation SET nationkey = nationkey + regionkey WHERE regionkey < 1", MODIFYING_ROWS_MESSAGE);
@@ -5693,12 +5695,12 @@ public abstract class BaseConnectorTest
         assertQuery("SELECT count(*) FROM " + tableName + " WHERE mod(orderkey, 3) = 1", "SELECT 0");
 
         // verify untouched rows
-        assertThat(query("SELECT count(*), cast(sum(totalprice) AS decimal(18,2)) FROM " + tableName + " WHERE mod(orderkey, 3) = 2"))
-                .matches("SELECT count(*), cast(sum(totalprice) AS decimal(18,2)) FROM tpch.sf1.orders WHERE mod(orderkey, 3) = 2");
+        assertThat(query("SELECT count(*), sum(cast(totalprice AS decimal(18,2))) FROM " + tableName + " WHERE mod(orderkey, 3) = 2"))
+                .matches("SELECT count(*), sum(cast(totalprice AS decimal(18,2))) FROM tpch.sf1.orders WHERE mod(orderkey, 3) = 2");
 
         // verify updated rows
-        assertThat(query("SELECT count(*), cast(sum(totalprice) AS decimal(18,2)) FROM " + tableName + " WHERE mod(orderkey, 3) = 0"))
-                .matches("SELECT count(*), cast(sum(totalprice * 2) AS decimal(18,2)) FROM tpch.sf1.orders WHERE mod(orderkey, 3) = 0");
+        assertThat(query("SELECT count(*), sum(cast(totalprice AS decimal(18,2))) FROM " + tableName + " WHERE mod(orderkey, 3) = 0"))
+                .matches("SELECT count(*), sum(cast(totalprice AS decimal(18,2)) * 2) FROM tpch.sf1.orders WHERE mod(orderkey, 3) = 0");
 
         assertUpdate("DROP TABLE " + tableName);
     }
@@ -6297,7 +6299,7 @@ public abstract class BaseConnectorTest
                         .isFullyPushedDown();
 
                 // With Projection Pushdown disabled
-                Session sessionWithoutPushdown = sessionWithProjectionPushdownDisabled();
+                Session sessionWithoutPushdown = sessionWithProjectionPushdownDisabled(getSession());
                 assertThat(query(sessionWithoutPushdown, selectQuery))
                         .matches(expectedResult)
                         .isNotFullyPushedDown(ProjectNode.class);
@@ -6421,10 +6423,11 @@ public abstract class BaseConnectorTest
                 "AS SELECT val AS id, CAST(ROW(val + 1, val + 2) AS ROW(leaf1 BIGINT, leaf2 BIGINT)) AS root FROM UNNEST(SEQUENCE(1, 10)) AS t(val)")) {
             MaterializedResult expectedResult = computeActual("SELECT val + 2 FROM UNNEST(SEQUENCE(1, 10)) AS t(val)");
             String selectQuery = "SELECT root.leaf2 FROM " + testTable.getName();
-            Session sessionWithoutPushdown = sessionWithProjectionPushdownDisabled();
+            Session sessionWithoutSmallFileThreshold = withoutSmallFileThreshold(getSession());
+            Session sessionWithoutPushdown = sessionWithProjectionPushdownDisabled(sessionWithoutSmallFileThreshold);
 
             assertQueryStats(
-                    getSession(),
+                    sessionWithoutSmallFileThreshold,
                     selectQuery,
                     statsWithPushdown -> {
                         DataSize physicalInputDataSizeWithPushdown = statsWithPushdown.getPhysicalInputDataSize();
@@ -6458,12 +6461,13 @@ public abstract class BaseConnectorTest
                 "test_projection_pushdown_physical_input_size_",
                 "AS SELECT val AS id, CAST(ROW(val + 1, val + 2) AS ROW(leaf1 BIGINT, leaf2 BIGINT)) AS root FROM UNNEST(SEQUENCE(1, 10)) AS t(val)")) {
             // Verify that the physical input size is smaller when reading the root.leaf1 field compared to reading the root field
+            Session sessionWithoutSmallFileThreshold = withoutSmallFileThreshold(getSession());
             assertQueryStats(
-                    getSession(),
+                    sessionWithoutSmallFileThreshold,
                     "SELECT root FROM " + testTable.getName(),
                     statsWithSelectRootField -> {
                         assertQueryStats(
-                                getSession(),
+                                sessionWithoutSmallFileThreshold,
                                 "SELECT root.leaf1 FROM " + testTable.getName(),
                                 statsWithSelectLeafField -> {
                                     if (supportsPhysicalPushdown()) {
@@ -6480,11 +6484,11 @@ public abstract class BaseConnectorTest
 
             // Verify that the physical input size is the same when reading the root field compared to reading both the root and root.leaf1 fields
             assertQueryStats(
-                    getSession(),
+                    sessionWithoutSmallFileThreshold,
                     "SELECT root FROM " + testTable.getName(),
                     statsWithSelectRootField -> {
                         assertQueryStats(
-                                getSession(),
+                                sessionWithoutSmallFileThreshold,
                                 "SELECT root, root.leaf1 FROM " + testTable.getName(),
                                 statsWithSelectRootAndLeafField -> {
                                     assertThat(statsWithSelectRootAndLeafField.getPhysicalInputDataSize()).isEqualTo(statsWithSelectRootField.getPhysicalInputDataSize());
@@ -6539,11 +6543,16 @@ public abstract class BaseConnectorTest
         return true;
     }
 
-    protected Session sessionWithProjectionPushdownDisabled()
+    protected Session sessionWithProjectionPushdownDisabled(Session session)
     {
-        return Session.builder(getSession())
+        return Session.builder(session)
                 .setCatalogSessionProperty(getSession().getCatalog().orElseThrow(), "projection_pushdown_enabled", "false")
                 .build();
+    }
+
+    protected Session withoutSmallFileThreshold(Session session)
+    {
+        return session;
     }
 
     protected static final class DataMappingTestSetup

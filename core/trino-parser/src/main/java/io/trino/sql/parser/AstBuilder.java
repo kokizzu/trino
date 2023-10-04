@@ -343,12 +343,10 @@ class AstBuilder
         extends SqlBaseBaseVisitor<Node>
 {
     private int parameterPosition;
-    private final ParsingOptions parsingOptions;
     private final Optional<NodeLocation> baseLocation;
 
-    AstBuilder(Optional<NodeLocation> baseLocation, ParsingOptions parsingOptions)
+    AstBuilder(Optional<NodeLocation> baseLocation)
     {
-        this.parsingOptions = requireNonNull(parsingOptions, "parsingOptions is null");
         this.baseLocation = requireNonNull(baseLocation, "location is null");
     }
 
@@ -3235,11 +3233,7 @@ class AstBuilder
     @Override
     public Node visitDecimalLiteral(SqlBaseParser.DecimalLiteralContext context)
     {
-        return switch (parsingOptions.getDecimalLiteralTreatment()) {
-            case AS_DOUBLE -> new DoubleLiteral(getLocation(context), context.getText());
-            case AS_DECIMAL -> new DecimalLiteral(getLocation(context), context.getText());
-            case REJECT -> throw new ParsingException("Unexpected decimal literal: " + context.getText());
-        };
+        return new DecimalLiteral(getLocation(context), context.getText());
     }
 
     @Override

@@ -31,6 +31,7 @@ import io.trino.SystemSessionProperties;
 import io.trino.execution.Column;
 import io.trino.execution.warnings.WarningCollector;
 import io.trino.metadata.AnalyzePropertyManager;
+import io.trino.metadata.FunctionResolver;
 import io.trino.metadata.MaterializedViewDefinition;
 import io.trino.metadata.Metadata;
 import io.trino.metadata.OperatorNotFoundException;
@@ -354,7 +355,6 @@ import static io.trino.spi.type.TinyintType.TINYINT;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static io.trino.spi.type.VarcharType.createUnboundedVarcharType;
 import static io.trino.sql.NodeUtils.getSortItemsFromOrderBy;
-import static io.trino.sql.ParsingUtil.createParsingOptions;
 import static io.trino.sql.analyzer.AggregationAnalyzer.verifyOrderByAggregations;
 import static io.trino.sql.analyzer.AggregationAnalyzer.verifySourceAggregations;
 import static io.trino.sql.analyzer.Analyzer.verifyNoAggregateWindowOrGroupingFunctions;
@@ -413,6 +413,7 @@ class StatementAnalyzer
     private final TablePropertyManager tablePropertyManager;
     private final AnalyzePropertyManager analyzePropertyManager;
     private final TableProceduresPropertyManager tableProceduresPropertyManager;
+    private final FunctionResolver functionResolver;
 
     private final WarningCollector warningCollector;
     private final CorrelationSupport correlationSupport;
@@ -455,6 +456,7 @@ class StatementAnalyzer
         this.tableProceduresPropertyManager = tableProceduresPropertyManager;
         this.warningCollector = requireNonNull(warningCollector, "warningCollector is null");
         this.correlationSupport = requireNonNull(correlationSupport, "correlationSupport is null");
+        this.functionResolver = plannerContext.getFunctionResolver(warningCollector);
     }
 
     public Scope analyze(Node node)
@@ -944,7 +946,7 @@ class StatementAnalyzer
                         throw semanticException(COLUMN_TYPE_UNKNOWN, node, "Column type is unknown at position %s", queryScope.getRelationType().indexOf(field) + 1);
                     }
                     String columnName = node.getColumnAliases().get().get(aliasPosition).getValue();
-                    columnsBuilder.add(new ColumnMetadata(columnName, metadata.getSupportedType(session, catalogHandle, field.getType()).orElse(field.getType())));
+                    columnsBuilder.add(new ColumnMetadata(columnName, metadata.getSupportedType(session, catalogHandle, properties, field.getType()).orElse(field.getType())));
                     outputColumns.add(new OutputColumn(new Column(columnName, field.getType().toString()), analysis.getSourceColumns(field)));
                     aliasPosition++;
                 }
@@ -952,7 +954,7 @@ class StatementAnalyzer
             else {
                 validateColumns(node, queryScope.getRelationType());
                 columnsBuilder.addAll(queryScope.getRelationType().getVisibleFields().stream()
-                        .map(field -> new ColumnMetadata(field.getName().orElseThrow(), metadata.getSupportedType(session, catalogHandle, field.getType()).orElse(field.getType())))
+                        .map(field -> new ColumnMetadata(field.getName().orElseThrow(), metadata.getSupportedType(session, catalogHandle, properties, field.getType()).orElse(field.getType())))
                         .collect(toImmutableList()));
                 queryScope.getRelationType().getVisibleFields().stream()
                         .map(this::createOutputColumn)
@@ -1567,7 +1569,7 @@ class StatementAnalyzer
 
             ImmutableList.Builder<Field> outputFields = ImmutableList.builder();
             for (Expression expression : node.getExpressions()) {
-                verifyNoAggregateWindowOrGroupingFunctions(session, metadata, expression, "UNNEST");
+                verifyNoAggregateWindowOrGroupingFunctions(session, plannerContext.getFunctionResolver(), expression, "UNNEST");
                 List<Field> expressionOutputs = new ArrayList<>();
 
                 ExpressionAnalysis expressionAnalysis = analyzeExpression(expression, createScope(scope));
@@ -3074,7 +3076,7 @@ class StatementAnalyzer
             if (analysis.isAggregation(node) && node.getOrderBy().isPresent()) {
                 ImmutableList.Builder<Expression> aggregates = ImmutableList.<Expression>builder()
                         .addAll(groupByAnalysis.getOriginalExpressions())
-                        .addAll(extractAggregateFunctions(orderByExpressions, session, metadata))
+                        .addAll(extractAggregateFunctions(orderByExpressions, session, plannerContext.getFunctionResolver()))
                         .addAll(extractExpressions(orderByExpressions, GroupingOperation.class));
 
                 analysis.setOrderByAggregates(node.getOrderBy().get(), aggregates.build());
@@ -3236,7 +3238,7 @@ class StatementAnalyzer
             }
             if (criteria instanceof JoinOn) {
                 Expression expression = ((JoinOn) criteria).getExpression();
-                verifyNoAggregateWindowOrGroupingFunctions(session, metadata, expression, "JOIN clause");
+                verifyNoAggregateWindowOrGroupingFunctions(session, plannerContext.getFunctionResolver(), expression, "JOIN clause");
 
                 // Need to register coercions in case when join criteria requires coercion (e.g. join on char(1) = char(2))
                 // Correlations are only currently support in the join criteria for INNER joins
@@ -4018,8 +4020,8 @@ class StatementAnalyzer
 
                 List<Type> argumentTypes = mappedCopy(windowFunction.getArguments(), analysis::getType);
 
-                ResolvedFunction resolvedFunction = metadata.resolveFunction(session, windowFunction.getName(), fromTypes(argumentTypes));
-                FunctionKind kind = metadata.getFunctionMetadata(session, resolvedFunction).getKind();
+                ResolvedFunction resolvedFunction = plannerContext.getFunctionResolver().resolveFunction(session, windowFunction.getName(), fromTypes(argumentTypes));
+                FunctionKind kind = resolvedFunction.getFunctionKind();
                 if (kind != AGGREGATE && kind != WINDOW) {
                     throw semanticException(FUNCTION_NOT_WINDOW, node, "Not a window function: %s", windowFunction.getName());
                 }
@@ -4033,7 +4035,7 @@ class StatementAnalyzer
             if (node.getHaving().isPresent()) {
                 Expression predicate = node.getHaving().get();
 
-                List<Expression> windowExpressions = extractWindowExpressions(ImmutableList.of(predicate), session, metadata);
+                List<Expression> windowExpressions = extractWindowExpressions(ImmutableList.of(predicate), session, plannerContext.getFunctionResolver());
                 if (!windowExpressions.isEmpty()) {
                     throw semanticException(NESTED_WINDOW, windowExpressions.get(0), "HAVING clause cannot contain window functions or row pattern measures");
                 }
@@ -4110,10 +4112,10 @@ class StatementAnalyzer
                                 }
 
                                 column = outputExpressions.get(toIntExact(ordinal - 1));
-                                verifyNoAggregateWindowOrGroupingFunctions(session, metadata, column, "GROUP BY clause");
+                                verifyNoAggregateWindowOrGroupingFunctions(session, plannerContext.getFunctionResolver(), column, "GROUP BY clause");
                             }
                             else {
-                                verifyNoAggregateWindowOrGroupingFunctions(session, metadata, column, "GROUP BY clause");
+                                verifyNoAggregateWindowOrGroupingFunctions(session, plannerContext.getFunctionResolver(), column, "GROUP BY clause");
                                 analyzeExpression(column, scope);
                             }
 
@@ -4185,7 +4187,7 @@ class StatementAnalyzer
                     .addAll(getSortItemsFromOrderBy(node.getOrderBy()))
                     .build();
 
-            List<FunctionCall> aggregates = extractAggregateFunctions(toExtract, session, metadata);
+            List<FunctionCall> aggregates = extractAggregateFunctions(toExtract, session, plannerContext.getFunctionResolver());
 
             return !aggregates.isEmpty();
         }
@@ -4512,7 +4514,7 @@ class StatementAnalyzer
 
         private void analyzeWhere(Node node, Scope scope, Expression predicate)
         {
-            verifyNoAggregateWindowOrGroupingFunctions(session, metadata, predicate, "WHERE clause");
+            verifyNoAggregateWindowOrGroupingFunctions(session, functionResolver, predicate, "WHERE clause");
 
             ExpressionAnalysis expressionAnalysis = analyzeExpression(predicate, scope);
             analysis.recordSubqueries(node, expressionAnalysis);
@@ -4565,7 +4567,7 @@ class StatementAnalyzer
         {
             checkState(orderByExpressions.isEmpty() || orderByScope.isPresent(), "non-empty orderByExpressions list without orderByScope provided");
 
-            List<FunctionCall> aggregates = extractAggregateFunctions(Iterables.concat(outputExpressions, orderByExpressions), session, metadata);
+            List<FunctionCall> aggregates = extractAggregateFunctions(Iterables.concat(outputExpressions, orderByExpressions), session, functionResolver);
             analysis.setAggregates(node, aggregates);
 
             if (analysis.isAggregation(node)) {
@@ -4576,9 +4578,9 @@ class StatementAnalyzer
                 //     SELECT a + sum(b) GROUP BY a
                 List<Expression> distinctGroupingColumns = ImmutableSet.copyOf(groupByAnalysis.getOriginalExpressions()).asList();
 
-                verifySourceAggregations(distinctGroupingColumns, sourceScope, outputExpressions, session, metadata, analysis);
+                verifySourceAggregations(distinctGroupingColumns, sourceScope, outputExpressions, session, plannerContext, analysis);
                 if (!orderByExpressions.isEmpty()) {
-                    verifyOrderByAggregations(distinctGroupingColumns, sourceScope, orderByScope.orElseThrow(), orderByExpressions, session, metadata, analysis);
+                    verifyOrderByAggregations(distinctGroupingColumns, sourceScope, orderByScope.orElseThrow(), orderByExpressions, session, plannerContext, analysis);
                 }
             }
         }
@@ -4623,7 +4625,7 @@ class StatementAnalyzer
         private Query parseView(String view, QualifiedObjectName name, Node node)
         {
             try {
-                return (Query) sqlParser.createStatement(view, createParsingOptions(session));
+                return (Query) sqlParser.createStatement(view);
             }
             catch (ParsingException e) {
                 throw semanticException(INVALID_VIEW, node, e, "Failed parsing stored view '%s': %s", name, e.getMessage());
@@ -4720,7 +4722,7 @@ class StatementAnalyzer
 
             Expression expression;
             try {
-                expression = sqlParser.createExpression(filter.getExpression(), createParsingOptions(session));
+                expression = sqlParser.createExpression(filter.getExpression());
             }
             catch (ParsingException e) {
                 throw new TrinoException(INVALID_ROW_FILTER, extractLocation(table), format("Invalid row filter for '%s': %s", name, e.getErrorMessage()), e);
@@ -4728,7 +4730,7 @@ class StatementAnalyzer
 
             analysis.registerTableForRowFiltering(name, currentIdentity);
 
-            verifyNoAggregateWindowOrGroupingFunctions(session, metadata, expression, format("Row filter for '%s'", name));
+            verifyNoAggregateWindowOrGroupingFunctions(session, functionResolver, expression, format("Row filter for '%s'", name));
 
             ExpressionAnalysis expressionAnalysis;
             try {
@@ -4775,13 +4777,13 @@ class StatementAnalyzer
         {
             Expression expression;
             try {
-                expression = sqlParser.createExpression(constraint.getExpression(), createParsingOptions(session));
+                expression = sqlParser.createExpression(constraint.getExpression());
             }
             catch (ParsingException e) {
                 throw new TrinoException(INVALID_CHECK_CONSTRAINT, extractLocation(table), format("Invalid check constraint for '%s': %s", name, e.getErrorMessage()), e);
             }
 
-            verifyNoAggregateWindowOrGroupingFunctions(session, metadata, expression, format("Check constraint for '%s'", name));
+            verifyNoAggregateWindowOrGroupingFunctions(session, functionResolver, expression, format("Check constraint for '%s'", name));
 
             ExpressionAnalysis expressionAnalysis;
             try {
@@ -4838,7 +4840,7 @@ class StatementAnalyzer
 
             Expression expression;
             try {
-                expression = sqlParser.createExpression(mask.getExpression(), createParsingOptions(session));
+                expression = sqlParser.createExpression(mask.getExpression());
             }
             catch (ParsingException e) {
                 throw new TrinoException(INVALID_ROW_FILTER, extractLocation(table), format("Invalid column mask for '%s.%s': %s", tableName, column, e.getErrorMessage()), e);
@@ -4847,7 +4849,7 @@ class StatementAnalyzer
             ExpressionAnalysis expressionAnalysis;
             analysis.registerTableForColumnMasking(tableName, column, currentIdentity);
 
-            verifyNoAggregateWindowOrGroupingFunctions(session, metadata, expression, format("Column mask for '%s.%s'", table.getName(), column));
+            verifyNoAggregateWindowOrGroupingFunctions(session, functionResolver, expression, format("Column mask for '%s.%s'", table.getName(), column));
 
             try {
                 Identity maskIdentity = mask.getSecurityIdentity()

@@ -51,7 +51,10 @@ import io.trino.spi.connector.WriterScalingOptions;
 import io.trino.spi.expression.ConnectorExpression;
 import io.trino.spi.expression.Constant;
 import io.trino.spi.function.AggregationFunctionMetadata;
+import io.trino.spi.function.BoundSignature;
 import io.trino.spi.function.CatalogSchemaFunctionName;
+import io.trino.spi.function.FunctionDependencyDeclaration;
+import io.trino.spi.function.FunctionId;
 import io.trino.spi.function.FunctionMetadata;
 import io.trino.spi.function.OperatorType;
 import io.trino.spi.predicate.TupleDomain;
@@ -306,7 +309,7 @@ public interface Metadata
     /**
      * Return the effective {@link io.trino.spi.type.Type} that is supported by the connector for the given type, if {@link Optional#empty()} is returned, the type will be used as is during table creation which may or may not be supported by the connector.
      */
-    Optional<Type> getSupportedType(Session session, CatalogHandle catalogHandle, Type type);
+    Optional<Type> getSupportedType(Session session, CatalogHandle catalogHandle, Map<String, Object> tableProperties, Type type);
 
     /**
      * Begin the atomic creation of a table with data.
@@ -662,7 +665,7 @@ public interface Metadata
 
     ResolvedFunction decodeFunction(QualifiedName name);
 
-    ResolvedFunction resolveFunction(Session session, QualifiedName name, List<TypeSignatureProvider> parameterTypes);
+    Collection<CatalogFunctionMetadata> getFunctions(Session session, CatalogSchemaFunctionName catalogSchemaFunctionName);
 
     ResolvedFunction resolveBuiltinFunction(String name, List<TypeSignatureProvider> parameterTypes);
 
@@ -678,17 +681,9 @@ public interface Metadata
 
     ResolvedFunction getCoercion(CatalogSchemaFunctionName name, Type fromType, Type toType);
 
-    /**
-     * Is the named function an aggregation function?  This does not need type parameters
-     * because overloads between aggregation and other function types are not allowed.
-     */
-    boolean isAggregationFunction(Session session, QualifiedName name);
-
-    boolean isWindowFunction(Session session, QualifiedName name);
-
-    FunctionMetadata getFunctionMetadata(Session session, ResolvedFunction resolvedFunction);
-
     AggregationFunctionMetadata getAggregationFunctionMetadata(Session session, ResolvedFunction resolvedFunction);
+
+    FunctionDependencyDeclaration getFunctionDependencies(Session session, CatalogHandle catalogHandle, FunctionId functionId, BoundSignature boundSignature);
 
     /**
      * Creates the specified materialized view with the specified view definition.

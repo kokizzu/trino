@@ -64,6 +64,7 @@ import static io.trino.sql.analyzer.RegexLibrary.JONI;
         "spill-window-operator",
         "experimental.spill-window-operator",
         "legacy.allow-set-view-authorization",
+        "parse-decimal-literals-as-double"
 })
 public class FeaturesConfig
 {
@@ -93,7 +94,6 @@ public class FeaturesConfig
     private double spillMaxUsedSpaceThreshold = 0.9;
     private double memoryRevokingTarget = 0.5;
     private double memoryRevokingThreshold = 0.9;
-    private boolean parseDecimalLiteralsAsDouble;
     private boolean lateMaterializationEnabled;
 
     private DataSize filterAndProjectMinOutputPageSize = DataSize.of(500, KILOBYTE);
@@ -349,18 +349,6 @@ public class FeaturesConfig
     public FeaturesConfig setExchangeDataIntegrityVerification(DataIntegrityVerification exchangeDataIntegrityVerification)
     {
         this.exchangeDataIntegrityVerification = exchangeDataIntegrityVerification;
-        return this;
-    }
-
-    public boolean isParseDecimalLiteralsAsDouble()
-    {
-        return parseDecimalLiteralsAsDouble;
-    }
-
-    @Config("parse-decimal-literals-as-double")
-    public FeaturesConfig setParseDecimalLiteralsAsDouble(boolean parseDecimalLiteralsAsDouble)
-    {
-        this.parseDecimalLiteralsAsDouble = parseDecimalLiteralsAsDouble;
         return this;
     }
 

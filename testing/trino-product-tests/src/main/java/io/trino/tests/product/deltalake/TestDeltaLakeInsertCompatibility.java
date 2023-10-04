@@ -47,7 +47,7 @@ import static io.trino.tests.product.utils.QueryExecutors.onTrino;
 import static java.util.Arrays.asList;
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class TestDeltaLakeDatabricksInsertCompatibility
+public class TestDeltaLakeInsertCompatibility
         extends BaseTestDeltaLakeS3Storage
 {
     private Optional<DatabricksVersion> databricksRuntimeVersion;
@@ -177,8 +177,7 @@ public class TestDeltaLakeDatabricksInsertCompatibility
         }
     }
 
-    @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS})
-    @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
+    @Test(groups = {DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS})
     public void testTimestampWithTimeZonePartitionedInsertCompatibility()
     {
         String tableName = "test_dl_timestamp_tz_partitioned_insert_" + randomNameSuffix();
@@ -221,8 +220,7 @@ public class TestDeltaLakeDatabricksInsertCompatibility
         }
     }
 
-    @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS})
-    @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
+    @Test(groups = {DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS})
     public void testTrinoPartitionedDifferentOrderInsertCompatibility()
     {
         String tableName = "test_dl_trino_partitioned_different_order_insert_" + randomNameSuffix();
@@ -248,8 +246,7 @@ public class TestDeltaLakeDatabricksInsertCompatibility
         }
     }
 
-    @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS})
-    @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
+    @Test(groups = {DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS})
     public void testDeltaPartitionedDifferentOrderInsertCompatibility()
     {
         String tableName = "test_dl_delta_partitioned_different_order_insert_" + randomNameSuffix();
@@ -275,8 +272,7 @@ public class TestDeltaLakeDatabricksInsertCompatibility
         }
     }
 
-    @Test(groups = {DELTA_LAKE_DATABRICKS, PROFILE_SPECIFIC_TESTS})
-    @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
+    @Test(groups = {DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS})
     public void testInsertNonLowercaseColumnsCompatibility()
     {
         String tableName = "test_dl_insert_nonlowercase_columns_" + randomNameSuffix();
@@ -313,8 +309,7 @@ public class TestDeltaLakeDatabricksInsertCompatibility
         }
     }
 
-    @Test(groups = {DELTA_LAKE_DATABRICKS, PROFILE_SPECIFIC_TESTS})
-    @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
+    @Test(groups = {DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS})
     public void testInsertNestedNonLowercaseColumnsCompatibility()
     {
         String tableName = "test_dl_insert_nested_nonlowercase_columns_" + randomNameSuffix();
@@ -353,8 +348,7 @@ public class TestDeltaLakeDatabricksInsertCompatibility
         }
     }
 
-    @Test(groups = {DELTA_LAKE_DATABRICKS, PROFILE_SPECIFIC_TESTS})
-    @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
+    @Test(groups = {DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS})
     public void testPartitionedInsertNonLowercaseColumnsCompatibility()
     {
         String tableName = "test_dl_partitioned_insert_nonlowercase_columns" + randomNameSuffix();
@@ -381,34 +375,6 @@ public class TestDeltaLakeDatabricksInsertCompatibility
                     row("trino", "TRINO", null),
                     row(null, null, "TrInO"),
                     row(null, null, null));
-
-            assertThat(onDelta().executeQuery("SELECT * FROM default." + tableName))
-                    .containsOnly(expectedRows);
-            assertThat(onTrino().executeQuery("SELECT * FROM delta.default." + tableName))
-                    .containsOnly(expectedRows);
-        }
-        finally {
-            dropDeltaTableWithRetry("default." + tableName);
-        }
-    }
-
-    @Test(groups = {DELTA_LAKE_DATABRICKS, PROFILE_SPECIFIC_TESTS})
-    @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
-    public void testDeleteCompatibility()
-    {
-        String tableName = "test_delete_compatibility_" + randomNameSuffix();
-
-        onDelta().executeQuery("CREATE TABLE default." + tableName + " (a int, b int)" +
-                " USING DELTA LOCATION 's3://" + bucketName + "/databricks-compatibility-test-" + tableName + "'");
-
-        try {
-            onDelta().executeQuery("INSERT INTO default." + tableName + " VALUES (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)");
-            onTrino().executeQuery("DELETE FROM delta.default." + tableName + " WHERE a % 2 = 0");
-
-            List<Row> expectedRows = ImmutableList.of(
-                    row(1, 2),
-                    row(3, 4),
-                    row(5, 6));
 
             assertThat(onDelta().executeQuery("SELECT * FROM default." + tableName))
                     .containsOnly(expectedRows);
@@ -466,8 +432,7 @@ public class TestDeltaLakeDatabricksInsertCompatibility
         }
     }
 
-    @Test(groups = {DELTA_LAKE_DATABRICKS, PROFILE_SPECIFIC_TESTS})
-    @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
+    @Test(groups = {DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS})
     public void verifyCompressionCodecsDataProvider()
     {
         assertThat(onTrino().executeQuery("SHOW SESSION LIKE 'delta.compression_codec'"))

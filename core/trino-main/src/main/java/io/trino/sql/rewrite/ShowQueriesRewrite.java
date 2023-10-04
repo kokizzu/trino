@@ -77,6 +77,7 @@ import io.trino.sql.tree.Property;
 import io.trino.sql.tree.QualifiedName;
 import io.trino.sql.tree.Query;
 import io.trino.sql.tree.Relation;
+import io.trino.sql.tree.Row;
 import io.trino.sql.tree.ShowCatalogs;
 import io.trino.sql.tree.ShowColumns;
 import io.trino.sql.tree.ShowCreate;
@@ -124,7 +125,6 @@ import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.StandardErrorCode.SCHEMA_NOT_FOUND;
 import static io.trino.spi.StandardErrorCode.TABLE_NOT_FOUND;
 import static io.trino.sql.ExpressionUtils.combineConjuncts;
-import static io.trino.sql.ParsingUtil.createParsingOptions;
 import static io.trino.sql.QueryUtil.aliased;
 import static io.trino.sql.QueryUtil.aliasedName;
 import static io.trino.sql.QueryUtil.aliasedNullToEmpty;
@@ -775,13 +775,7 @@ public final class ShowQueriesRewrite
         {
             List<Expression> rows = metadata.listFunctions(session).stream()
                     .filter(function -> !function.isHidden())
-                    .map(function -> row(
-                            new StringLiteral(function.getSignature().getName()),
-                            new StringLiteral(function.getSignature().getReturnType().toString()),
-                            new StringLiteral(Joiner.on(", ").join(function.getSignature().getArgumentTypes())),
-                            new StringLiteral(getFunctionType(function)),
-                            function.isDeterministic() ? TRUE_LITERAL : FALSE_LITERAL,
-                            new StringLiteral(nullToEmpty(function.getDescription()))))
+                    .flatMap(metadata -> metadata.getNames().stream().map(alias -> toRow(alias, metadata)))
                     .collect(toImmutableList());
 
             Map<String, String> columns = ImmutableMap.<String, String>builder()
@@ -813,6 +807,17 @@ public final class ShowQueriesRewrite
                             ascending("return_type"),
                             ascending("argument_types"),
                             ascending("function_type")));
+        }
+
+        private static Row toRow(String alias, FunctionMetadata function)
+        {
+            return row(
+                    new StringLiteral(alias),
+                    new StringLiteral(function.getSignature().getReturnType().toString()),
+                    new StringLiteral(Joiner.on(", ").join(function.getSignature().getArgumentTypes())),
+                    new StringLiteral(getFunctionType(function)),
+                    function.isDeterministic() ? TRUE_LITERAL : FALSE_LITERAL,
+                    new StringLiteral(nullToEmpty(function.getDescription())));
         }
 
         private static String getFunctionType(FunctionMetadata function)
@@ -882,7 +887,7 @@ public final class ShowQueriesRewrite
         private Query parseView(String view, QualifiedObjectName name, Node node)
         {
             try {
-                Statement statement = sqlParser.createStatement(view, createParsingOptions(session));
+                Statement statement = sqlParser.createStatement(view);
                 return (Query) statement;
             }
             catch (ParsingException e) {

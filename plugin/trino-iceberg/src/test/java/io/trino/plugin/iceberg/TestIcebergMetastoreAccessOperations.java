@@ -419,6 +419,16 @@ public class TestIcebergMetastoreAccessOperations
         };
     }
 
+    @Test
+    public void testShowTables()
+    {
+        assertMetastoreInvocations("SHOW TABLES",
+                ImmutableMultiset.builder()
+                        .add(GET_DATABASE)
+                        .add(GET_ALL_TABLES_FROM_DATABASE)
+                        .build());
+    }
+
     private void assertMetastoreInvocations(@Language("SQL") String query, Multiset<?> expectedInvocations)
     {
         assertMetastoreInvocations(getSession(), query, expectedInvocations);

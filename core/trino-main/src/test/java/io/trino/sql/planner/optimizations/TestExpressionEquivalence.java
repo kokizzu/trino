@@ -19,14 +19,13 @@ import com.google.common.collect.ImmutableMap;
 import io.trino.security.AllowAllAccessControl;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeSignature;
-import io.trino.sql.parser.ParsingOptions;
 import io.trino.sql.parser.SqlParser;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.tree.Expression;
 import io.trino.transaction.TestingTransactionManager;
 import org.intellij.lang.annotations.Language;
-import org.testng.annotations.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.Set;
 
@@ -35,7 +34,6 @@ import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.sql.ExpressionTestUtils.planExpression;
-import static io.trino.sql.parser.ParsingOptions.DecimalLiteralTreatment.AS_DOUBLE;
 import static io.trino.sql.planner.SymbolsExtractor.extractUnique;
 import static io.trino.sql.planner.TestingPlannerContext.PLANNER_CONTEXT;
 import static io.trino.sql.planner.TypeAnalyzer.createTestingTypeAnalyzer;
@@ -130,9 +128,8 @@ public class TestExpressionEquivalence
 
     private static void assertEquivalent(@Language("SQL") String left, @Language("SQL") String right)
     {
-        ParsingOptions parsingOptions = new ParsingOptions(AS_DOUBLE /* anything */);
-        Expression leftExpression = planExpression(PLANNER_CONTEXT, TEST_SESSION, TYPE_PROVIDER, SQL_PARSER.createExpression(left, parsingOptions));
-        Expression rightExpression = planExpression(PLANNER_CONTEXT, TEST_SESSION, TYPE_PROVIDER, SQL_PARSER.createExpression(right, parsingOptions));
+        Expression leftExpression = planExpression(PLANNER_CONTEXT, TEST_SESSION, TYPE_PROVIDER, SQL_PARSER.createExpression(left));
+        Expression rightExpression = planExpression(PLANNER_CONTEXT, TEST_SESSION, TYPE_PROVIDER, SQL_PARSER.createExpression(right));
 
         Set<Symbol> symbols = extractUnique(ImmutableList.of(leftExpression, rightExpression));
         TypeProvider types = TypeProvider.copyOf(symbols.stream()
@@ -204,9 +201,8 @@ public class TestExpressionEquivalence
 
     private static void assertNotEquivalent(@Language("SQL") String left, @Language("SQL") String right)
     {
-        ParsingOptions parsingOptions = new ParsingOptions(AS_DOUBLE /* anything */);
-        Expression leftExpression = planExpression(PLANNER_CONTEXT, TEST_SESSION, TYPE_PROVIDER, SQL_PARSER.createExpression(left, parsingOptions));
-        Expression rightExpression = planExpression(PLANNER_CONTEXT, TEST_SESSION, TYPE_PROVIDER, SQL_PARSER.createExpression(right, parsingOptions));
+        Expression leftExpression = planExpression(PLANNER_CONTEXT, TEST_SESSION, TYPE_PROVIDER, SQL_PARSER.createExpression(left));
+        Expression rightExpression = planExpression(PLANNER_CONTEXT, TEST_SESSION, TYPE_PROVIDER, SQL_PARSER.createExpression(right));
 
         Set<Symbol> symbols = extractUnique(ImmutableList.of(leftExpression, rightExpression));
         TypeProvider types = TypeProvider.copyOf(symbols.stream()

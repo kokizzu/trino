@@ -18,7 +18,6 @@ import io.airlift.slice.Slices;
 import io.trino.Session;
 import io.trino.metadata.TestingFunctionResolution;
 import io.trino.security.AllowAllAccessControl;
-import io.trino.sql.parser.ParsingOptions;
 import io.trino.sql.parser.SqlParser;
 import io.trino.sql.planner.LiteralEncoder;
 import io.trino.sql.planner.Symbol;
@@ -32,8 +31,7 @@ import io.trino.sql.tree.NullLiteral;
 import io.trino.sql.tree.StringLiteral;
 import io.trino.sql.tree.SymbolReference;
 import io.trino.transaction.TestingTransactionManager;
-import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Test;
+import org.junit.jupiter.api.Test;
 
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.DoubleType.DOUBLE;
@@ -49,18 +47,10 @@ import static java.lang.Double.POSITIVE_INFINITY;
 
 public class TestScalarStatsCalculator
 {
-    private TestingFunctionResolution functionResolution;
-    private ScalarStatsCalculator calculator;
-    private Session session;
+    private final TestingFunctionResolution functionResolution = new TestingFunctionResolution();
+    private final ScalarStatsCalculator calculator = new ScalarStatsCalculator(functionResolution.getPlannerContext(), createTestingTypeAnalyzer(functionResolution.getPlannerContext()));
+    private final Session session = testSessionBuilder().build();
     private final SqlParser sqlParser = new SqlParser();
-
-    @BeforeClass
-    public void setUp()
-    {
-        functionResolution = new TestingFunctionResolution();
-        calculator = new ScalarStatsCalculator(functionResolution.getPlannerContext(), createTestingTypeAnalyzer(functionResolution.getPlannerContext()));
-        session = testSessionBuilder().build();
-    }
 
     @Test
     public void testLiteral()
@@ -507,6 +497,6 @@ public class TestScalarStatsCalculator
 
     private Expression expression(String sqlExpression)
     {
-        return rewriteIdentifiersToSymbolReferences(sqlParser.createExpression(sqlExpression, new ParsingOptions()));
+        return rewriteIdentifiersToSymbolReferences(sqlParser.createExpression(sqlExpression));
     }
 }

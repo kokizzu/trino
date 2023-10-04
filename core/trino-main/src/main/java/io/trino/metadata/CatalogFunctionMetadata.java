@@ -11,21 +11,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.sql;
+package io.trino.metadata;
 
-import io.trino.Session;
-import io.trino.sql.parser.ParsingOptions;
+import io.trino.spi.connector.CatalogHandle;
+import io.trino.spi.function.FunctionMetadata;
 
-import static io.trino.SystemSessionProperties.isParseDecimalLiteralsAsDouble;
-import static io.trino.sql.parser.ParsingOptions.DecimalLiteralTreatment.AS_DECIMAL;
-import static io.trino.sql.parser.ParsingOptions.DecimalLiteralTreatment.AS_DOUBLE;
+import static java.util.Objects.requireNonNull;
 
-public final class ParsingUtil
+public record CatalogFunctionMetadata(CatalogHandle catalogHandle, String schemaName, FunctionMetadata functionMetadata)
 {
-    public static ParsingOptions createParsingOptions(Session session)
+    public CatalogFunctionMetadata
     {
-        return new ParsingOptions(isParseDecimalLiteralsAsDouble(session) ? AS_DOUBLE : AS_DECIMAL);
+        requireNonNull(catalogHandle, "catalogHandle is null");
+        requireNonNull(schemaName, "schemaName is null");
+        requireNonNull(functionMetadata, "functionMetadata is null");
     }
-
-    private ParsingUtil() {}
 }
