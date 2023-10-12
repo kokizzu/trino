@@ -11,39 +11,39 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.tests;
+package io.trino.connector.informationschema;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultiset;
 import com.google.common.collect.Multiset;
 import io.trino.Session;
-import io.trino.connector.MockConnectorFactory;
 import io.trino.plugin.tpch.TpchPlugin;
-import io.trino.spi.Plugin;
-import io.trino.spi.TrinoException;
-import io.trino.spi.connector.ConnectorFactory;
 import io.trino.testing.AbstractTestQueryFramework;
 import io.trino.testing.CountingMockConnector;
 import io.trino.testing.DistributedQueryRunner;
+import io.trino.testng.services.ManageTestResources;
+import io.trino.tests.FailingMockConnectorPlugin;
 import org.intellij.lang.annotations.Language;
-import org.testng.annotations.AfterClass;
-import org.testng.annotations.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.Timeout;
 
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
-import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static io.trino.testing.MultisetAssertions.assertMultisetsEqual;
 import static io.trino.testing.TestingSession.testSessionBuilder;
 import static java.util.stream.Collectors.joining;
+import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS;
 
-@Test(singleThreaded = true)
+@TestInstance(PER_CLASS)
 public class TestInformationSchemaConnector
         extends AbstractTestQueryFramework
 {
     private static final int MAX_PREFIXES_COUNT = 10;
 
+    @ManageTestResources.Suppress(because = "Not a TestNG test class")
     private CountingMockConnector countingMockConnector;
 
     @Override
@@ -73,7 +73,7 @@ public class TestInformationSchemaConnector
         }
     }
 
-    @AfterClass(alwaysRun = true)
+    @AfterAll
     public void cleanUp()
     {
         countingMockConnector = null; // closed by closeAfterClass
@@ -155,7 +155,8 @@ public class TestInformationSchemaConnector
         assertQuery("SELECT count(*) FROM (SELECT * FROM test_catalog.information_schema.tables LIMIT 1000)", "VALUES 1000");
     }
 
-    @Test(timeOut = 60_000)
+    @Test
+    @Timeout(60)
     public void testMetadataCalls()
     {
         assertMetadataCalls(
@@ -421,36 +422,5 @@ public class TestInformationSchemaConnector
         });
 
         assertMultisetsEqual(actualMetadataCallsCount, expectedMetadataCallsCount);
-    }
-
-    private static final class FailingMockConnectorPlugin
-            implements Plugin
-    {
-        @Override
-        public Iterable<ConnectorFactory> getConnectorFactories()
-        {
-            return ImmutableList.of(
-                    MockConnectorFactory.builder()
-                            .withName("failing_mock")
-                            .withListSchemaNames(session -> {
-                                throw new TrinoException(GENERIC_INTERNAL_ERROR, "Catalog is broken");
-                            })
-                            .withListTables((session, schema) -> {
-                                throw new TrinoException(GENERIC_INTERNAL_ERROR, "Catalog is broken");
-                            })
-                            .withGetViews((session, prefix) -> {
-                                throw new TrinoException(GENERIC_INTERNAL_ERROR, "Catalog is broken");
-                            })
-                            .withGetMaterializedViews((session, prefix) -> {
-                                throw new TrinoException(GENERIC_INTERNAL_ERROR, "Catalog is broken");
-                            })
-                            .withListTablePrivileges((session, prefix) -> {
-                                throw new TrinoException(GENERIC_INTERNAL_ERROR, "Catalog is broken");
-                            })
-                            .withStreamTableColumns((session, prefix) -> {
-                                throw new TrinoException(GENERIC_INTERNAL_ERROR, "Catalog is broken");
-                            })
-                            .build());
-        }
     }
 }

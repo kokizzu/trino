@@ -637,6 +637,15 @@ public class TracingMetadata
     }
 
     @Override
+    public void beginQuery(Session session)
+    {
+        Span span = startSpan("beginQuery");
+        try (var ignored = scopedSpan(span)) {
+            delegate.beginQuery(session);
+        }
+    }
+
+    @Override
     public void cleanupQuery(Session session)
     {
         Span span = startSpan("cleanupQuery");
@@ -1161,11 +1170,20 @@ public class TracingMetadata
     }
 
     @Override
-    public Collection<FunctionMetadata> listFunctions(Session session)
+    public Collection<FunctionMetadata> listGlobalFunctions(Session session)
     {
-        Span span = startSpan("listFunctions");
+        Span span = startSpan("listGlobalFunctions");
         try (var ignored = scopedSpan(span)) {
-            return delegate.listFunctions(session);
+            return delegate.listGlobalFunctions(session);
+        }
+    }
+
+    @Override
+    public Collection<FunctionMetadata> listFunctions(Session session, CatalogSchemaName schema)
+    {
+        Span span = startSpan("listFunctions", schema);
+        try (var ignored = scopedSpan(span)) {
+            return delegate.listFunctions(session, schema);
         }
     }
 
