@@ -117,7 +117,6 @@ import java.util.function.BiFunction;
 import java.util.stream.Stream;
 
 import static com.google.common.base.MoreObjects.firstNonNull;
-import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Strings.emptyToNull;
@@ -224,10 +223,6 @@ public class MySqlClient
     private static final int ZERO_PRECISION_TIMESTAMP_COLUMN_SIZE = 19;
     // MySQL driver returns width of time types instead of precision, same as the above timestamp type.
     private static final int ZERO_PRECISION_TIME_COLUMN_SIZE = 8;
-
-    // MySQL TIMESTAMP has a range of '1970-01-01 00:00:01' UTC to '2038-01-19 03:14:07' UTC
-    private static final Instant MYSQL_TIMESTAMP_MIN_VALUE = Instant.parse("1970-01-01T00:00:01.000000Z");
-    private static final Instant MYSQL_TIMESTAMP_MAX_VALUE = Instant.parse("2038-01-19T03:14:07.499999Z");
 
     // An empty character means that the table doesn't have a comment in MySQL
     private static final String NO_COMMENT = "";
@@ -694,7 +689,8 @@ public class MySqlClient
 
     private LongWriteFunction mySqlDateWriteFunctionUsingLocalDate()
     {
-        return new LongWriteFunction() {
+        return new LongWriteFunction()
+        {
             @Override
             public String getBindExpression()
             {
@@ -1108,8 +1104,12 @@ public class MySqlClient
                     log.debug("Reading column statistics for %s, %s from index statistics: %s", table, columnName, columnIndexStatistics);
                     updateColumnStatisticsFromIndexStatistics(table, columnName, columnStatisticsBuilder, columnIndexStatistics);
 
-                    // row count from INFORMATION_SCHEMA.TABLES is very inaccurate
-                    rowCount = max(rowCount, columnIndexStatistics.getCardinality());
+                    if (rowCount < columnIndexStatistics.cardinality()) {
+                        // row count from INFORMATION_SCHEMA.TABLES is very inaccurate but rowCount already includes MAX(CARDINALITY) from indexes
+                        // This can still happen if table's index statistics change concurrently
+                        log.debug("Table %s rowCount calculated so far [%s] is less than index cardinality for %s: %s", table, rowCount, columnName, columnIndexStatistics);
+                        rowCount = max(rowCount, columnIndexStatistics.cardinality());
+                    }
                 }
 
                 tableStatistics.setColumnStatistics(column, columnStatisticsBuilder.build());
@@ -1138,9 +1138,9 @@ public class MySqlClient
     {
         // Prefer CARDINALITY from index statistics over NDV from a histogram.
         // Index column might be NULLABLE. Then CARDINALITY includes all
-        columnStatistics.setDistinctValuesCount(Estimate.of(columnIndexStatistics.getCardinality()));
+        columnStatistics.setDistinctValuesCount(Estimate.of(columnIndexStatistics.cardinality()));
 
-        if (!columnIndexStatistics.nullable) {
+        if (!columnIndexStatistics.nullable()) {
             double knownNullFraction = columnStatistics.build().getNullsFraction().getValue();
             if (knownNullFraction > 0) {
                 log.warn("Inconsistent statistics, null fraction for a column %s, %s, that is not nullable according to index statistics: %s", table, columnName, knownNullFraction);
@@ -1185,10 +1185,17 @@ public class MySqlClient
         Long getRowCount(JdbcTableHandle table)
         {
             RemoteTableName remoteTableName = table.getRequiredNamedRelation().getRemoteTableName();
-            return handle.createQuery("" +
-                            "SELECT TABLE_ROWS FROM INFORMATION_SCHEMA.TABLES " +
-                            "WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table_name " +
-                            "AND TABLE_TYPE = 'BASE TABLE' ")
+            return handle.createQuery("""
+                        SELECT max(row_count) FROM (
+                            (SELECT TABLE_ROWS AS row_count FROM INFORMATION_SCHEMA.TABLES
+                            WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table_name
+                            AND TABLE_TYPE = 'BASE TABLE')
+                            UNION ALL
+                            (SELECT CARDINALITY AS row_count FROM INFORMATION_SCHEMA.STATISTICS
+                            WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table_name
+                            AND CARDINALITY IS NOT NULL)
+                        ) t
+                        """)
                     .bind("schema", remoteTableName.getCatalogName().orElse(null))
                     .bind("table_name", remoteTableName.getTableName())
                     .mapTo(Long.class)
@@ -1199,17 +1206,18 @@ public class MySqlClient
         Map<String, ColumnIndexStatistics> getColumnIndexStatistics(JdbcTableHandle table)
         {
             RemoteTableName remoteTableName = table.getRequiredNamedRelation().getRemoteTableName();
-            return handle.createQuery("" +
-                            "SELECT " +
-                            "  COLUMN_NAME, " +
-                            "  MAX(NULLABLE) AS NULLABLE, " +
-                            "  MAX(CARDINALITY) AS CARDINALITY " +
-                            "FROM INFORMATION_SCHEMA.STATISTICS " +
-                            "WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table_name " +
-                            "AND SEQ_IN_INDEX = 1 " + // first column in the index
-                            "AND SUB_PART IS NULL " + // ignore cases where only a column prefix is indexed
-                            "AND CARDINALITY IS NOT NULL " + // CARDINALITY might be null (https://stackoverflow.com/a/42242729/65458)
-                            "GROUP BY COLUMN_NAME") // there might be multiple indexes on a column
+            return handle.createQuery("""
+                        SELECT
+                            COLUMN_NAME,
+                            MAX(NULLABLE) AS NULLABLE,
+                            MAX(CARDINALITY) AS CARDINALITY
+                        FROM INFORMATION_SCHEMA.STATISTICS
+                        WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table_name
+                        AND SEQ_IN_INDEX = 1 -- first column in the index
+                        AND SUB_PART IS NULL -- ignore cases where only a column prefix is indexed
+                        AND CARDINALITY IS NOT NULL -- CARDINALITY might be null (https://stackoverflow.com/a/42242729/65458)
+                        GROUP BY COLUMN_NAME -- there might be multiple indexes on a column
+                        """)
                     .bind("schema", remoteTableName.getCatalogName().orElse(null))
                     .bind("table_name", remoteTableName.getTableName())
                     .map((rs, ctx) -> {
@@ -1240,9 +1248,10 @@ public class MySqlClient
             }
 
             RemoteTableName remoteTableName = table.getRequiredNamedRelation().getRemoteTableName();
-            return handle.createQuery("" +
-                            "SELECT COLUMN_NAME, HISTOGRAM FROM INFORMATION_SCHEMA.COLUMN_STATISTICS " +
-                            "WHERE SCHEMA_NAME = :schema AND TABLE_NAME = :table_name")
+            return handle.createQuery("""
+                        SELECT COLUMN_NAME, HISTOGRAM FROM INFORMATION_SCHEMA.COLUMN_STATISTICS
+                        WHERE SCHEMA_NAME = :schema AND TABLE_NAME = :table_name
+                        """)
                     .bind("schema", remoteTableName.getCatalogName().orElse(null))
                     .bind("table_name", remoteTableName.getTableName())
                     .map((rs, ctx) -> new SimpleEntry<>(rs.getString("COLUMN_NAME"), rs.getString("HISTOGRAM")))
@@ -1250,31 +1259,7 @@ public class MySqlClient
         }
     }
 
-    private static class ColumnIndexStatistics
-    {
-        private final boolean nullable;
-        private final long cardinality;
-
-        public ColumnIndexStatistics(boolean nullable, long cardinality)
-        {
-            this.cardinality = cardinality;
-            this.nullable = nullable;
-        }
-
-        public long getCardinality()
-        {
-            return cardinality;
-        }
-
-        @Override
-        public String toString()
-        {
-            return toStringHelper(this)
-                    .add("cardinality", getCardinality())
-                    .add("nullable", nullable)
-                    .toString();
-        }
-    }
+    private record ColumnIndexStatistics(boolean nullable, long cardinality) {}
 
     // See https://dev.mysql.com/doc/refman/8.0/en/optimizer-statistics.html
     public static class ColumnHistogram

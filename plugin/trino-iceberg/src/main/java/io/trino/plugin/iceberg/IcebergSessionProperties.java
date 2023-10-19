@@ -54,6 +54,7 @@ import static java.lang.String.format;
 public final class IcebergSessionProperties
         implements SessionPropertiesProvider
 {
+    public static final String SPLIT_SIZE = "experimental_split_size";
     private static final String COMPRESSION_CODEC = "compression_codec";
     private static final String USE_FILE_SIZE_FROM_METADATA = "use_file_size_from_metadata";
     private static final String ORC_BLOOM_FILTERS_ENABLED = "orc_bloom_filters_enabled";
@@ -90,6 +91,7 @@ public final class IcebergSessionProperties
     public static final String REMOVE_ORPHAN_FILES_MIN_RETENTION = "remove_orphan_files_min_retention";
     private static final String MERGE_MANIFESTS_ON_WRITE = "merge_manifests_on_write";
     private static final String SORTED_WRITING_ENABLED = "sorted_writing_enabled";
+    private static final String QUERY_PARTITION_FILTER_REQUIRED = "query_partition_filter_required";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -102,6 +104,13 @@ public final class IcebergSessionProperties
             ParquetWriterConfig parquetWriterConfig)
     {
         sessionProperties = ImmutableList.<PropertyMetadata<?>>builder()
+                .add(dataSizeProperty(
+                        SPLIT_SIZE,
+                        "Target split size",
+                        // Note: this is null by default & hidden, currently mainly for tests.
+                        // See https://github.com/trinodb/trino/issues/9018#issuecomment-1752929193 for further discussion.
+                        null,
+                        true))
                 .add(enumProperty(
                         COMPRESSION_CODEC,
                         "Compression codec to use when writing files",
@@ -307,6 +316,11 @@ public final class IcebergSessionProperties
                         "Enable sorted writing to tables with a specified sort order",
                         icebergConfig.isSortedWritingEnabled(),
                         false))
+                .add(booleanProperty(
+                        QUERY_PARTITION_FILTER_REQUIRED,
+                        "Require filter on partition column",
+                        icebergConfig.isQueryPartitionFilterRequired(),
+                        false))
                 .build();
     }
 
@@ -396,6 +410,11 @@ public final class IcebergSessionProperties
     public static DataSize getOrcWriterMaxDictionaryMemory(ConnectorSession session)
     {
         return session.getProperty(ORC_WRITER_MAX_DICTIONARY_MEMORY, DataSize.class);
+    }
+
+    public static Optional<DataSize> getSplitSize(ConnectorSession session)
+    {
+        return Optional.ofNullable(session.getProperty(SPLIT_SIZE, DataSize.class));
     }
 
     public static HiveCompressionCodec getCompressionCodec(ConnectorSession session)
@@ -501,5 +520,10 @@ public final class IcebergSessionProperties
     public static boolean isSortedWritingEnabled(ConnectorSession session)
     {
         return session.getProperty(SORTED_WRITING_ENABLED, Boolean.class);
+    }
+
+    public static boolean isQueryPartitionFilterRequired(ConnectorSession session)
+    {
+        return session.getProperty(QUERY_PARTITION_FILTER_REQUIRED, Boolean.class);
     }
 }

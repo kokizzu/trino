@@ -10,7 +10,7 @@
 
     <groupId>io.trino</groupId>
     <artifactId>trino-root</artifactId>
-    <version>429-SNAPSHOT</version>
+    <version>430-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>${project.artifactId}</name>
@@ -154,14 +154,14 @@
         <dep.accumulo.version>1.10.2</dep.accumulo.version>
         <dep.accumulo-hadoop.version>2.7.7-1</dep.accumulo-hadoop.version>
         <dep.antlr.version>4.13.0</dep.antlr.version>
-        <dep.airlift.version>236</dep.airlift.version>
+        <dep.airlift.version>237</dep.airlift.version>
         <dep.arrow.version>13.0.0</dep.arrow.version>
         <dep.avro.version>1.11.3</dep.avro.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
         <dep.takari.version>2.1.1</dep.takari.version>
-        <dep.aws-sdk.version>1.12.561</dep.aws-sdk.version>
-        <dep.aws-sdk-v2.version>2.20.158</dep.aws-sdk-v2.version>
-        <dep.jsonwebtoken.version>0.11.5</dep.jsonwebtoken.version>
+        <dep.aws-sdk.version>1.12.566</dep.aws-sdk.version>
+        <dep.aws-sdk-v2.version>2.21.0</dep.aws-sdk-v2.version>
+        <dep.jsonwebtoken.version>0.12.3</dep.jsonwebtoken.version>
         <dep.oracle.version>21.9.0.0</dep.oracle.version>
         <dep.drift.version>1.21</dep.drift.version>
         <dep.tempto.version>201</dep.tempto.version>
@@ -179,15 +179,15 @@
         <dep.iceberg.version>1.3.1</dep.iceberg.version>
         <dep.protobuf.version>3.24.4</dep.protobuf.version>
         <dep.wire.version>4.5.0</dep.wire.version>
-        <dep.netty.version>4.1.99.Final</dep.netty.version>
+        <dep.netty.version>4.1.100.Final</dep.netty.version>
         <dep.jna.version>5.13.0</dep.jna.version>
-        <dep.okio.version>3.3.0</dep.okio.version>
-        <dep.flyway.version>9.22.2</dep.flyway.version>
+        <dep.okio.version>3.6.0</dep.okio.version>
+        <dep.flyway.version>9.22.3</dep.flyway.version>
         <dep.parquet.version>1.13.1</dep.parquet.version>
         <dep.antlr.version>4.13.1</dep.antlr.version>
         <dep.asm.version>9.6</dep.asm.version>
 
-        <dep.docker.images.version>86</dep.docker.images.version>
+        <dep.docker.images.version>87</dep.docker.images.version>
 
         <!--
           America/Bahia_Banderas has:
@@ -217,6 +217,7 @@
 
     <dependencyManagement>
         <dependencies>
+
             <dependency>
                 <groupId>com.azure</groupId>
                 <artifactId>azure-sdk-bom</artifactId>
@@ -228,7 +229,7 @@
             <dependency>
                 <groupId>com.google.cloud</groupId>
                 <artifactId>libraries-bom</artifactId>
-                <version>26.24.0</version>
+                <version>26.25.0</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -236,7 +237,7 @@
             <dependency>
                 <groupId>com.squareup.okhttp3</groupId>
                 <artifactId>okhttp-bom</artifactId>
-                <version>4.11.0</version>
+                <version>4.12.0</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -491,7 +492,7 @@
             <dependency>
                 <groupId>com.google.auto.value</groupId>
                 <artifactId>auto-value-annotations</artifactId>
-                <version>1.10.2</version>
+                <version>1.10.4</version>
             </dependency>
 
             <dependency>
@@ -545,6 +546,12 @@
             </dependency>
 
             <dependency>
+                <groupId>com.google.protobuf</groupId>
+                <artifactId>protobuf-kotlin</artifactId>
+                <version>${dep.protobuf.version}</version>
+            </dependency>
+
+            <dependency>
                 <groupId>com.h2database</groupId>
                 <artifactId>h2</artifactId>
                 <version>2.2.224</version>
@@ -565,7 +572,7 @@
             <dependency>
                 <groupId>com.nimbusds</groupId>
                 <artifactId>nimbus-jose-jwt</artifactId>
-                <version>9.36</version>
+                <version>9.37</version>
             </dependency>
 
             <dependency>
@@ -639,6 +646,11 @@
                 <groupId>io.airlift</groupId>
                 <artifactId>joni</artifactId>
                 <version>2.1.5.3</version>
+            </dependency>
+            <dependency>
+                <groupId>io.airlift</groupId>
+                <artifactId>junit-extensions</artifactId>
+                <version>1</version>
             </dependency>
 
             <dependency>
@@ -1522,7 +1534,7 @@
             <dependency>
                 <groupId>net.bytebuddy</groupId>
                 <artifactId>byte-buddy</artifactId>
-                <version>1.14.8</version>
+                <version>1.14.9</version>
             </dependency>
 
             <dependency>
@@ -1840,7 +1852,7 @@
             <dependency>
                 <groupId>org.checkerframework</groupId>
                 <artifactId>checker-qual</artifactId>
-                <version>3.37.0</version>
+                <version>3.39.0</version>
             </dependency>
 
             <dependency>
@@ -2453,7 +2465,8 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <properties>
-                        <configurationParameters>junit.jupiter.execution.timeout.thread.mode.default = SEPARATE_THREAD</configurationParameters>
+                        <configurationParameters>junit.jupiter.execution.timeout.thread.mode.default = SEPARATE_THREAD
+                            junit.jupiter.extensions.autodetection.enabled = true</configurationParameters>
                     </properties>
                     <includes>
                         <!-- Tests classes should start with "Test", but we do also want to include tests incorrectly named, with "Test" at the end -->
