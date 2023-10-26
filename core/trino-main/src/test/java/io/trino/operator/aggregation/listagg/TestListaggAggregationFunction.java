@@ -16,7 +16,7 @@ package io.trino.operator.aggregation.listagg;
 import io.airlift.slice.Slice;
 import io.trino.metadata.TestingFunctionResolution;
 import io.trino.spi.TrinoException;
-import io.trino.spi.block.Block;
+import io.trino.spi.block.ValueBlock;
 import io.trino.spi.block.VariableWidthBlockBuilder;
 import io.trino.sql.analyzer.TypeSignatureProvider;
 import org.junit.jupiter.api.Test;
@@ -46,17 +46,17 @@ public class TestListaggAggregationFunction
         SingleListaggAggregationState state = new SingleListaggAggregationState();
 
         String s = "value1";
-        Block value = createStringsBlock(s);
+        ValueBlock value = createStringsBlock(s);
         Slice separator = utf8Slice(",");
         Slice overflowFiller = utf8Slice("...");
         ListaggAggregationFunction.input(
                 state,
                 value,
+                0,
                 separator,
                 false,
                 overflowFiller,
-                true,
-                0);
+                true);
 
         VariableWidthBlockBuilder blockBuilder = VARCHAR.createBlockBuilder(null, 1);
         state.write(blockBuilder);
@@ -74,11 +74,11 @@ public class TestListaggAggregationFunction
         assertThatThrownBy(() -> ListaggAggregationFunction.input(
                 state,
                 createStringsBlock("value1"),
+                0,
                 utf8Slice(","),
                 false,
                 utf8Slice(overflowFillerTooLong),
-                false,
-                0))
+                false))
                 .isInstanceOf(TrinoException.class)
                 .matches(throwable -> ((TrinoException) throwable).getErrorCode() == INVALID_FUNCTION_ARGUMENT.toErrorCode());
     }

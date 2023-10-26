@@ -32,7 +32,6 @@ import io.trino.filesystem.FileIterator;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
-import io.trino.hdfs.HdfsContext;
 import io.trino.hdfs.HdfsEnvironment;
 import io.trino.plugin.base.CatalogName;
 import io.trino.plugin.base.projection.ApplyProjectionUtil;
@@ -105,6 +104,8 @@ import io.trino.spi.connector.ViewNotFoundException;
 import io.trino.spi.connector.WriterScalingOptions;
 import io.trino.spi.expression.ConnectorExpression;
 import io.trino.spi.expression.Variable;
+import io.trino.spi.function.LanguageFunction;
+import io.trino.spi.function.SchemaFunctionName;
 import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.NullableValue;
 import io.trino.spi.predicate.TupleDomain;
@@ -127,7 +128,6 @@ import io.trino.spi.type.TypeManager;
 import io.trino.spi.type.VarcharType;
 import org.apache.avro.Schema;
 import org.apache.avro.SchemaParseException;
-import org.apache.hadoop.fs.Path;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -1833,7 +1833,7 @@ public class HiveMetadata
             tableStatistics = new PartitionStatistics(createEmptyStatistics(), ImmutableMap.of());
         }
 
-        Optional<Path> writePath = Optional.of(new Path(writeInfo.writePath().toString()));
+        Optional<Location> writePath = Optional.of(writeInfo.writePath());
         if (handle.getPartitionedBy().isEmpty()) {
             List<String> fileNames;
             if (partitionUpdates.isEmpty()) {
@@ -2208,7 +2208,7 @@ public class HiveMetadata
                             session,
                             table,
                             principalPrivileges,
-                            Optional.of(new Path(partitionUpdate.getWritePath().toString())),
+                            Optional.of(partitionUpdate.getWritePath()),
                             Optional.of(partitionUpdate.getFileNames()),
                             false,
                             partitionStatistics,
@@ -2268,8 +2268,8 @@ public class HiveMetadata
                     if (handle.getLocationHandle().getWriteMode() == DIRECT_TO_TARGET_EXISTING_DIRECTORY) {
                         removeNonCurrentQueryFiles(session, partitionUpdate.getTargetPath());
                         if (handle.isRetriesEnabled()) {
-                            HdfsContext hdfsContext = new HdfsContext(session);
-                            cleanExtraOutputFiles(hdfsEnvironment, hdfsContext, session.getQueryId(), partitionUpdate.getTargetPath(), ImmutableSet.copyOf(partitionUpdate.getFileNames()));
+                            TrinoFileSystem fileSystem = fileSystemFactory.create(session);
+                            cleanExtraOutputFiles(fileSystem, session.getQueryId(), partitionUpdate.getTargetPath(), ImmutableSet.copyOf(partitionUpdate.getFileNames()));
                         }
                     }
                     else {
@@ -2303,7 +2303,6 @@ public class HiveMetadata
         String queryId = session.getQueryId();
         TrinoFileSystem fileSystem = fileSystemFactory.create(session);
         try {
-            // use TrinoFileSystem instead of Hadoop file system
             FileIterator iterator = fileSystem.listFiles(partitionLocation);
             while (iterator.hasNext()) {
                 Location location = iterator.next().location();
@@ -3491,6 +3490,41 @@ public class HiveMetadata
         return statisticTypes.stream()
                 .map(type -> type.createColumnStatisticMetadata(columnName))
                 .collect(toImmutableList());
+    }
+
+    @Override
+    public Collection<LanguageFunction> listLanguageFunctions(ConnectorSession session, String schemaName)
+    {
+        return metastore.getFunctions(schemaName);
+    }
+
+    @Override
+    public Collection<LanguageFunction> getLanguageFunctions(ConnectorSession session, SchemaFunctionName name)
+    {
+        return metastore.getFunctions(name);
+    }
+
+    @Override
+    public boolean languageFunctionExists(ConnectorSession session, SchemaFunctionName name, String signatureToken)
+    {
+        return metastore.functionExists(name, signatureToken);
+    }
+
+    @Override
+    public void createLanguageFunction(ConnectorSession session, SchemaFunctionName name, LanguageFunction function, boolean replace)
+    {
+        if (replace) {
+            metastore.replaceFunction(name, function);
+        }
+        else {
+            metastore.createFunction(name, function);
+        }
+    }
+
+    @Override
+    public void dropLanguageFunction(ConnectorSession session, SchemaFunctionName name, String signatureToken)
+    {
+        metastore.dropFunction(name, signatureToken);
     }
 
     @Override

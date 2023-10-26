@@ -89,6 +89,12 @@ public class IntArrayBlockBuilder
         if (!hasNonNullValue) {
             return RunLengthEncodedBlock.create(NULL_VALUE_BLOCK, positionCount);
         }
+        return buildValueBlock();
+    }
+
+    @Override
+    public IntArrayBlock buildValueBlock()
+    {
         return new IntArrayBlock(0, positionCount, hasNullValue ? valueIsNull : null, values);
     }
 
@@ -147,10 +153,5 @@ public class IntArrayBlockBuilder
         sb.append("positionCount=").append(getPositionCount());
         sb.append('}');
         return sb.toString();
-    }
-
-    int[] getRawValues()
-    {
-        return values;
     }
 }

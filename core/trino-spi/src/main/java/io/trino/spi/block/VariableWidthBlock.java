@@ -16,7 +16,6 @@ package io.trino.spi.block;
 import io.airlift.slice.Slice;
 import io.airlift.slice.SliceOutput;
 import io.airlift.slice.Slices;
-import io.airlift.slice.XxHash64;
 import jakarta.annotation.Nullable;
 
 import java.util.Optional;
@@ -35,8 +34,8 @@ import static io.trino.spi.block.BlockUtil.compactSlice;
 import static io.trino.spi.block.BlockUtil.copyIsNullAndAppendNull;
 import static io.trino.spi.block.BlockUtil.copyOffsetsAndAppendNull;
 
-public class VariableWidthBlock
-        implements Block
+public final class VariableWidthBlock
+        implements ValueBlock
 {
     private static final int INSTANCE_SIZE = instanceSize(VariableWidthBlock.class);
 
@@ -102,7 +101,7 @@ public class VariableWidthBlock
         return getPositionOffset(position);
     }
 
-    protected final int getPositionOffset(int position)
+    int getPositionOffset(int position)
     {
         return offsets[position + arrayOffset];
     }
@@ -214,54 +213,12 @@ public class VariableWidthBlock
         return slice.slice(getPositionOffset(position) + offset, length);
     }
 
-    @Override
-    public void writeSliceTo(int position, int offset, int length, SliceOutput output)
+    public Slice getSlice(int position)
     {
         checkReadablePosition(this, position);
-        output.writeBytes(slice, getPositionOffset(position) + offset, length);
-    }
-
-    @Override
-    public boolean equals(int position, int offset, Block otherBlock, int otherPosition, int otherOffset, int length)
-    {
-        checkReadablePosition(this, position);
-        Slice rawSlice = slice;
-        if (getSliceLength(position) < length) {
-            return false;
-        }
-        return otherBlock.bytesEqual(otherPosition, otherOffset, rawSlice, getPositionOffset(position) + offset, length);
-    }
-
-    @Override
-    public boolean bytesEqual(int position, int offset, Slice otherSlice, int otherOffset, int length)
-    {
-        checkReadablePosition(this, position);
-        return slice.equals(getPositionOffset(position) + offset, length, otherSlice, otherOffset, length);
-    }
-
-    @Override
-    public long hash(int position, int offset, int length)
-    {
-        checkReadablePosition(this, position);
-        return XxHash64.hash(slice, getPositionOffset(position) + offset, length);
-    }
-
-    @Override
-    public int compareTo(int position, int offset, int length, Block otherBlock, int otherPosition, int otherOffset, int otherLength)
-    {
-        checkReadablePosition(this, position);
-        Slice rawSlice = slice;
-        if (getSliceLength(position) < length) {
-            throw new IllegalArgumentException("Length longer than value length");
-        }
-        return -otherBlock.bytesCompare(otherPosition, otherOffset, otherLength, rawSlice, getPositionOffset(position) + offset, length);
-    }
-
-    @Override
-    public int bytesCompare(int position, int offset, int length, Slice otherSlice, int otherOffset, int otherLength)
-    {
-        checkReadablePosition(this, position);
-        return slice.compareTo(getPositionOffset(position) + offset, length, otherSlice, otherOffset, otherLength);
+        int offset = offsets[position + arrayOffset];
+        int length = offsets[position + 1 + arrayOffset] - offset;
+        return slice.slice(offset, length);
     }
 
     @Override
@@ -278,7 +235,7 @@ public class VariableWidthBlock
     }
 
     @Override
-    public Block getSingleValueBlock(int position)
+    public VariableWidthBlock getSingleValueBlock(int position)
     {
         if (isNull(position)) {
             return new VariableWidthBlock(0, 1, EMPTY_SLICE, new int[] {0, 0}, new boolean[] {true});
@@ -293,7 +250,7 @@ public class VariableWidthBlock
     }
 
     @Override
-    public Block copyPositions(int[] positions, int offset, int length)
+    public VariableWidthBlock copyPositions(int[] positions, int offset, int length)
     {
         checkArrayRange(positions, offset, length);
         if (length == 0) {
@@ -337,7 +294,7 @@ public class VariableWidthBlock
     }
 
     @Override
-    public Block getRegion(int positionOffset, int length)
+    public VariableWidthBlock getRegion(int positionOffset, int length)
     {
         checkValidRegion(getPositionCount(), positionOffset, length);
 
@@ -345,7 +302,7 @@ public class VariableWidthBlock
     }
 
     @Override
-    public Block copyRegion(int positionOffset, int length)
+    public VariableWidthBlock copyRegion(int positionOffset, int length)
     {
         checkValidRegion(getPositionCount(), positionOffset, length);
         positionOffset += arrayOffset;
@@ -367,12 +324,18 @@ public class VariableWidthBlock
     }
 
     @Override
-    public Block copyWithAppendedNull()
+    public VariableWidthBlock copyWithAppendedNull()
     {
         boolean[] newValueIsNull = copyIsNullAndAppendNull(valueIsNull, arrayOffset, positionCount);
         int[] newOffsets = copyOffsetsAndAppendNull(offsets, arrayOffset, positionCount);
 
         return new VariableWidthBlock(arrayOffset, positionCount + 1, slice, newOffsets, newValueIsNull);
+    }
+
+    @Override
+    public VariableWidthBlock getUnderlyingValueBlock()
+    {
+        return this;
     }
 
     @Override

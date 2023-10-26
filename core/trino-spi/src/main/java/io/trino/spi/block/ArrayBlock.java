@@ -36,8 +36,8 @@ import static java.lang.String.format;
 import static java.util.Collections.singletonList;
 import static java.util.Objects.requireNonNull;
 
-public class ArrayBlock
-        implements Block
+public final class ArrayBlock
+        implements ValueBlock
 {
     private static final int INSTANCE_SIZE = instanceSize(ArrayBlock.class);
 
@@ -54,7 +54,7 @@ public class ArrayBlock
      * Create an array block directly from columnar nulls, values, and offsets into the values.
      * A null array must have no entries.
      */
-    public static Block fromElementBlock(int positionCount, Optional<boolean[]> valueIsNullOptional, int[] arrayOffset, Block values)
+    public static ArrayBlock fromElementBlock(int positionCount, Optional<boolean[]> valueIsNullOptional, int[] arrayOffset, Block values)
     {
         boolean[] valueIsNull = valueIsNullOptional.orElse(null);
         validateConstructorArguments(0, positionCount, valueIsNull, arrayOffset, values);
@@ -73,7 +73,7 @@ public class ArrayBlock
     }
 
     /**
-     * Create an array block directly without per element validations.
+     * Create an array block directly without per-element validations.
      */
     static ArrayBlock createArrayBlockInternal(int arrayOffset, int positionCount, @Nullable boolean[] valueIsNull, int[] offsets, Block values)
     {
@@ -167,23 +167,23 @@ public class ArrayBlock
         consumer.accept(this, INSTANCE_SIZE);
     }
 
-    protected Block getRawElementBlock()
+    Block getRawElementBlock()
     {
         return values;
     }
 
-    protected int[] getOffsets()
+    int[] getOffsets()
     {
         return offsets;
     }
 
-    protected int getOffsetBase()
+    int getOffsetBase()
     {
         return arrayOffset;
     }
 
     @Override
-    public final List<Block> getChildren()
+    public List<Block> getChildren()
     {
         return singletonList(values);
     }
@@ -216,7 +216,7 @@ public class ArrayBlock
     }
 
     @Override
-    public Block getLoadedBlock()
+    public ArrayBlock getLoadedBlock()
     {
         Block loadedValuesBlock = values.getLoadedBlock();
 
@@ -232,7 +232,7 @@ public class ArrayBlock
     }
 
     @Override
-    public Block copyWithAppendedNull()
+    public ArrayBlock copyWithAppendedNull()
     {
         boolean[] newValueIsNull = copyIsNullAndAppendNull(valueIsNull, arrayOffset, getPositionCount());
         int[] newOffsets = copyOffsetsAndAppendNull(offsets, arrayOffset, getPositionCount());
@@ -246,7 +246,7 @@ public class ArrayBlock
     }
 
     @Override
-    public Block copyPositions(int[] positions, int offset, int length)
+    public ArrayBlock copyPositions(int[] positions, int offset, int length)
     {
         checkArrayRange(positions, offset, length);
 
@@ -278,7 +278,7 @@ public class ArrayBlock
     }
 
     @Override
-    public Block getRegion(int position, int length)
+    public ArrayBlock getRegion(int position, int length)
     {
         int positionCount = getPositionCount();
         checkValidRegion(positionCount, position, length);
@@ -310,7 +310,7 @@ public class ArrayBlock
     }
 
     @Override
-    public final long getPositionsSizeInBytes(boolean[] positions, int selectedArrayPositions)
+    public long getPositionsSizeInBytes(boolean[] positions, int selectedArrayPositions)
     {
         int positionCount = getPositionCount();
         checkValidPositions(positions, positionCount);
@@ -343,7 +343,7 @@ public class ArrayBlock
     }
 
     @Override
-    public Block copyRegion(int position, int length)
+    public ArrayBlock copyRegion(int position, int length)
     {
         int positionCount = getPositionCount();
         checkValidRegion(positionCount, position, length);
@@ -369,15 +369,19 @@ public class ArrayBlock
         if (clazz != Block.class) {
             throw new IllegalArgumentException("clazz must be Block.class");
         }
-        checkReadablePosition(this, position);
+        return clazz.cast(getArray(position));
+    }
 
+    public Block getArray(int position)
+    {
+        checkReadablePosition(this, position);
         int startValueOffset = offsets[position + arrayOffset];
         int endValueOffset = offsets[position + 1 + arrayOffset];
-        return clazz.cast(values.getRegion(startValueOffset, endValueOffset - startValueOffset));
+        return values.getRegion(startValueOffset, endValueOffset - startValueOffset);
     }
 
     @Override
-    public Block getSingleValueBlock(int position)
+    public ArrayBlock getSingleValueBlock(int position)
     {
         checkReadablePosition(this, position);
 
@@ -419,6 +423,12 @@ public class ArrayBlock
         checkReadablePosition(this, position);
         boolean[] valueIsNull = this.valueIsNull;
         return valueIsNull != null && valueIsNull[position + arrayOffset];
+    }
+
+    @Override
+    public ArrayBlock getUnderlyingValueBlock()
+    {
+        return this;
     }
 
     public <T> T apply(ArrayBlockFunction<T> function, int position)

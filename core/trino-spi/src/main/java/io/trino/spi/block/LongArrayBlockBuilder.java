@@ -89,6 +89,12 @@ public class LongArrayBlockBuilder
         if (!hasNonNullValue) {
             return RunLengthEncodedBlock.create(NULL_VALUE_BLOCK, positionCount);
         }
+        return buildValueBlock();
+    }
+
+    @Override
+    public LongArrayBlock buildValueBlock()
+    {
         return new LongArrayBlock(0, positionCount, hasNullValue ? valueIsNull : null, values);
     }
 
@@ -147,10 +153,5 @@ public class LongArrayBlockBuilder
         sb.append("positionCount=").append(getPositionCount());
         sb.append('}');
         return sb.toString();
-    }
-
-    long[] getRawValues()
-    {
-        return values;
     }
 }

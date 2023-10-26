@@ -111,7 +111,7 @@ public class MapType
     private final MethodHandle keyBlockNativeEqual;
     private final MethodHandle keyBlockEqual;
 
-    // this field is used in double checked locking
+    // this field is used in double-checked locking
     @SuppressWarnings("FieldAccessedSynchronizedAndUnsynchronized")
     private volatile TypeOperatorDeclaration typeOperatorDeclaration;
 
@@ -122,7 +122,8 @@ public class MapType
                         StandardTypes.MAP,
                         TypeSignatureParameter.typeParameter(keyType.getTypeSignature()),
                         TypeSignatureParameter.typeParameter(valueType.getTypeSignature())),
-                SqlMap.class);
+                SqlMap.class,
+                MapBlock.class);
         if (!keyType.isComparable()) {
             throw new IllegalArgumentException(format("key type must be comparable, got %s", keyType));
         }
@@ -291,7 +292,7 @@ public class MapType
             return null;
         }
 
-        SqlMap sqlMap = block.getObject(position, SqlMap.class);
+        SqlMap sqlMap = getObject(block, position);
         int rawOffset = sqlMap.getRawOffset();
         Block rawKeyBlock = sqlMap.getRawKeyBlock();
         Block rawValueBlock = sqlMap.getRawValueBlock();
@@ -318,7 +319,7 @@ public class MapType
     @Override
     public SqlMap getObject(Block block, int position)
     {
-        return block.getObject(position, SqlMap.class);
+        return read((MapBlock) block.getUnderlyingValueBlock(), block.getUnderlyingValuePosition(position));
     }
 
     @Override
@@ -463,7 +464,7 @@ public class MapType
         return "map(" + keyType.getDisplayName() + ", " + valueType.getDisplayName() + ")";
     }
 
-    public Block createBlockFromKeyValue(Optional<boolean[]> mapIsNull, int[] offsets, Block keyBlock, Block valueBlock)
+    public MapBlock createBlockFromKeyValue(Optional<boolean[]> mapIsNull, int[] offsets, Block keyBlock, Block valueBlock)
     {
         return MapBlock.fromKeyValueBlock(
                 mapIsNull,
@@ -542,6 +543,11 @@ public class MapType
             return NULL_HASH_CODE;
         }
         return (long) hashOperator.invokeExact((Block) block, position);
+    }
+
+    private static SqlMap read(MapBlock block, int position)
+    {
+        return block.getMap(position);
     }
 
     private static SqlMap readFlat(
@@ -825,7 +831,7 @@ public class MapType
         Block rawValueBlock = sqlMap.getRawValueBlock();
 
         for (int i = 0; i < sqlMap.getSize(); i++) {
-            // since maps are not allowed to have indeterminate keys we only check values here
+            // since maps are not allowed to have indeterminate keys, we only check values here
             if (rawValueBlock.isNull(rawOffset + i)) {
                 return true;
             }

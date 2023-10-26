@@ -115,24 +115,25 @@ The following table summarizes the permissions required for each SQL command:
 
 Permissions required for executing functions:
 
-```{eval-rst}
-.. list-table::
-   :widths: 30, 10, 15, 30
-   :header-rows: 1
+:::{list-table}
+:widths: 30, 10, 20, 40
+:header-rows: 1
 
-   * - SQL command
-     - Catalog
-     - Function permission
-     - Note
-   * - ``SELECT function()``
-     - ``read-only``
-     - ``execute``, ``grant_execute*``
-     - ``grant_execute`` is required when the function is used in a SECURITY DEFINER view.
-   * - ``SELECT FROM TABLE(table_function())``
-     - ``read-only``
-     - ``execute``, ``grant_execute*``
-     - ``grant_execute`` is required when the function is used in a SECURITY DEFINER view.
-```
+* - SQL command
+  - Catalog
+  - Function permission
+  - Note
+* - `SELECT function()`
+  -
+  - `execute`, `grant_execute*`
+  - `grant_execute` is required when the function is used in a `SECURITY DEFINER`
+    view.
+* - `SELECT FROM TABLE(table_function())`
+  - `all`
+  - `execute`, `grant_execute*`
+  - `grant_execute` is required when the function is used in a `SECURITY DEFINER`
+    view.
+:::
 
 (system-file-auth-visibility)=
 
@@ -360,8 +361,8 @@ The example below defines the following table access policy:
 These rules control the user's ability to execute functions.
 
 :::{note}
-By default, all users have access to functions in the `system.builtin` schema.
-You can override this behavior by adding a rule, but this will break most queries.
+Users always have access to functions in the `system.builtin` schema, and
+you cannot override this behavior by adding a rule.
 :::
 
 Each function rule is composed of the following fields:

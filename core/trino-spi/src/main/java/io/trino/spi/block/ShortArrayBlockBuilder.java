@@ -89,6 +89,12 @@ public class ShortArrayBlockBuilder
         if (!hasNonNullValue) {
             return RunLengthEncodedBlock.create(NULL_VALUE_BLOCK, positionCount);
         }
+        return buildValueBlock();
+    }
+
+    @Override
+    public ShortArrayBlock buildValueBlock()
+    {
         return new ShortArrayBlock(0, positionCount, hasNullValue ? valueIsNull : null, values);
     }
 
@@ -147,10 +153,5 @@ public class ShortArrayBlockBuilder
         sb.append("positionCount=").append(getPositionCount());
         sb.append('}');
         return sb.toString();
-    }
-
-    short[] getRawValues()
-    {
-        return values;
     }
 }

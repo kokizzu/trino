@@ -117,7 +117,7 @@ import static java.util.Objects.requireNonNull;
  * <li>AST expressions contain Identifiers, while IR expressions contain SymbolReferences</li>
  * <li>FunctionCalls in AST expressions are SQL function names. In IR expressions, they contain an encoded name representing a resolved function</li>
  */
-class TranslationMap
+public class TranslationMap
 {
     // all expressions are rewritten in terms of fields declared by this relation plan
     private final Scope scope;
@@ -468,19 +468,19 @@ class TranslationMap
                             .build();
                     case TIME -> BuiltinFunctionCallBuilder.resolve(plannerContext.getMetadata())
                             .setName("$current_time")
-                            .setArguments(ImmutableList.of(analysis.getType(node)), ImmutableList.of(new NullLiteral()))
+                            .setArguments(ImmutableList.of(analysis.getType(node)), ImmutableList.of(new Cast(new NullLiteral(), toSqlType(analysis.getType(node)))))
                             .build();
                     case LOCALTIME -> BuiltinFunctionCallBuilder.resolve(plannerContext.getMetadata())
                             .setName("$localtime")
-                            .setArguments(ImmutableList.of(analysis.getType(node)), ImmutableList.of(new NullLiteral()))
+                            .setArguments(ImmutableList.of(analysis.getType(node)), ImmutableList.of(new Cast(new NullLiteral(), toSqlType(analysis.getType(node)))))
                             .build();
                     case TIMESTAMP -> BuiltinFunctionCallBuilder.resolve(plannerContext.getMetadata())
                             .setName("$current_timestamp")
-                            .setArguments(ImmutableList.of(analysis.getType(node)), ImmutableList.of(new NullLiteral()))
+                            .setArguments(ImmutableList.of(analysis.getType(node)), ImmutableList.of(new Cast(new NullLiteral(), toSqlType(analysis.getType(node)))))
                             .build();
                     case LOCALTIMESTAMP -> BuiltinFunctionCallBuilder.resolve(plannerContext.getMetadata())
                             .setName("$localtimestamp")
-                            .setArguments(ImmutableList.of(analysis.getType(node)), ImmutableList.of(new NullLiteral()))
+                            .setArguments(ImmutableList.of(analysis.getType(node)), ImmutableList.of(new Cast(new NullLiteral(), toSqlType(analysis.getType(node)))))
                             .build();
                 };
 
