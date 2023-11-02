@@ -30,7 +30,7 @@ import java.util.regex.Pattern;
 import static io.trino.plugin.hive.BaseS3AndGlueMetastoreTest.LocationPattern.DOUBLE_SLASH;
 import static io.trino.plugin.hive.BaseS3AndGlueMetastoreTest.LocationPattern.TRIPLE_SLASH;
 import static io.trino.plugin.hive.BaseS3AndGlueMetastoreTest.LocationPattern.TWO_TRAILING_SLASHES;
-import static io.trino.plugin.hive.metastore.glue.GlueHiveMetastore.createTestingGlueHiveMetastore;
+import static io.trino.plugin.hive.metastore.glue.TestingGlueHiveMetastore.createTestingGlueHiveMetastore;
 import static io.trino.spi.security.SelectedRole.Type.ROLE;
 import static io.trino.testing.MaterializedResult.resultBuilder;
 import static io.trino.testing.TestingNames.randomNameSuffix;
@@ -192,12 +192,10 @@ public class TestHiveS3AndGlueMetastoreTest
 
             assertUpdate("CREATE TABLE " + qualifiedTableName + "(col_str varchar, col_int int)" + partitionQueryPart);
             try (UncheckedCloseable ignoredDropTable = onClose("DROP TABLE " + qualifiedTableName)) {
-                String expectedTableLocation = Pattern.quote((schemaLocation.endsWith("/") ? schemaLocation : schemaLocation + "/") + tableName)
-                        // Hive normalizes repeated slashes
-                        .replaceAll("(?<!(s3:))/+", "/");
+                String expectedTableLocation = (schemaLocation.endsWith("/") ? schemaLocation : schemaLocation + "/") + tableName;
 
                 actualTableLocation = metastore.getTable(schemaName, tableName).orElseThrow().getStorage().getLocation();
-                assertThat(actualTableLocation).matches(expectedTableLocation);
+                assertThat(actualTableLocation).isEqualTo(expectedTableLocation);
 
                 assertUpdate("INSERT INTO " + qualifiedTableName + "  VALUES ('str1', 1), ('str2', 2), ('str3', 3)", 3);
                 assertQuery("SELECT * FROM " + qualifiedTableName, "VALUES ('str1', 1), ('str2', 2), ('str3', 3)");
@@ -293,7 +291,9 @@ public class TestHiveS3AndGlueMetastoreTest
 
         assertUpdate("CREATE SCHEMA \"%2$s\" WITH (location = 's3://%1$s/%2$s')".formatted(bucketName, schemaName));
         try (UncheckedCloseable ignored = onClose("DROP SCHEMA \"" + schemaName + "\"")) {
-            assertQueryFails("CREATE TABLE \"" + schemaName + "\"." + tableName + " (col) AS VALUES 1", "Failed checking path: .*");
+            assertThatThrownBy(() -> computeActual("CREATE TABLE \"" + schemaName + "\"." + tableName + " (col) AS VALUES 1"))
+                    .hasMessage("Error committing write to Hive")
+                    .hasStackTraceContaining("Invalid URI (Service: Amazon S3; Status Code: 400");
         }
     }
 

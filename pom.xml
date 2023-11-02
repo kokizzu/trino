@@ -10,7 +10,7 @@
 
     <groupId>io.trino</groupId>
     <artifactId>trino-root</artifactId>
-    <version>431-SNAPSHOT</version>
+    <version>432-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>${project.artifactId}</name>
@@ -46,7 +46,6 @@
         <module>lib/trino-filesystem-manager</module>
         <module>lib/trino-filesystem-s3</module>
         <module>lib/trino-geospatial-toolkit</module>
-        <module>lib/trino-hadoop-toolkit</module>
         <module>lib/trino-hdfs</module>
         <module>lib/trino-hive-formats</module>
         <!-- TODO Remove whole module when Ignite is released -->
@@ -146,7 +145,7 @@
         <air.check.skip-jacoco>true</air.check.skip-jacoco>
 
         <project.build.targetJdk>17</project.build.targetJdk>
-        <air.java.version>17.0.4</air.java.version>
+        <air.java.version>17.0.5</air.java.version>
         <air.modernizer.java-version>8</air.modernizer.java-version>
 
         <air.release.preparation-goals>clean verify -DskipTests</air.release.preparation-goals>
@@ -169,7 +168,7 @@
         <dep.swagger.version>1.6.12</dep.swagger.version>
         <dep.kotlin.version>1.9.10</dep.kotlin.version>
         <dep.google.http.client.version>1.43.3</dep.google.http.client.version>
-        <dep.errorprone.version>2.22.0</dep.errorprone.version>
+        <dep.errorprone.version>2.23.0</dep.errorprone.version>
         <dep.testcontainers.version>1.19.1</dep.testcontainers.version>
         <dep.duct-tape.version>1.0.8</dep.duct-tape.version>
         <dep.confluent.version>7.4.1</dep.confluent.version>
@@ -209,7 +208,6 @@
             -XX:+UnlockDiagnosticVMOptions
             <!-- bump from default of 2 -->
             -XX:GCLockerRetryAllocationCount=10
-            -XX:-G1UsePreventiveGC
         </air.test.jvm.additional-arguments>
 
         <air.javadoc.lint>-missing</air.javadoc.lint>
@@ -1026,12 +1024,6 @@
 
             <dependency>
                 <groupId>io.trino</groupId>
-                <artifactId>trino-hadoop-toolkit</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>io.trino</groupId>
                 <artifactId>trino-hdfs</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -1436,7 +1428,7 @@
             <dependency>
                 <groupId>io.trino.coral</groupId>
                 <artifactId>coral</artifactId>
-                <version>2.0.153-1</version>
+                <version>2.2.14-1</version>
             </dependency>
 
             <dependency>
@@ -2450,6 +2442,22 @@
                                 <type>jar</type>
                                 <repositoryType>MAIN</repositoryType>
                             </DynamicDependency>
+                            <DynamicDependency>
+                                <groupId>com.google.protobuf</groupId>
+                                <artifactId>protoc</artifactId>
+                                <type>exe</type>
+                                <classifier>linux-x86_64</classifier>
+                                <version>${dep.protobuf.version}</version>
+                                <repositoryType>MAIN</repositoryType>
+                            </DynamicDependency>
+                            <DynamicDependency>
+                                <groupId>com.google.protobuf</groupId>
+                                <artifactId>protoc</artifactId>
+                                <type>exe</type>
+                                <classifier>linux-aarch_64</classifier>
+                                <version>${dep.protobuf.version}</version>
+                                <repositoryType>MAIN</repositoryType>
+                            </DynamicDependency>
                         </dynamicDependencies>
                     </configuration>
                 </plugin>
@@ -2489,11 +2497,6 @@
                         <exclude>**/*jmhType*.java</exclude>
                     </excludes>
                 </configuration>
-            </plugin>
-
-            <plugin>
-                <groupId>com.github.ekryd.sortpom</groupId>
-                <artifactId>sortpom-maven-plugin</artifactId>
             </plugin>
         </plugins>
     </build>

@@ -41,6 +41,7 @@ import io.trino.spi.type.TimestampType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeOperators;
 import io.trino.spi.type.VarcharType;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.serde2.Deserializer;
 import org.apache.hadoop.hive.serde2.SerDeException;
 import org.apache.hadoop.hive.serde2.objectinspector.ListObjectInspector;
@@ -51,9 +52,8 @@ import org.apache.hadoop.hive.serde2.objectinspector.SettableStructObjectInspect
 import org.apache.hadoop.hive.serde2.objectinspector.StructField;
 import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
 import org.apache.hadoop.io.Text;
-import org.apache.hadoop.mapred.JobConf;
+import org.junit.jupiter.api.Test;
 import org.openx.data.jsonserde.JsonSerDe;
-import org.testng.annotations.Test;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -77,7 +77,6 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static io.trino.hadoop.ConfigurationInstantiator.newEmptyConfiguration;
 import static io.trino.hive.formats.FormatTestUtils.assertColumnValueEquals;
 import static io.trino.hive.formats.FormatTestUtils.assertColumnValuesEquals;
 import static io.trino.hive.formats.FormatTestUtils.createLineBuffer;
@@ -122,7 +121,6 @@ import static org.apache.hadoop.hive.serde.serdeConstants.SERIALIZATION_LIB;
 import static org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorFactory.getStandardStructObjectInspector;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.testng.Assert.assertTrue;
 
 public class TestOpenxJsonFormat
 {
@@ -498,7 +496,7 @@ public class TestOpenxJsonFormat
             hiveCanonicalValue = padSpaces(hiveCanonicalValue, charType);
         }
 
-        assertTrue(CharMatcher.whitespace().matchesNoneOf(jsonValue));
+        assertThat(CharMatcher.whitespace().matchesNoneOf(jsonValue)).isTrue();
 
         // quoted values are not canonicalized
         assertValue(type, "\"" + jsonValue + "\"", nonCanonicalValue);
@@ -1396,7 +1394,7 @@ public class TestOpenxJsonFormat
     private static JsonSerDe createHiveSerDe(List<Column> columns, OpenXJsonOptions options)
     {
         try {
-            JobConf configuration = new JobConf(newEmptyConfiguration());
+            Configuration configuration = new Configuration(false);
 
             Properties schema = new Properties();
             schema.putAll(createOpenXJsonSerDeProperties(columns, options));
@@ -1553,7 +1551,7 @@ public class TestOpenxJsonFormat
     private static void assertLineFailsHive(List<Column> columns, String jsonLine, OpenXJsonOptions options)
     {
         assertThatThrownBy(() -> {
-            JobConf configuration = new JobConf(newEmptyConfiguration());
+            Configuration configuration = new Configuration(false);
 
             Properties schema = new Properties();
             schema.putAll(createOpenXJsonSerDeProperties(columns, options));
@@ -1576,7 +1574,7 @@ public class TestOpenxJsonFormat
 
     private static MapType toMapKeyType(Type type)
     {
-        assertTrue(isScalarType(type));
+        assertThat(isScalarType(type)).isTrue();
         return new MapType(type, BIGINT, TYPE_OPERATORS);
     }
 

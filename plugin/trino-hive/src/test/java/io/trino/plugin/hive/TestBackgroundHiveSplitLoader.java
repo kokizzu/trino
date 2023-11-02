@@ -28,7 +28,6 @@ import io.trino.hdfs.DynamicHdfsConfiguration;
 import io.trino.hdfs.HdfsConfig;
 import io.trino.hdfs.HdfsConfigurationInitializer;
 import io.trino.hdfs.HdfsEnvironment;
-import io.trino.hdfs.HdfsNamenodeStats;
 import io.trino.hdfs.authentication.NoHdfsAuthentication;
 import io.trino.plugin.hive.HiveColumnHandle.ColumnType;
 import io.trino.plugin.hive.fs.CachingDirectoryLister;
@@ -62,10 +61,10 @@ import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.hive.metastore.TableType;
 import org.apache.hadoop.hive.ql.io.SymlinkTextInputFormat;
 import org.apache.hadoop.util.Progressable;
-import org.testng.annotations.AfterClass;
-import org.testng.annotations.BeforeClass;
-import org.testng.annotations.DataProvider;
-import org.testng.annotations.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.Timeout;
 
 import java.io.File;
 import java.io.IOException;
@@ -130,10 +129,12 @@ import static org.apache.hadoop.hive.metastore.api.hive_metastoreConstants.FILE_
 import static org.apache.hadoop.hive.serde.serdeConstants.SERIALIZATION_LIB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
+@TestInstance(PER_CLASS)
 public class TestBackgroundHiveSplitLoader
 {
     private static final int BUCKET_COUNT = 2;
@@ -164,19 +165,12 @@ public class TestBackgroundHiveSplitLoader
     private static final Table SIMPLE_TABLE = table(ImmutableList.of(), Optional.empty(), ImmutableMap.of());
     private static final Table PARTITIONED_TABLE = table(PARTITION_COLUMNS, BUCKET_PROPERTY, ImmutableMap.of());
 
-    private ExecutorService executor;
+    private final ExecutorService executor = newCachedThreadPool(daemonThreadsNamed(getClass().getSimpleName() + "-%s"));
 
-    @BeforeClass
-    public void setUp()
-    {
-        executor = newCachedThreadPool(daemonThreadsNamed(getClass().getSimpleName() + "-%s"));
-    }
-
-    @AfterClass(alwaysRun = true)
+    @AfterAll
     public void tearDown()
     {
         executor.shutdownNow();
-        executor = null;
     }
 
     @Test
@@ -314,7 +308,8 @@ public class TestBackgroundHiveSplitLoader
                 .hasMessage("OFFLINE");
     }
 
-    @Test(timeOut = 30_000)
+    @Test
+    @Timeout(30)
     public void testIncompleteDynamicFilterTimeout()
             throws Exception
     {
@@ -447,8 +442,19 @@ public class TestBackgroundHiveSplitLoader
         assertFalse(hasAttemptId("base_00000_00"));
     }
 
-    @Test(dataProvider = "testPropagateExceptionDataProvider", timeOut = 60_000)
-    public void testPropagateException(boolean error, int threads)
+    @Test
+    @Timeout(60)
+    public void testPropagateException()
+    {
+        testPropagateException(false, 1);
+        testPropagateException(true, 1);
+        testPropagateException(false, 2);
+        testPropagateException(true, 2);
+        testPropagateException(false, 4);
+        testPropagateException(true, 4);
+    }
+
+    private void testPropagateException(boolean error, int threads)
     {
         AtomicBoolean iteratorUsedAfterException = new AtomicBoolean();
 
@@ -484,7 +490,6 @@ public class TestBackgroundHiveSplitLoader
                 createBucketSplitInfo(Optional.empty(), Optional.empty()),
                 SESSION,
                 new HdfsFileSystemFactory(hdfsEnvironment, HDFS_FILE_SYSTEM_STATS),
-                new HdfsNamenodeStats(),
                 new CachingDirectoryLister(new HiveConfig()),
                 executor,
                 threads,
@@ -506,19 +511,6 @@ public class TestBackgroundHiveSplitLoader
         if (threads == 1) {
             assertFalse(iteratorUsedAfterException.get());
         }
-    }
-
-    @DataProvider
-    public Object[][] testPropagateExceptionDataProvider()
-    {
-        return new Object[][] {
-                {false, 1},
-                {true, 1},
-                {false, 2},
-                {true, 2},
-                {false, 4},
-                {true, 4},
-        };
     }
 
     @Test
@@ -1117,7 +1109,6 @@ public class TestBackgroundHiveSplitLoader
                 createBucketSplitInfo(bucketHandle, hiveBucketFilter),
                 SESSION,
                 new HdfsFileSystemFactory(hdfsEnvironment, HDFS_FILE_SYSTEM_STATS),
-                new HdfsNamenodeStats(),
                 new CachingDirectoryLister(new HiveConfig()),
                 executor,
                 2,
@@ -1160,7 +1151,6 @@ public class TestBackgroundHiveSplitLoader
                 Optional.empty(),
                 connectorSession,
                 new HdfsFileSystemFactory(hdfsEnvironment, HDFS_FILE_SYSTEM_STATS),
-                new HdfsNamenodeStats(),
                 directoryLister,
                 executor,
                 2,
@@ -1187,7 +1177,6 @@ public class TestBackgroundHiveSplitLoader
                 createBucketSplitInfo(Optional.empty(), Optional.empty()),
                 connectorSession,
                 new HdfsFileSystemFactory(hdfsEnvironment, HDFS_FILE_SYSTEM_STATS),
-                new HdfsNamenodeStats(),
                 new CachingDirectoryLister(new HiveConfig()),
                 executor,
                 2,
