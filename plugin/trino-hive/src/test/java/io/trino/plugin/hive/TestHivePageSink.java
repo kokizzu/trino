@@ -79,6 +79,7 @@ import static io.trino.plugin.hive.HiveType.HIVE_STRING;
 import static io.trino.plugin.hive.LocationHandle.WriteMode.DIRECT_TO_TARGET_NEW_DIRECTORY;
 import static io.trino.plugin.hive.acid.AcidTransaction.NO_ACID_TRANSACTION;
 import static io.trino.plugin.hive.metastore.file.TestingFileHiveMetastore.createTestingFileHiveMetastore;
+import static io.trino.plugin.hive.util.SerdeConstants.SERIALIZATION_LIB;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.DateType.DATE;
 import static io.trino.spi.type.DoubleType.DOUBLE;
@@ -90,7 +91,6 @@ import static java.lang.Math.round;
 import static java.lang.String.format;
 import static java.util.stream.Collectors.toList;
 import static org.apache.hadoop.hive.metastore.api.hive_metastoreConstants.FILE_INPUT_FORMAT;
-import static org.apache.hadoop.hive.serde.serdeConstants.SERIALIZATION_LIB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.testng.Assert.assertEquals;
@@ -173,7 +173,7 @@ public class TestHivePageSink
         List<Type> columnTypes = columns.stream()
                 .map(LineItemColumn::getType)
                 .map(TestHivePageSink::getHiveType)
-                .map(hiveType -> hiveType.getType(TESTING_TYPE_MANAGER))
+                .map(hiveType -> TESTING_TYPE_MANAGER.getType(hiveType.getTypeSignature()))
                 .collect(toList());
 
         PageBuilder pageBuilder = new PageBuilder(columnTypes);
@@ -320,7 +320,7 @@ public class TestHivePageSink
         for (int i = 0; i < columns.size(); i++) {
             LineItemColumn column = columns.get(i);
             HiveType hiveType = getHiveType(column.getType());
-            handles.add(createBaseColumn(column.getColumnName(), i, hiveType, hiveType.getType(TESTING_TYPE_MANAGER), REGULAR, Optional.empty()));
+            handles.add(createBaseColumn(column.getColumnName(), i, hiveType, TESTING_TYPE_MANAGER.getType(hiveType.getTypeSignature()), REGULAR, Optional.empty()));
         }
         return handles.build();
     }

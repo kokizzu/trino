@@ -139,7 +139,6 @@ import io.trino.testing.TestingNodeManager;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hive.metastore.TableType;
 import org.assertj.core.api.InstanceOfAssertFactories;
 import org.joda.time.DateTime;
 import org.junit.jupiter.api.AfterAll;
@@ -147,6 +146,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.parallel.Execution;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -213,7 +213,6 @@ import static io.trino.plugin.hive.HiveBasicStatistics.createEmptyStatistics;
 import static io.trino.plugin.hive.HiveBasicStatistics.createZeroStatistics;
 import static io.trino.plugin.hive.HiveColumnHandle.BUCKET_COLUMN_NAME;
 import static io.trino.plugin.hive.HiveColumnHandle.ColumnType.PARTITION_KEY;
-import static io.trino.plugin.hive.HiveColumnHandle.ColumnType.REGULAR;
 import static io.trino.plugin.hive.HiveColumnHandle.bucketColumnHandle;
 import static io.trino.plugin.hive.HiveColumnHandle.createBaseColumn;
 import static io.trino.plugin.hive.HiveErrorCode.HIVE_INVALID_BUCKET_FILES;
@@ -256,6 +255,7 @@ import static io.trino.plugin.hive.HiveType.HIVE_LONG;
 import static io.trino.plugin.hive.HiveType.HIVE_STRING;
 import static io.trino.plugin.hive.HiveType.toHiveType;
 import static io.trino.plugin.hive.LocationHandle.WriteMode.STAGE_AND_MOVE_TO_TARGET_DIRECTORY;
+import static io.trino.plugin.hive.TableType.MANAGED_TABLE;
 import static io.trino.plugin.hive.TestingThriftHiveMetastoreBuilder.testingThriftHiveMetastoreBuilder;
 import static io.trino.plugin.hive.acid.AcidTransaction.NO_ACID_TRANSACTION;
 import static io.trino.plugin.hive.metastore.HiveColumnStatistics.createBinaryColumnStatistics;
@@ -269,6 +269,7 @@ import static io.trino.plugin.hive.metastore.PrincipalPrivileges.NO_PRIVILEGES;
 import static io.trino.plugin.hive.metastore.SortingColumn.Order.ASCENDING;
 import static io.trino.plugin.hive.metastore.SortingColumn.Order.DESCENDING;
 import static io.trino.plugin.hive.metastore.StorageFormat.fromHiveStorageFormat;
+import static io.trino.plugin.hive.metastore.cache.CachingHiveMetastore.createCachingHiveMetastore;
 import static io.trino.plugin.hive.orc.OrcPageSource.ORC_CODEC_METRIC_PREFIX;
 import static io.trino.plugin.hive.util.HiveBucketing.BucketingVersion.BUCKETING_V1;
 import static io.trino.plugin.hive.util.HiveUtil.DELTA_LAKE_PROVIDER;
@@ -323,11 +324,11 @@ import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static java.util.stream.Collectors.toList;
 import static org.apache.hadoop.hive.common.FileUtils.makePartName;
-import static org.apache.hadoop.hive.metastore.TableType.MANAGED_TABLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.joda.time.DateTimeZone.UTC;
 import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS;
+import static org.junit.jupiter.api.parallel.ExecutionMode.SAME_THREAD;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
@@ -335,8 +336,8 @@ import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
-// staging directory is shared mutable state
 @TestInstance(PER_CLASS)
+@Execution(SAME_THREAD) // staging directory is shared mutable state
 public abstract class AbstractTestHive
 {
     private static final Logger log = Logger.get(AbstractTestHive.class);
@@ -345,7 +346,6 @@ public abstract class AbstractTestHive
 
     protected static final String INVALID_DATABASE = "totally_invalid_database_name";
     protected static final String INVALID_TABLE = "totally_invalid_table_name";
-    protected static final String INVALID_COLUMN = "totally_invalid_column_name";
 
     protected static final String TEST_SERVER_VERSION = "test_version";
 
@@ -636,7 +636,6 @@ public abstract class AbstractTestHive
     protected SchemaTableName tableBucketedDoubleFloat;
     protected SchemaTableName tablePartitionSchemaChange;
     protected SchemaTableName tablePartitionSchemaChangeNonCanonical;
-    protected SchemaTableName tableBucketEvolution;
 
     protected ConnectorTableHandle invalidTableHandle;
 
@@ -644,12 +643,10 @@ public abstract class AbstractTestHive
     protected ColumnHandle fileFormatColumn;
     protected ColumnHandle dummyColumn;
     protected ColumnHandle intColumn;
-    protected ColumnHandle invalidColumnHandle;
     protected ColumnHandle pStringColumn;
     protected ColumnHandle pIntegerColumn;
 
     protected ConnectorTableProperties tablePartitionFormatProperties;
-    protected ConnectorTableProperties tableUnpartitionedProperties;
     protected List<HivePartition> tablePartitionFormatPartitions;
     protected List<HivePartition> tableUnpartitionedPartitions;
 
@@ -717,7 +714,6 @@ public abstract class AbstractTestHive
         tableBucketedDoubleFloat = new SchemaTableName(database, "trino_test_bucketed_by_double_float");
         tablePartitionSchemaChange = new SchemaTableName(database, "trino_test_partition_schema_change");
         tablePartitionSchemaChangeNonCanonical = new SchemaTableName(database, "trino_test_partition_schema_change_non_canonical");
-        tableBucketEvolution = new SchemaTableName(database, "trino_test_bucket_evolution");
 
         invalidTableHandle = new HiveTableHandle(database, INVALID_TABLE, ImmutableMap.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty());
 
@@ -725,7 +721,6 @@ public abstract class AbstractTestHive
         fileFormatColumn = createBaseColumn("file_format", -1, HIVE_STRING, VARCHAR, PARTITION_KEY, Optional.empty());
         dummyColumn = createBaseColumn("dummy", -1, HIVE_INT, INTEGER, PARTITION_KEY, Optional.empty());
         intColumn = createBaseColumn("t_int", -1, HIVE_INT, INTEGER, PARTITION_KEY, Optional.empty());
-        invalidColumnHandle = createBaseColumn(INVALID_COLUMN, 0, HIVE_STRING, VARCHAR, REGULAR, Optional.empty());
         pStringColumn = createBaseColumn("p_string", -1, HIVE_STRING, VARCHAR, PARTITION_KEY, Optional.empty());
         pIntegerColumn = createBaseColumn("p_integer", -1, HIVE_INT, INTEGER, PARTITION_KEY, Optional.empty());
 
@@ -785,7 +780,6 @@ public abstract class AbstractTestHive
                                 fileFormatColumn, Domain.create(ValueSet.ofRanges(Range.equal(createUnboundedVarcharType(), utf8Slice("rcbinary"))), false),
                                 dummyColumn, Domain.create(ValueSet.ofRanges(Range.equal(INTEGER, 4L)), false)))))),
                 ImmutableList.of());
-        tableUnpartitionedProperties = new ConnectorTableProperties();
     }
 
     protected final void setup(HostAndPort metastoreAddress, String databaseName)
@@ -795,23 +789,24 @@ public abstract class AbstractTestHive
                 .setRcfileTimeZone("UTC");
 
         hdfsEnvironment = HDFS_ENVIRONMENT;
-        HiveMetastore metastore = CachingHiveMetastore.builder()
-                .delegate(new BridgingHiveMetastore(testingThriftHiveMetastoreBuilder()
+
+        CachingHiveMetastoreConfig cachingHiveMetastoreConfig = new CachingHiveMetastoreConfig();
+        HiveMetastore metastore = createCachingHiveMetastore(
+                new BridgingHiveMetastore(testingThriftHiveMetastoreBuilder()
                         .metastoreClient(metastoreAddress)
                         .hiveConfig(hiveConfig)
                         .thriftMetastoreConfig(new ThriftMetastoreConfig()
                                 .setAssumeCanonicalPartitionKeys(true))
                         .hdfsEnvironment(hdfsEnvironment)
-                        .build()))
-                .executor(executor)
-                .metadataCacheEnabled(true)
-                .statsCacheEnabled(true)
-                .cacheTtl(new Duration(1, MINUTES))
-                .refreshInterval(new Duration(15, SECONDS))
-                .maximumSize(10000)
-                .cacheMissing(new CachingHiveMetastoreConfig().isCacheMissing())
-                .partitionCacheEnabled(new CachingHiveMetastoreConfig().isPartitionCacheEnabled())
-                .build();
+                        .build()),
+                new Duration(1, MINUTES),
+                new Duration(1, MINUTES),
+                Optional.of(new Duration(15, SECONDS)),
+                executor,
+                10000,
+                CachingHiveMetastore.StatsRecording.ENABLED,
+                cachingHiveMetastoreConfig.isCacheMissing(),
+                cachingHiveMetastoreConfig.isPartitionCacheEnabled());
 
         setup(databaseName, hiveConfig, metastore, hdfsEnvironment);
     }
@@ -2404,7 +2399,7 @@ public abstract class AbstractTestHive
             }
         })
                 .isInstanceOf(TrinoException.class)
-                .hasMessageMatching(".*The column 't_data' in table '.*\\.trino_test_partition_schema_change' is declared as type 'double', but partition 'ds=2012-12-29' declared column 't_data' as type 'string'.");
+                .hasMessageMatching(".*The column 't_data' in table '.*\\.trino_test_partition_schema_change' is declared as type 'float', but partition 'ds=2012-12-29' declared column 't_data' as type 'string'.");
     }
 
     // TODO coercion of non-canonical values should be supported
@@ -2783,7 +2778,7 @@ public abstract class AbstractTestHive
                 .setDatabaseName(schemaName)
                 .setTableName(tableName)
                 .setOwner(Optional.of(tableOwner))
-                .setTableType(TableType.MANAGED_TABLE.name())
+                .setTableType(MANAGED_TABLE.name())
                 .setParameters(ImmutableMap.of(
                         PRESTO_VERSION_NAME, TEST_SERVER_VERSION,
                         PRESTO_QUERY_ID_NAME, queryId))
@@ -3561,7 +3556,7 @@ public abstract class AbstractTestHive
                     .setDatabaseName(schemaName)
                     .setTableName(tableName)
                     .setOwner(Optional.of(tableOwner))
-                    .setTableType(TableType.MANAGED_TABLE.name())
+                    .setTableType(MANAGED_TABLE.name())
                     .setParameters(ImmutableMap.of(
                             PRESTO_VERSION_NAME, TEST_SERVER_VERSION,
                             PRESTO_QUERY_ID_NAME, session.getQueryId()))
@@ -5646,7 +5641,7 @@ public abstract class AbstractTestHive
                     .setDatabaseName(schemaName)
                     .setTableName(tableName)
                     .setOwner(Optional.of(tableOwner))
-                    .setTableType(TableType.MANAGED_TABLE.name())
+                    .setTableType(MANAGED_TABLE.name())
                     .setParameters(tableParamBuilder.buildOrThrow())
                     .setDataColumns(columns)
                     .setPartitionColumns(partitionColumns);

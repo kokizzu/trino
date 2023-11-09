@@ -47,6 +47,7 @@ import io.trino.testing.sql.TestTable;
 import io.trino.testing.sql.TestView;
 import io.trino.tpch.TpchTable;
 import org.intellij.lang.annotations.Language;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.testng.SkipException;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.DataProvider;
@@ -184,6 +185,7 @@ import static org.testng.Assert.fail;
 /**
  * Generic test for connectors.
  */
+@Isolated
 public abstract class BaseConnectorTest
         extends AbstractTestQueries
 {
@@ -5365,7 +5367,7 @@ public abstract class BaseConnectorTest
     public void testNoDataSystemTable()
     {
         assertQuerySucceeds("TABLE nation");
-        assertQueryFails("TABLE \"nation$data\"", "line 1:1: Table '\\w+.\\w+.nation\\$data' does not exist");
+        assertQueryFails("TABLE \"nation$data\"", "line 1:1: Table '\\w+.\\w+.\"nation\\$data\"' does not exist");
     }
 
     @Test(dataProvider = "testColumnNameDataProvider")

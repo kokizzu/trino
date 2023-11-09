@@ -310,11 +310,6 @@ public class HiveMetastoreClosure
         delegate.revokeRoles(roles, grantees, adminOption, grantor);
     }
 
-    public Set<RoleGrant> listGrantedPrincipals(String role)
-    {
-        return delegate.listGrantedPrincipals(role);
-    }
-
     public Set<RoleGrant> listRoleGrants(HivePrincipal principal)
     {
         return delegate.listRoleGrants(principal);
@@ -401,11 +396,6 @@ public class HiveMetastoreClosure
     public void updateTableWriteId(String dbName, String tableName, long transactionId, long writeId, OptionalLong rowCountChange)
     {
         delegate.updateTableWriteId(dbName, tableName, transactionId, writeId, rowCountChange);
-    }
-
-    public void alterPartitions(String dbName, String tableName, List<Partition> partitions, long writeId)
-    {
-        delegate.alterPartitions(dbName, tableName, partitions, writeId);
     }
 
     public void addDynamicPartitions(String dbName, String tableName, List<String> partitionNames, long transactionId, long writeId, AcidOperation operation)

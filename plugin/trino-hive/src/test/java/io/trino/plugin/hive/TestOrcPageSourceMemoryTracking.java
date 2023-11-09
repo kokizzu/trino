@@ -75,6 +75,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.parallel.Execution;
 
 import java.io.File;
 import java.lang.reflect.Constructor;
@@ -105,6 +106,7 @@ import static io.trino.plugin.hive.HivePageSourceProvider.ColumnMapping.buildCol
 import static io.trino.plugin.hive.HiveTestUtils.HDFS_FILE_SYSTEM_FACTORY;
 import static io.trino.plugin.hive.HiveTestUtils.SESSION;
 import static io.trino.plugin.hive.acid.AcidTransaction.NO_ACID_TRANSACTION;
+import static io.trino.plugin.hive.util.SerdeConstants.SERIALIZATION_LIB;
 import static io.trino.spi.type.VarcharType.createUnboundedVarcharType;
 import static io.trino.sql.relational.Expressions.field;
 import static io.trino.testing.TestingHandles.TEST_CATALOG_HANDLE;
@@ -119,13 +121,13 @@ import static java.util.concurrent.Executors.newScheduledThreadPool;
 import static java.util.stream.Collectors.toList;
 import static org.apache.hadoop.hive.metastore.api.hive_metastoreConstants.FILE_INPUT_FORMAT;
 import static org.apache.hadoop.hive.ql.io.orc.CompressionKind.ZLIB;
-import static org.apache.hadoop.hive.serde.serdeConstants.SERIALIZATION_LIB;
 import static org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorFactory.getStandardStructObjectInspector;
 import static org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory.javaStringObjectInspector;
 import static org.apache.hadoop.mapreduce.lib.output.FileOutputFormat.COMPRESS_CODEC;
 import static org.apache.hadoop.mapreduce.lib.output.FileOutputFormat.COMPRESS_TYPE;
 import static org.joda.time.DateTimeZone.UTC;
 import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS;
+import static org.junit.jupiter.api.parallel.ExecutionMode.CONCURRENT;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
@@ -133,6 +135,7 @@ import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
 @TestInstance(PER_CLASS)
+@Execution(CONCURRENT)
 public class TestOrcPageSourceMemoryTracking
 {
     private static final String ORC_RECORD_WRITER = OrcOutputFormat.class.getName() + "$OrcRecordWriter";
@@ -532,7 +535,7 @@ public class TestOrcPageSourceMemoryTracking
 
                 ObjectInspector inspector = testColumn.getObjectInspector();
                 HiveType hiveType = HiveType.valueOf(inspector.getTypeName());
-                Type type = hiveType.getType(TESTING_TYPE_MANAGER);
+                Type type = TESTING_TYPE_MANAGER.getType(hiveType.getTypeSignature());
 
                 columnsBuilder.add(createBaseColumn(testColumn.getName(), columnIndex, hiveType, type, testColumn.isPartitionKey() ? PARTITION_KEY : REGULAR, Optional.empty()));
                 typesBuilder.add(type);

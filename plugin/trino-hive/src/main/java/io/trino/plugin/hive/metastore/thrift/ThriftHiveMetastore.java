@@ -824,27 +824,6 @@ public class ThriftHiveMetastore
     }
 
     @Override
-    public Set<RoleGrant> listGrantedPrincipals(String role)
-    {
-        try {
-            return retry()
-                    .stopOn(MetaException.class)
-                    .stopOnIllegalExceptions()
-                    .run("listPrincipals", stats.getListGrantedPrincipals().wrap(() -> {
-                        try (ThriftMetastoreClient client = createMetastoreClient()) {
-                            return fromRolePrincipalGrants(client.listGrantedPrincipals(role));
-                        }
-                    }));
-        }
-        catch (TException e) {
-            throw new TrinoException(HIVE_METASTORE_ERROR, e);
-        }
-        catch (Exception e) {
-            throw propagate(e);
-        }
-    }
-
-    @Override
     public Set<RoleGrant> listRoleGrants(HivePrincipal principal)
     {
         try {
@@ -1964,28 +1943,6 @@ public class ThriftHiveMetastore
                     .stopOnIllegalExceptions()
                     .run("updateTableWriteId", stats.getUpdateTableWriteId().wrap(() -> {
                         alterTransactionalTable(table, transactionId, writeId);
-                        return null;
-                    }));
-        }
-        catch (TException e) {
-            throw new TrinoException(HIVE_METASTORE_ERROR, e);
-        }
-        catch (Exception e) {
-            throw propagate(e);
-        }
-    }
-
-    @Override
-    public void alterPartitions(String dbName, String tableName, List<Partition> partitions, long writeId)
-    {
-        checkArgument(writeId > 0, "writeId should be a positive integer, but was %s", writeId);
-        try {
-            retry()
-                    .stopOnIllegalExceptions()
-                    .run("alterPartitions", stats.getAlterPartitions().wrap(() -> {
-                        try (ThriftMetastoreClient metastoreClient = createMetastoreClient()) {
-                            metastoreClient.alterPartitions(dbName, tableName, partitions, writeId);
-                        }
                         return null;
                     }));
         }

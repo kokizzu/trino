@@ -433,12 +433,6 @@ public class BridgingHiveMetastore
     }
 
     @Override
-    public Set<RoleGrant> listGrantedPrincipals(String role)
-    {
-        return delegate.listGrantedPrincipals(role);
-    }
-
-    @Override
     public Set<RoleGrant> listRoleGrants(HivePrincipal principal)
     {
         return delegate.listRoleGrants(principal);
@@ -538,16 +532,6 @@ public class BridgingHiveMetastore
     public void updateTableWriteId(String dbName, String tableName, long transactionId, long writeId, OptionalLong rowCountChange)
     {
         delegate.updateTableWriteId(dbName, tableName, transactionId, writeId, rowCountChange);
-    }
-
-    @Override
-    public void alterPartitions(String dbName, String tableName, List<Partition> partitions, long writeId)
-    {
-        List<io.trino.hive.thrift.metastore.Partition> hadoopPartitions = partitions.stream()
-                .map(ThriftMetastoreUtil::toMetastoreApiPartition)
-                .peek(partition -> partition.setWriteId(writeId))
-                .collect(toImmutableList());
-        delegate.alterPartitions(dbName, tableName, hadoopPartitions, writeId);
     }
 
     @Override

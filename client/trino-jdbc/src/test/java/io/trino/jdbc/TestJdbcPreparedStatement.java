@@ -26,6 +26,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.parallel.Execution;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -61,6 +62,7 @@ import static io.trino.client.ClientTypeSignature.VARCHAR_UNBOUNDED_LENGTH;
 import static io.trino.jdbc.BaseTestJdbcResultSet.toSqlTime;
 import static io.trino.jdbc.TestingJdbcUtils.list;
 import static io.trino.jdbc.TestingJdbcUtils.readRows;
+import static io.trino.testing.TestingNames.randomNameSuffix;
 import static java.lang.String.format;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.sql.ParameterMetaData.parameterModeUnknown;
@@ -70,12 +72,14 @@ import static java.util.Objects.requireNonNull;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS;
+import static org.junit.jupiter.api.parallel.ExecutionMode.CONCURRENT;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
 @TestInstance(PER_CLASS)
+@Execution(CONCURRENT)
 public class TestJdbcPreparedStatement
 {
     private static final int HEADER_SIZE_LIMIT = 16 * 1024;
@@ -157,9 +161,10 @@ public class TestJdbcPreparedStatement
     private void testGetMetadata(boolean explicitPrepare)
             throws Exception
     {
+        String tableName = "test_get_metadata_" + randomNameSuffix();
         try (Connection connection = createConnection("blackhole", "blackhole", explicitPrepare)) {
             try (Statement statement = connection.createStatement()) {
-                statement.execute("CREATE TABLE test_get_metadata (" +
+                statement.execute("CREATE TABLE " + tableName + " (" +
                         "c_boolean boolean, " +
                         "c_decimal decimal, " +
                         "c_decimal_2 decimal(10,3)," +
@@ -171,13 +176,13 @@ public class TestJdbcPreparedStatement
             }
 
             try (PreparedStatement statement = connection.prepareStatement(
-                    "SELECT * FROM test_get_metadata")) {
+                    "SELECT * FROM " + tableName)) {
                 ResultSetMetaData metadata = statement.getMetaData();
                 assertEquals(metadata.getColumnCount(), 8);
                 for (int i = 1; i <= metadata.getColumnCount(); i++) {
                     assertEquals(metadata.getCatalogName(i), "blackhole");
                     assertEquals(metadata.getSchemaName(i), "blackhole");
-                    assertEquals(metadata.getTableName(i), "test_get_metadata");
+                    assertEquals(metadata.getTableName(i), tableName);
                 }
 
                 assertEquals(metadata.getColumnName(1), "c_boolean");
@@ -206,7 +211,7 @@ public class TestJdbcPreparedStatement
             }
 
             try (Statement statement = connection.createStatement()) {
-                statement.execute("DROP TABLE test_get_metadata");
+                statement.execute("DROP TABLE " + tableName);
             }
         }
     }
@@ -222,9 +227,10 @@ public class TestJdbcPreparedStatement
     private void testGetParameterMetaData(boolean explicitPrepare)
             throws Exception
     {
+        String tableName = "test_get_parameterMetaData_" + randomNameSuffix();
         try (Connection connection = createConnection("blackhole", "blackhole", explicitPrepare)) {
             try (Statement statement = connection.createStatement()) {
-                statement.execute("CREATE TABLE test_get_parameterMetaData (" +
+                statement.execute("CREATE TABLE " + tableName + " (" +
                         "c_boolean boolean, " +
                         "c_decimal decimal, " +
                         "c_decimal_2 decimal(10,3)," +
@@ -242,7 +248,7 @@ public class TestJdbcPreparedStatement
             }
 
             try (PreparedStatement statement = connection.prepareStatement(
-                    "SELECT ? FROM test_get_parameterMetaData WHERE c_boolean = ? AND c_decimal = ? " +
+                    "SELECT ? FROM " + tableName + " WHERE c_boolean = ? AND c_decimal = ? " +
                             "AND c_decimal_2 = ? AND c_varchar = ? AND c_varchar_2 = ? AND c_row = ? " +
                             "AND c_array = ? AND c_map = ? AND c_tinyint = ? AND c_integer = ? AND c_bigint = ? " +
                             "AND c_smallint = ? AND c_real = ? AND c_double = ?")) {
@@ -359,7 +365,7 @@ public class TestJdbcPreparedStatement
             }
 
             try (Statement statement = connection.createStatement()) {
-                statement.execute("DROP TABLE test_get_parameterMetaData");
+                statement.execute("DROP TABLE " + tableName);
             }
         }
     }
@@ -482,9 +488,10 @@ public class TestJdbcPreparedStatement
     public void testExecuteUpdate(boolean explicitPrepare)
             throws Exception
     {
+        String tableName = "test_execute_update_" + randomNameSuffix();
         try (Connection connection = createConnection("blackhole", "blackhole", explicitPrepare)) {
             try (Statement statement = connection.createStatement()) {
-                statement.execute("CREATE TABLE test_execute_update (" +
+                statement.execute("CREATE TABLE " + tableName + " (" +
                         "c_boolean boolean, " +
                         "c_bigint bigint, " +
                         "c_double double, " +
@@ -495,7 +502,7 @@ public class TestJdbcPreparedStatement
             }
 
             try (PreparedStatement statement = connection.prepareStatement(
-                    "INSERT INTO test_execute_update VALUES (?, ?, ?, ?, ?, ?, ?)")) {
+                    "INSERT INTO " + tableName + " VALUES (?, ?, ?, ?, ?, ?, ?)")) {
                 statement.setBoolean(1, true);
                 statement.setLong(2, 5L);
                 statement.setDouble(3, 7.0d);
@@ -512,7 +519,7 @@ public class TestJdbcPreparedStatement
             }
 
             try (Statement statement = connection.createStatement()) {
-                statement.execute("DROP TABLE test_execute_update");
+                statement.execute("DROP TABLE " + tableName);
             }
         }
     }
@@ -528,13 +535,14 @@ public class TestJdbcPreparedStatement
     private void testExecuteBatch(boolean explicitPrepare)
             throws Exception
     {
+        String tableName = "test_execute_batch_" + randomNameSuffix();
         try (Connection connection = createConnection("memory", "default", explicitPrepare)) {
             try (Statement statement = connection.createStatement()) {
-                statement.execute("CREATE TABLE test_execute_batch(c_int integer)");
+                statement.execute("CREATE TABLE " + tableName + "(c_int integer)");
             }
 
             try (PreparedStatement preparedStatement = connection.prepareStatement(
-                    "INSERT INTO test_execute_batch VALUES (?)")) {
+                    "INSERT INTO " + tableName + " VALUES (?)")) {
                 // Run executeBatch before addBatch
                 assertEquals(preparedStatement.executeBatch(), new int[] {});
 
@@ -545,7 +553,7 @@ public class TestJdbcPreparedStatement
                 assertEquals(preparedStatement.executeBatch(), new int[] {1, 1, 1});
 
                 try (Statement statement = connection.createStatement()) {
-                    ResultSet resultSet = statement.executeQuery("SELECT c_int FROM test_execute_batch");
+                    ResultSet resultSet = statement.executeQuery("SELECT c_int FROM " + tableName);
                     assertThat(readRows(resultSet))
                             .containsExactlyInAnyOrder(
                                     list(0),
@@ -566,7 +574,7 @@ public class TestJdbcPreparedStatement
             }
 
             try (Statement statement = connection.createStatement()) {
-                statement.execute("DROP TABLE test_execute_batch");
+                statement.execute("DROP TABLE " + tableName);
             }
         }
     }
@@ -582,13 +590,14 @@ public class TestJdbcPreparedStatement
     private void testInvalidExecuteBatch(boolean explicitPrepare)
             throws Exception
     {
+        String tableName = "test_execute_invalid_batch_" + randomNameSuffix();
         try (Connection connection = createConnection("blackhole", "blackhole", explicitPrepare)) {
             try (Statement statement = connection.createStatement()) {
-                statement.execute("CREATE TABLE test_invalid_execute_batch(c_int integer)");
+                statement.execute("CREATE TABLE " + tableName + "(c_int integer)");
             }
 
             try (PreparedStatement statement = connection.prepareStatement(
-                    "INSERT INTO test_invalid_execute_batch VALUES (?)")) {
+                    "INSERT INTO " + tableName + " VALUES (?)")) {
                 statement.setInt(1, 1);
                 statement.addBatch();
 
@@ -608,7 +617,7 @@ public class TestJdbcPreparedStatement
             }
 
             try (Statement statement = connection.createStatement()) {
-                statement.execute("DROP TABLE test_invalid_execute_batch");
+                statement.execute("DROP TABLE " + tableName);
             }
         }
     }
@@ -1420,12 +1429,13 @@ public class TestJdbcPreparedStatement
     private void testExplicitPrepareSetting(boolean explicitPrepare, String expectedSql)
             throws Exception
     {
-        String selectSql = "SELECT * FROM blackhole.blackhole.test_table WHERE x = ? AND y = ? AND y <> 'Test'";
-        String insertSql = "INSERT INTO blackhole.blackhole.test_table (x, y) VALUES (?, ?)";
+        String tableName = "test_table_" + randomNameSuffix();
+        String selectSql = "SELECT * FROM blackhole.blackhole." + tableName + " WHERE x = ? AND y = ? AND y <> 'Test'";
+        String insertSql = "INSERT INTO blackhole.blackhole." + tableName + " (x, y) VALUES (?, ?)";
 
         try (Connection connection = createConnection(explicitPrepare)) {
             try (Statement statement = connection.createStatement()) {
-                assertEquals(statement.executeUpdate("CREATE TABLE blackhole.blackhole.test_table (x bigint, y varchar)"), 0);
+                assertEquals(statement.executeUpdate("CREATE TABLE blackhole.blackhole." + tableName + " (x bigint, y varchar)"), 0);
             }
 
             try (PreparedStatement ps = connection.prepareStatement(selectSql)) {
@@ -1481,7 +1491,7 @@ public class TestJdbcPreparedStatement
             }
 
             try (Statement statement = connection.createStatement()) {
-                assertEquals(statement.executeUpdate("DROP TABLE blackhole.blackhole.test_table"), 0);
+                assertEquals(statement.executeUpdate("DROP TABLE blackhole.blackhole." + tableName), 0);
             }
         }
     }

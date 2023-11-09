@@ -316,12 +316,6 @@ public abstract class ForwardingHiveMetastore
     }
 
     @Override
-    public Set<RoleGrant> listGrantedPrincipals(String role)
-    {
-        return delegate.listGrantedPrincipals(role);
-    }
-
-    @Override
     public Set<RoleGrant> listRoleGrants(HivePrincipal principal)
     {
         return delegate.listRoleGrants(principal);
@@ -434,16 +428,6 @@ public abstract class ForwardingHiveMetastore
             OptionalLong rowCountChange)
     {
         delegate.updateTableWriteId(dbName, tableName, transactionId, writeId, rowCountChange);
-    }
-
-    @Override
-    public void alterPartitions(
-            String dbName,
-            String tableName,
-            List<Partition> partitions,
-            long writeId)
-    {
-        delegate.alterPartitions(dbName, tableName, partitions, writeId);
     }
 
     @Override
