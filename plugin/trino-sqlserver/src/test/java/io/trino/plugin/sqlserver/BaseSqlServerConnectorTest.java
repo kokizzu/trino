@@ -25,9 +25,7 @@ import io.trino.sql.planner.plan.FilterNode;
 import io.trino.testing.TestingConnectorBehavior;
 import io.trino.testing.sql.TestTable;
 import io.trino.testng.services.Flaky;
-import org.testng.SkipException;
-import org.testng.annotations.DataProvider;
-import org.testng.annotations.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
@@ -43,8 +41,7 @@ import static java.lang.String.format;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.IntStream.range;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertTrue;
+import static org.junit.jupiter.api.Assumptions.abort;
 
 public abstract class BaseSqlServerConnectorTest
         extends BaseJdbcConnectorTest
@@ -123,7 +120,7 @@ public abstract class BaseSqlServerConnectorTest
     public void testReadFromView()
     {
         onRemoteDatabase().execute("CREATE VIEW test_view AS SELECT * FROM orders");
-        assertTrue(getQueryRunner().tableExists(getSession(), "test_view"));
+        assertThat(getQueryRunner().tableExists(getSession(), "test_view")).isTrue();
         assertQuery("SELECT orderkey FROM test_view", "SELECT orderkey FROM orders");
         onRemoteDatabase().execute("DROP VIEW IF EXISTS test_view");
     }
@@ -153,7 +150,7 @@ public abstract class BaseSqlServerConnectorTest
                             "Lock request time out period exceeded|" +
                             // E.g. system.metadata.table_comments can return empty results, when underlying metadata list tables call fails
                             "Expecting actual not to be empty).*");
-            throw new SkipException("to be fixed");
+            abort("to be fixed");
         }
     }
 
@@ -468,8 +465,15 @@ public abstract class BaseSqlServerConnectorTest
                         ")");
     }
 
-    @Test(dataProvider = "dataCompression")
-    public void testCreateWithDataCompression(DataCompression dataCompression)
+    @Test
+    public void testCreateWithDataCompression()
+    {
+        testCreateWithDataCompression(NONE);
+        testCreateWithDataCompression(ROW);
+        testCreateWithDataCompression(PAGE);
+    }
+
+    private void testCreateWithDataCompression(DataCompression dataCompression)
     {
         String tableName = "test_create_with_compression_" + randomNameSuffix();
         String createQuery = format("CREATE TABLE sqlserver.dbo.%s (\n" +
@@ -483,19 +487,10 @@ public abstract class BaseSqlServerConnectorTest
                 dataCompression);
         assertUpdate(createQuery);
 
-        assertEquals(getQueryRunner().execute("SHOW CREATE TABLE " + tableName).getOnlyValue(), createQuery);
+        assertThat(getQueryRunner().execute("SHOW CREATE TABLE " + tableName).getOnlyValue())
+                .isEqualTo(createQuery);
 
         assertUpdate("DROP TABLE " + tableName);
-    }
-
-    @DataProvider
-    public Object[][] dataCompression()
-    {
-        return new Object[][] {
-                {NONE},
-                {ROW},
-                {PAGE}
-        };
     }
 
     @Test
@@ -587,6 +582,7 @@ public abstract class BaseSqlServerConnectorTest
                 ".*\\QConversion failed when converting date and/or time from character string.\\E");
     }
 
+    @Test
     @Override
     public void testNativeQuerySimple()
     {

@@ -47,10 +47,12 @@ import io.trino.spi.connector.ConnectorSplit;
 import io.trino.sql.planner.plan.PlanNodeId;
 import io.trino.testing.TestingSession;
 import io.trino.util.FinalizerService;
-import org.testng.annotations.AfterMethod;
-import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.DataProvider;
-import org.testng.annotations.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.parallel.Execution;
 
 import java.net.InetAddress;
 import java.net.URI;
@@ -85,11 +87,14 @@ import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.Executors.newCachedThreadPool;
 import static java.util.concurrent.Executors.newScheduledThreadPool;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_METHOD;
+import static org.junit.jupiter.api.parallel.ExecutionMode.SAME_THREAD;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
-@Test(singleThreaded = true)
+@TestInstance(PER_METHOD)
+@Execution(SAME_THREAD)
 public class TestNodeScheduler
 {
     private FinalizerService finalizerService;
@@ -103,7 +108,7 @@ public class TestNodeScheduler
     private ScheduledExecutorService remoteTaskScheduledExecutor;
     private Session session;
 
-    @BeforeMethod
+    @BeforeEach
     public void setUp()
     {
         session = TestingSession.testSessionBuilder().build();
@@ -135,7 +140,7 @@ public class TestNodeScheduler
                 new InternalNode("other3", URI.create("http://10.0.0.1:13"), NodeVersion.UNKNOWN, false));
     }
 
-    @AfterMethod(alwaysRun = true)
+    @AfterEach
     public void tearDown()
     {
         remoteTaskExecutor.shutdown();
@@ -173,7 +178,8 @@ public class TestNodeScheduler
         assertEquals(assignment.getValue(), split);
     }
 
-    @Test(timeOut = 60 * 1000)
+    @Test
+    @Timeout(60)
     public void testTopologyAwareScheduling()
     {
         NodeTaskMap nodeTaskMap = new NodeTaskMap(finalizerService);
@@ -652,27 +658,27 @@ public class TestNodeScheduler
         assertEquals(assignment.get(node4).size(), 4);
     }
 
-    @DataProvider
-    public static Object[][] equateDistributionTestParameters()
+    @Test
+    public void testEquateDistributionConsistentHashing()
     {
-        return new Object[][] {
-                {5, 10, 0.00},
-                {5, 20, 0.055},
-                {10, 50, 0.00},
-                {10, 100, 0.045},
-                {10, 200, 0.090},
-                {50, 550, 0.045},
-                {50, 600, 0.047},
-                {50, 700, 0.045},
-                {100, 550, 0.036},
-                {100, 600, 0.054},
-                {100, 1000, 0.039},
-                {100, 1500, 0.045}};
+        testEquateDistributionConsistentHashing(5, 10, 0.00);
+        testEquateDistributionConsistentHashing(5, 20, 0.055);
+        testEquateDistributionConsistentHashing(10, 50, 0.00);
+        testEquateDistributionConsistentHashing(10, 100, 0.045);
+        testEquateDistributionConsistentHashing(10, 200, 0.090);
+        testEquateDistributionConsistentHashing(50, 550, 0.045);
+        testEquateDistributionConsistentHashing(50, 600, 0.047);
+        testEquateDistributionConsistentHashing(50, 700, 0.045);
+        testEquateDistributionConsistentHashing(100, 550, 0.036);
+        testEquateDistributionConsistentHashing(100, 600, 0.054);
+        testEquateDistributionConsistentHashing(100, 1000, 0.039);
+        testEquateDistributionConsistentHashing(100, 1500, 0.045);
     }
 
-    @Test(dataProvider = "equateDistributionTestParameters")
-    public void testEquateDistributionConsistentHashing(int numberOfNodes, int numberOfSplits, double misassignedSplitsRatio)
+    private void testEquateDistributionConsistentHashing(int numberOfNodes, int numberOfSplits, double misassignedSplitsRatio)
     {
+        setUp();
+
         ImmutableList.Builder<InternalNode> nodesBuilder = ImmutableList.builder();
         for (int i = 0; i < numberOfNodes; ++i) {
             InternalNode node = new InternalNode("node" + i, URI.create("http://10.0.0.1:" + (i + 10)), NodeVersion.UNKNOWN, false);

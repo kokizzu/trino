@@ -113,11 +113,11 @@ public class TestDeltaLakeGlueMetastore
                 .put("delta.hide-non-delta-lake-tables", "true")
                 .buildOrThrow();
 
+        ConnectorContext context = new TestingConnectorContext();
         Bootstrap app = new Bootstrap(
                 // connector dependencies
                 new JsonModule(),
                 binder -> {
-                    ConnectorContext context = new TestingConnectorContext();
                     binder.bind(CatalogName.class).toInstance(new CatalogName("test"));
                     binder.bind(TypeManager.class).toInstance(context.getTypeManager());
                     binder.bind(NodeManager.class).toInstance(context.getNodeManager());
@@ -130,7 +130,7 @@ public class TestDeltaLakeGlueMetastore
                 new DeltaLakeMetastoreModule(),
                 new DeltaLakeModule(),
                 // test setup
-                new FileSystemModule());
+                new FileSystemModule("test", context.getNodeManager(), context.getOpenTelemetry()));
 
         Injector injector = app
                 .doNotInitializeLogging()
@@ -243,6 +243,8 @@ public class TestDeltaLakeGlueMetastore
                 .isEmpty();
         assertThat(listTableColumns(metadata, new SchemaTablePrefix(databaseName, nonDeltaLakeView1.getTableName())))
                 .isEmpty();
+
+        metadata.cleanupQuery(session);
     }
 
     private Set<SchemaTableName> listTableColumns(DeltaLakeMetadata metadata, SchemaTablePrefix tablePrefix)

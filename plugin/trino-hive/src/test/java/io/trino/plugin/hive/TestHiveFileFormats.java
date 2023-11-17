@@ -152,6 +152,8 @@ import static io.trino.plugin.hive.HiveTestUtils.SESSION;
 import static io.trino.plugin.hive.HiveTestUtils.getHiveSession;
 import static io.trino.plugin.hive.HiveTestUtils.mapType;
 import static io.trino.plugin.hive.acid.AcidTransaction.NO_ACID_TRANSACTION;
+import static io.trino.plugin.hive.util.SerdeConstants.LIST_COLUMNS;
+import static io.trino.plugin.hive.util.SerdeConstants.LIST_COLUMN_TYPES;
 import static io.trino.plugin.hive.util.SerdeConstants.SERIALIZATION_LIB;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
@@ -938,10 +940,6 @@ public final class TestHiveFileFormats
             int rowCount)
             throws IOException
     {
-        Properties splitProperties = new Properties();
-        splitProperties.setProperty(FILE_INPUT_FORMAT, storageFormat.getInputFormat());
-        splitProperties.setProperty(SERIALIZATION_LIB, storageFormat.getSerde());
-
         // Use full columns in split properties
         ImmutableList.Builder<String> splitPropertiesColumnNames = ImmutableList.builder();
         ImmutableList.Builder<String> splitPropertiesColumnTypes = ImmutableList.builder();
@@ -956,8 +954,12 @@ public final class TestHiveFileFormats
             }
         }
 
-        splitProperties.setProperty("columns", String.join(",", splitPropertiesColumnNames.build()));
-        splitProperties.setProperty("columns.types", String.join(",", splitPropertiesColumnTypes.build()));
+        Map<String, String> splitProperties = ImmutableMap.<String, String>builder()
+                .put(FILE_INPUT_FORMAT, storageFormat.getInputFormat())
+                .put(SERIALIZATION_LIB, storageFormat.getSerde())
+                .put(LIST_COLUMNS, String.join(",", splitPropertiesColumnNames.build()))
+                .put(LIST_COLUMN_TYPES, String.join(",", splitPropertiesColumnTypes.build()))
+                .buildOrThrow();
 
         List<HivePartitionKey> partitionKeys = testReadColumns.stream()
                 .filter(TestColumn::partitionKey)
@@ -1317,20 +1319,10 @@ public final class TestHiveFileFormats
         }
         Page page = pageBuilder.build();
 
-        Properties tableProperties = new Properties();
-        tableProperties.setProperty(
-                "columns",
-                testColumns.stream()
-                        .map(TestColumn::name)
-                        .collect(Collectors.joining(",")));
-
-        tableProperties.setProperty(
-                "columns.types",
-                testColumns.stream()
-                        .map(TestColumn::type)
-                        .map(HiveType::toHiveType)
-                        .map(HiveType::toString)
-                        .collect(Collectors.joining(",")));
+        Map<String, String> tableProperties = ImmutableMap.<String, String>builder()
+                .put(LIST_COLUMNS, testColumns.stream().map(TestColumn::name).collect(Collectors.joining(",")))
+                .put(LIST_COLUMN_TYPES, testColumns.stream().map(TestColumn::type).map(HiveType::toHiveType).map(HiveType::toString).collect(Collectors.joining(",")))
+                .buildOrThrow();
 
         Optional<FileWriter> fileWriter = fileWriterFactory.createFileWriter(
                 location,
@@ -1470,8 +1462,8 @@ public final class TestHiveFileFormats
                 .collect(toImmutableList());
 
         Properties tableProperties = new Properties();
-        tableProperties.setProperty("columns", testColumns.stream().map(TestColumn::name).collect(Collectors.joining(",")));
-        tableProperties.setProperty("columns.types", testColumns.stream().map(testColumn -> HiveType.toHiveType(testColumn.type()).toString()).collect(Collectors.joining(",")));
+        tableProperties.setProperty(LIST_COLUMNS, testColumns.stream().map(TestColumn::name).collect(Collectors.joining(",")));
+        tableProperties.setProperty(LIST_COLUMN_TYPES, testColumns.stream().map(testColumn -> HiveType.toHiveType(testColumn.type()).toString()).collect(Collectors.joining(",")));
         serializer.initialize(new Configuration(false), tableProperties);
 
         JobConf jobConf = new JobConf(false);

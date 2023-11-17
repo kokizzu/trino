@@ -48,11 +48,14 @@ import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.Range;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.predicate.ValueSet;
-import io.trino.testing.DataProviders;
 import org.apache.thrift.TException;
-import org.testng.annotations.AfterClass;
-import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.RepeatedTest;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.parallel.Execution;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -113,12 +116,15 @@ import static java.util.concurrent.Executors.newCachedThreadPool;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static java.util.function.Function.identity;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS;
+import static org.junit.jupiter.api.parallel.ExecutionMode.SAME_THREAD;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 
-@Test(singleThreaded = true)
+@TestInstance(PER_CLASS)
+@Execution(SAME_THREAD)
 public class TestCachingHiveMetastore
 {
     private static final Logger log = Logger.get(TestCachingHiveMetastore.class);
@@ -137,7 +143,7 @@ public class TestCachingHiveMetastore
     private CachingHiveMetastore statsOnlyCacheMetastore;
     private ThriftMetastoreStats stats;
 
-    @BeforeMethod
+    @BeforeEach
     public void setUp()
     {
         mockClient = new MockThriftMetastoreClient();
@@ -150,7 +156,7 @@ public class TestCachingHiveMetastore
         stats = ((ThriftHiveMetastore) thriftHiveMetastore).getStats();
     }
 
-    @AfterClass(alwaysRun = true)
+    @AfterAll
     public void tearDown()
     {
         executor.shutdownNow();
@@ -358,7 +364,8 @@ public class TestCachingHiveMetastore
      * here simulated with an explicit invalidation.
      */
     // Repeat test with invocationCount for better test coverage, since the tested aspect is inherently non-deterministic.
-    @Test(timeOut = 60_000, invocationCount = 20)
+    @RepeatedTest(20)
+    @Timeout(60)
     public void testGetPartitionThenGetPartitionsRacingWithInvalidation()
             throws Exception
     {
@@ -928,8 +935,16 @@ public class TestCachingHiveMetastore
         assertEquals(metastore.getDatabaseNamesStats().getRequestCount(), 0);
     }
 
-    @Test(timeOut = 60_000, dataProviderClass = DataProviders.class, dataProvider = "trueFalse")
-    public void testLoadAfterInvalidate(boolean invalidateAll)
+    @Test
+    @Timeout(60)
+    public void testLoadAfterInvalidate()
+            throws Exception
+    {
+        testLoadAfterInvalidate(true);
+        testLoadAfterInvalidate(false);
+    }
+
+    private void testLoadAfterInvalidate(boolean invalidateAll)
             throws Exception
     {
         // State

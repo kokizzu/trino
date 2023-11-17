@@ -33,14 +33,20 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Properties;
 
 import static io.airlift.slice.Slices.utf8Slice;
+import static io.trino.hive.thrift.metastore.hive_metastoreConstants.FILE_INPUT_FORMAT;
+import static io.trino.hive.thrift.metastore.hive_metastoreConstants.FILE_OUTPUT_FORMAT;
 import static io.trino.plugin.hive.HiveColumnHandle.ColumnType.PARTITION_KEY;
 import static io.trino.plugin.hive.HiveColumnHandle.bucketColumnHandle;
+import static io.trino.plugin.hive.HiveTableProperties.BUCKET_COUNT_PROPERTY;
 import static io.trino.plugin.hive.HiveType.HIVE_STRING;
 import static io.trino.plugin.hive.metastore.MetastoreUtil.computePartitionKeyFilter;
 import static io.trino.plugin.hive.metastore.PrincipalPrivileges.NO_PRIVILEGES;
+import static io.trino.plugin.hive.util.SerdeConstants.LIST_COLUMNS;
+import static io.trino.plugin.hive.util.SerdeConstants.LIST_COLUMN_COMMENTS;
+import static io.trino.plugin.hive.util.SerdeConstants.LIST_COLUMN_TYPES;
+import static io.trino.plugin.hive.util.SerdeConstants.SERIALIZATION_LIB;
 import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -137,13 +143,13 @@ public class TestMetastoreUtil
     //   Properties expected = MetaStoreUtils.getTableMetadata(TEST_TABLE_WITH_UNSUPPORTED_FIELDS);
     //   expected.remove(COLUMN_NAME_DELIMITER);
     private static final Map<String, String> TEST_TABLE_METADATA = ImmutableMap.<String, String>builder()
-            .put("bucket_count", "100")
+            .put(BUCKET_COUNT_PROPERTY, "100")
             .put("bucket_field_name", "col2,col3")
-            .put("columns", "col1,col2,col3")
-            .put("columns.comments", "comment1\0\0")
-            .put("columns.types", "bigint:binary:string")
-            .put("file.inputformat", "com.facebook.hive.orc.OrcInputFormat")
-            .put("file.outputformat", "com.facebook.hive.orc.OrcOutputFormat")
+            .put(LIST_COLUMNS, "col1,col2,col3")
+            .put(LIST_COLUMN_COMMENTS, "comment1\0\0")
+            .put(LIST_COLUMN_TYPES, "bigint:binary:string")
+            .put(FILE_INPUT_FORMAT, "com.facebook.hive.orc.OrcInputFormat")
+            .put(FILE_OUTPUT_FORMAT, "com.facebook.hive.orc.OrcOutputFormat")
             .put("k1", "v1")
             .put("k2", "v2")
             .put("k3", "v3")
@@ -153,7 +159,7 @@ public class TestMetastoreUtil
             .put("partition_columns.types", "string:string")
             .put("sdk1", "sdv1")
             .put("sdk2", "sdv2")
-            .put("serialization.lib", "com.facebook.hive.orc.OrcSerde")
+            .put(SERIALIZATION_LIB, "com.facebook.hive.orc.OrcSerde")
             .buildOrThrow();
 
     @Test
@@ -175,14 +181,14 @@ public class TestMetastoreUtil
     @Test
     public void testHiveSchemaTable()
     {
-        Properties actual = MetastoreUtil.getHiveSchema(ThriftMetastoreUtil.fromMetastoreApiTable(TEST_TABLE_WITH_UNSUPPORTED_FIELDS, TEST_SCHEMA));
+        Map<String, String> actual = MetastoreUtil.getHiveSchema(ThriftMetastoreUtil.fromMetastoreApiTable(TEST_TABLE_WITH_UNSUPPORTED_FIELDS, TEST_SCHEMA));
         assertEquals(actual, TEST_TABLE_METADATA);
     }
 
     @Test
     public void testHiveSchemaPartition()
     {
-        Properties actual = MetastoreUtil.getHiveSchema(ThriftMetastoreUtil.fromMetastoreApiPartition(TEST_PARTITION_WITH_UNSUPPORTED_FIELDS), ThriftMetastoreUtil.fromMetastoreApiTable(TEST_TABLE_WITH_UNSUPPORTED_FIELDS, TEST_SCHEMA));
+        Map<String, String> actual = MetastoreUtil.getHiveSchema(ThriftMetastoreUtil.fromMetastoreApiPartition(TEST_PARTITION_WITH_UNSUPPORTED_FIELDS), ThriftMetastoreUtil.fromMetastoreApiTable(TEST_TABLE_WITH_UNSUPPORTED_FIELDS, TEST_SCHEMA));
         assertEquals(actual, TEST_TABLE_METADATA);
     }
 
@@ -192,10 +198,10 @@ public class TestMetastoreUtil
         List<FieldSchema> testSchema = TEST_SCHEMA.stream()
                 .map(fieldSchema -> new FieldSchema(fieldSchema.getName(), fieldSchema.getType().toUpperCase(Locale.ENGLISH), fieldSchema.getComment()))
                 .toList();
-        Properties actualTable = MetastoreUtil.getHiveSchema(ThriftMetastoreUtil.fromMetastoreApiTable(TEST_TABLE_WITH_UNSUPPORTED_FIELDS, testSchema));
+        Map<String, String> actualTable = MetastoreUtil.getHiveSchema(ThriftMetastoreUtil.fromMetastoreApiTable(TEST_TABLE_WITH_UNSUPPORTED_FIELDS, testSchema));
         assertEquals(actualTable, TEST_TABLE_METADATA);
 
-        Properties actualPartition = MetastoreUtil.getHiveSchema(ThriftMetastoreUtil.fromMetastoreApiPartition(TEST_PARTITION_WITH_UNSUPPORTED_FIELDS), ThriftMetastoreUtil.fromMetastoreApiTable(TEST_TABLE_WITH_UNSUPPORTED_FIELDS, testSchema));
+        Map<String, String> actualPartition = MetastoreUtil.getHiveSchema(ThriftMetastoreUtil.fromMetastoreApiPartition(TEST_PARTITION_WITH_UNSUPPORTED_FIELDS), ThriftMetastoreUtil.fromMetastoreApiTable(TEST_TABLE_WITH_UNSUPPORTED_FIELDS, testSchema));
         assertEquals(actualPartition, TEST_TABLE_METADATA);
     }
 

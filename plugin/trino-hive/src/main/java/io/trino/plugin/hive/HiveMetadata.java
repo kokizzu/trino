@@ -142,7 +142,6 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
-import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
@@ -1586,6 +1585,8 @@ public class HiveMetadata
     @Override
     public void finishStatisticsCollection(ConnectorSession session, ConnectorTableHandle tableHandle, Collection<ComputedStatistics> computedStatistics)
     {
+        verify(isStatisticsEnabled(session), "statistics not enabled");
+
         HiveTableHandle handle = (HiveTableHandle) tableHandle;
         SchemaTableName tableName = handle.getSchemaTableName();
         Table table = metastore.getTable(tableName.getSchemaName(), tableName.getTableName())
@@ -1934,7 +1935,7 @@ public class HiveMetadata
 
     private void createEmptyFiles(ConnectorSession session, Location path, Table table, Optional<Partition> partition, List<String> fileNames)
     {
-        Properties schema;
+        Map<String, String> schema;
         StorageFormat format;
         if (partition.isPresent()) {
             schema = getHiveSchema(partition.get(), table);
@@ -2996,7 +2997,7 @@ public class HiveMetadata
             unenforcedConstraint = partitionResult.getEffectivePredicate().filter((column, domain) -> !partitionColumns.contains(column));
         }
 
-        return Optional.of(new ConstraintApplicationResult<>(newHandle, unenforcedConstraint, false));
+        return Optional.of(new ConstraintApplicationResult<>(newHandle, unenforcedConstraint, constraint.getExpression(), false));
     }
 
     @Override
@@ -3453,6 +3454,9 @@ public class HiveMetadata
     {
         if (!isCollectColumnStatisticsOnWrite(session)) {
             return TableStatisticsMetadata.empty();
+        }
+        if (!isStatisticsEnabled(session)) {
+            throw new TrinoException(NOT_SUPPORTED, "Table statistics must be enabled when column statistics collection on write is enabled");
         }
         if (isTransactional(tableMetadata.getProperties()).orElse(false)) {
             // TODO(https://github.com/trinodb/trino/issues/1956) updating table statistics for transactional not supported right now.
