@@ -206,8 +206,17 @@ public class UnnestingPositionsAppender
     public long getSizeInBytes()
     {
         return delegate.getSizeInBytes() +
-                // dictionary size is not included due to the expense of the calculation
+                // dictionary size is not included due to the expense of the calculation, but we can account for the ids size
+                (dictionaryIdsBuilder.size() * (long) Integer.BYTES) +
                 (rleValue != null ? rleValue.getSizeInBytes() : 0);
+    }
+
+    void addSizesToAccumulator(PositionsAppenderSizeAccumulator accumulator)
+    {
+        long sizeInBytes = getSizeInBytes();
+        // dictionary size is not included due to the expense of the calculation, so this will under-report for dictionaries
+        long directSizeInBytes = (rleValue == null) ? sizeInBytes : (rleValue.getSizeInBytes() * rlePositionCount);
+        accumulator.accumulate(sizeInBytes, directSizeInBytes);
     }
 
     private static class DictionaryIdsBuilder

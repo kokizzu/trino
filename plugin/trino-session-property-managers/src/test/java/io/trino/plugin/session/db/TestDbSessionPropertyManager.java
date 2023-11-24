@@ -137,28 +137,32 @@ public class TestDbSessionPropertyManager
         SessionConfigurationContext context1 = new SessionConfigurationContext("foo123", Optional.of("src1"),
                 ImmutableSet.of(), Optional.empty(), TEST_RG);
         Map<String, String> sessionProperties1 = manager.getSystemSessionProperties(context1);
-        assertThat(sessionProperties1.get("prop_1")).isEqualTo("val_1");
-        assertThat(sessionProperties1.containsKey("prop_2")).isFalse();
+        assertThat(sessionProperties1)
+                .containsEntry("prop_1", "val_1")
+                .doesNotContainKey("prop_2");
 
         specsProvider.refresh();
         SessionConfigurationContext context2 = new SessionConfigurationContext("bar123", Optional.of("bar123"),
                 ImmutableSet.of(), Optional.empty(), TEST_RG);
         Map<String, String> sessionProperties2 = manager.getSystemSessionProperties(context2);
-        assertThat(sessionProperties2.get("prop_2")).isEqualTo("val_2");
-        assertThat(sessionProperties2.containsKey("prop_1")).isFalse();
+        assertThat(sessionProperties2)
+                .doesNotContainKey("prop_1")
+                .containsEntry("prop_2", "val_2");
 
         specsProvider.refresh();
         SessionConfigurationContext context3 = new SessionConfigurationContext("foo123", Optional.of("bar123"),
                 ImmutableSet.of(), Optional.empty(), TEST_RG);
         Map<String, String> sessionProperties3 = manager.getSystemSessionProperties(context3);
-        assertThat(sessionProperties3.get("prop_1")).isEqualTo("val_1");
-        assertThat(sessionProperties3.get("prop_2")).isEqualTo("val_2");
+        assertThat(sessionProperties3)
+                .containsEntry("prop_1", "val_1")
+                .containsEntry("prop_2", "val_2");
 
         specsProvider.refresh();
         SessionConfigurationContext context4 = new SessionConfigurationContext("abc", Optional.empty(), ImmutableSet.of(), Optional.empty(), TEST_RG);
         Map<String, String> sessionProperties4 = manager.getSystemSessionProperties(context4);
-        assertThat(sessionProperties4.containsKey("prop_1")).isFalse();
-        assertThat(sessionProperties4.containsKey("prop_2")).isFalse();
+        assertThat(sessionProperties4)
+                .doesNotContainKey("prop_1")
+                .doesNotContainKey("prop_2");
     }
 
     /**
@@ -189,8 +193,8 @@ public class TestDbSessionPropertyManager
         // Failed reloading, use cached configurations
         assertThat(failuresAfter - failuresBefore).isEqualTo(1);
         Map<String, String> sessionProperties1 = manager.getSystemSessionProperties(context1);
-        assertThat(sessionProperties1.get("prop_1")).isEqualTo("val_1");
-        assertThat(sessionProperties1.get("prop_3")).isEqualTo(null);
+        assertThat(sessionProperties1).containsEntry("prop_1", "val_1");
+        assertThat(sessionProperties1).doesNotContainKey("prop_3");
     }
 
     /**
@@ -215,9 +219,9 @@ public class TestDbSessionPropertyManager
 
         SessionConfigurationContext context = new SessionConfigurationContext("foo", Optional.of("bar"), ImmutableSet.of(), Optional.empty(), TEST_RG);
         Map<String, String> sessionProperties = manager.getSystemSessionProperties(context);
-        assertThat(sessionProperties.get("prop_1")).isEqualTo("val_1_3");
-        assertThat(sessionProperties.get("prop_2")).isEqualTo("val_2_2");
-        assertThat(sessionProperties.get("prop_3")).isEqualTo("val_3_1");
+        assertThat(sessionProperties).containsEntry("prop_1", "val_1_3");
+        assertThat(sessionProperties).containsEntry("prop_2", "val_2_2");
+        assertThat(sessionProperties).containsEntry("prop_3", "val_3_1");
         assertThat(sessionProperties.size()).isEqualTo(3);
     }
 

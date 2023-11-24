@@ -165,6 +165,7 @@ import static io.trino.spi.StandardErrorCode.NOT_FOUND;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.StandardErrorCode.SCHEMA_NOT_FOUND;
 import static io.trino.spi.StandardErrorCode.SYNTAX_ERROR;
+import static io.trino.spi.StandardErrorCode.TABLE_NOT_FOUND;
 import static io.trino.spi.StandardErrorCode.TABLE_REDIRECTION_ERROR;
 import static io.trino.spi.StandardErrorCode.UNSUPPORTED_TABLE_TYPE;
 import static io.trino.spi.connector.MaterializedViewFreshness.Freshness.STALE;
@@ -270,9 +271,7 @@ public final class MetadataManager
     public Optional<TableHandle> getTableHandle(Session session, QualifiedObjectName table, Optional<TableVersion> startVersion, Optional<TableVersion> endVersion)
     {
         requireNonNull(table, "table is null");
-
-        if (table.getCatalogName().isEmpty() || table.getSchemaName().isEmpty() || table.getObjectName().isEmpty()) {
-            // Table cannot exist
+        if (cannotExist(table)) {
             return Optional.empty();
         }
 
@@ -506,6 +505,9 @@ public final class MetadataManager
     public List<QualifiedObjectName> listTables(Session session, QualifiedTablePrefix prefix)
     {
         requireNonNull(prefix, "prefix is null");
+        if (cannotExist(prefix)) {
+            return ImmutableList.of();
+        }
 
         Optional<QualifiedObjectName> objectName = prefix.asQualifiedObjectName();
         if (objectName.isPresent()) {
@@ -562,17 +564,13 @@ public final class MetadataManager
     public List<TableColumnsMetadata> listTableColumns(Session session, QualifiedTablePrefix prefix, UnaryOperator<Set<SchemaTableName>> relationFilter)
     {
         requireNonNull(prefix, "prefix is null");
+        if (cannotExist(prefix)) {
+            return ImmutableList.of();
+        }
 
         String catalogName = prefix.getCatalogName();
         Optional<String> schemaName = prefix.getSchemaName();
         Optional<String> relationName = prefix.getTableName();
-
-        if (catalogName.isEmpty() ||
-                (schemaName.isPresent() && schemaName.get().isEmpty()) ||
-                (relationName.isPresent() && relationName.get().isEmpty())) {
-            // Cannot exist
-            return ImmutableList.of();
-        }
 
         if (relationName.isPresent()) {
             QualifiedObjectName objectName = new QualifiedObjectName(catalogName, schemaName.orElseThrow(), relationName.get());
@@ -600,6 +598,7 @@ public final class MetadataManager
                                 ErrorCode errorCode = trinoException.getErrorCode();
                                 silent = errorCode.equals(UNSUPPORTED_TABLE_TYPE.toErrorCode()) ||
                                         // e.g. table deleted concurrently
+                                        errorCode.equals(TABLE_NOT_FOUND.toErrorCode()) ||
                                         errorCode.equals(NOT_FOUND.toErrorCode()) ||
                                         // e.g. Iceberg/Delta table being deleted concurrently resulting in failure to load metadata from filesystem
                                         errorCode.getType() == EXTERNAL;
@@ -698,6 +697,10 @@ public final class MetadataManager
     @Override
     public List<RelationCommentMetadata> listRelationComments(Session session, String catalogName, Optional<String> schemaName, UnaryOperator<Set<SchemaTableName>> relationFilter)
     {
+        if (cannotExist(new QualifiedTablePrefix(catalogName, schemaName, Optional.empty()))) {
+            return ImmutableList.of();
+        }
+
         Optional<CatalogMetadata> catalog = getOptionalCatalogMetadata(session, catalogName);
 
         ImmutableList.Builder<RelationCommentMetadata> tableComments = ImmutableList.builder();
@@ -1260,6 +1263,9 @@ public final class MetadataManager
     public List<QualifiedObjectName> listViews(Session session, QualifiedTablePrefix prefix)
     {
         requireNonNull(prefix, "prefix is null");
+        if (cannotExist(prefix)) {
+            return ImmutableList.of();
+        }
 
         Optional<QualifiedObjectName> objectName = prefix.asQualifiedObjectName();
         if (objectName.isPresent()) {
@@ -1293,6 +1299,9 @@ public final class MetadataManager
     public Map<QualifiedObjectName, ViewInfo> getViews(Session session, QualifiedTablePrefix prefix)
     {
         requireNonNull(prefix, "prefix is null");
+        if (cannotExist(prefix)) {
+            return ImmutableMap.of();
+        }
 
         Optional<CatalogMetadata> catalog = getOptionalCatalogMetadata(session, prefix.getCatalogName());
 
@@ -1407,8 +1416,7 @@ public final class MetadataManager
 
     private Optional<ConnectorViewDefinition> getViewInternal(Session session, QualifiedObjectName viewName)
     {
-        if (viewName.getCatalogName().isEmpty() || viewName.getSchemaName().isEmpty() || viewName.getObjectName().isEmpty()) {
-            // View cannot exist
+        if (cannotExist(viewName)) {
             return Optional.empty();
         }
 
@@ -1597,11 +1605,13 @@ public final class MetadataManager
     public Optional<MaterializedViewDefinition> getMaterializedView(Session session, QualifiedObjectName viewName)
     {
         Optional<ConnectorMaterializedViewDefinition> connectorView = getMaterializedViewInternal(session, viewName);
-        if (connectorView.isEmpty() || isCatalogManagedSecurity(session, viewName.getCatalogName())) {
-            return connectorView.map(view -> {
-                String runAsUser = view.getOwner().orElseThrow(() -> new TrinoException(INVALID_VIEW, "Owner not set for a run-as invoker view: " + viewName));
-                return createMaterializedViewDefinition(view, Identity.ofUser(runAsUser));
-            });
+        if (connectorView.isEmpty()) {
+            return Optional.empty();
+        }
+
+        if (isCatalogManagedSecurity(session, viewName.getCatalogName())) {
+            String runAsUser = connectorView.get().getOwner().orElseThrow(() -> new TrinoException(INVALID_VIEW, "Owner not set for a run-as invoker view: " + viewName));
+            return Optional.of(createMaterializedViewDefinition(connectorView.get(), Identity.ofUser(runAsUser)));
         }
 
         Identity runAsIdentity = systemSecurityMetadata.getViewRunAsIdentity(session, viewName.asCatalogSchemaTableName())
@@ -1629,8 +1639,7 @@ public final class MetadataManager
 
     private Optional<ConnectorMaterializedViewDefinition> getMaterializedViewInternal(Session session, QualifiedObjectName viewName)
     {
-        if (viewName.getCatalogName().isEmpty() || viewName.getSchemaName().isEmpty() || viewName.getObjectName().isEmpty()) {
-            // View cannot exist
+        if (cannotExist(viewName)) {
             return Optional.empty();
         }
 
@@ -1658,7 +1667,7 @@ public final class MetadataManager
             ConnectorSession connectorSession = session.toConnectorSession(catalogHandle);
             return metadata.getMaterializedViewFreshness(connectorSession, viewName.asSchemaTableName());
         }
-        return new MaterializedViewFreshness(STALE);
+        return new MaterializedViewFreshness(STALE, Optional.empty());
     }
 
     @Override
@@ -1720,9 +1729,7 @@ public final class MetadataManager
     {
         requireNonNull(session, "session is null");
         requireNonNull(originalTableName, "originalTableName is null");
-
-        if (originalTableName.getCatalogName().isEmpty() || originalTableName.getSchemaName().isEmpty() || originalTableName.getObjectName().isEmpty()) {
-            // table cannot exist
+        if (cannotExist(originalTableName)) {
             return originalTableName;
         }
 
@@ -2624,6 +2631,18 @@ public final class MetadataManager
             connectorVersion = Optional.of(new ConnectorTableVersion(version.get().getPointerType(), version.get().getObjectType(), version.get().getPointer()));
         }
         return connectorVersion;
+    }
+
+    private static boolean cannotExist(QualifiedTablePrefix prefix)
+    {
+        return prefix.getCatalogName().isEmpty() ||
+                (prefix.getSchemaName().isPresent() && prefix.getSchemaName().get().isEmpty()) ||
+                (prefix.getTableName().isPresent() && prefix.getTableName().get().isEmpty());
+    }
+
+    private static boolean cannotExist(QualifiedObjectName name)
+    {
+        return name.getCatalogName().isEmpty() || name.getSchemaName().isEmpty() || name.getObjectName().isEmpty();
     }
 
     public static MetadataManager createTestMetadataManager()

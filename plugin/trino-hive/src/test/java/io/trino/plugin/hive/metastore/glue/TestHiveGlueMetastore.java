@@ -114,6 +114,7 @@ import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static io.trino.spi.type.VarcharType.createUnboundedVarcharType;
 import static io.trino.testing.TestingPageSinkId.TESTING_PAGE_SINK_ID;
+import static io.trino.type.InternalTypeManager.TESTING_TYPE_MANAGER;
 import static java.lang.String.format;
 import static java.lang.System.currentTimeMillis;
 import static java.util.Collections.unmodifiableList;
@@ -125,8 +126,6 @@ import static org.apache.hadoop.hive.common.FileUtils.makePartName;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assumptions.abort;
-import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertTrue;
 
 /*
  * GlueHiveMetastore currently uses AWS Default Credential Provider Chain,
@@ -212,7 +211,7 @@ public class TestHiveGlueMetastore
 //        Logging logging = Logging.initialize();
 //        logging.setLevel("com.amazonaws.request", Level.DEBUG);
 
-        metastore = new HiveMetastoreClosure(metastoreClient);
+        metastore = new HiveMetastoreClosure(metastoreClient, TESTING_TYPE_MANAGER, false);
         glueClient = AWSGlueAsyncClientBuilder.defaultClient();
     }
 
@@ -359,8 +358,8 @@ public class TestHiveGlueMetastore
                     tableName.getSchemaName(),
                     tableName.getTableName(),
                     ImmutableList.of("ds"), TupleDomain.all());
-            assertTrue(partitionNames.isPresent());
-            assertEquals(partitionNames.get(), ImmutableList.of("ds=2016-01-01", "ds=2016-01-02"));
+            assertThat(partitionNames.isPresent()).isTrue();
+            assertThat(partitionNames.get()).isEqualTo(ImmutableList.of("ds=2016-01-01", "ds=2016-01-02"));
         }
         finally {
             dropTable(tablePartitionFormat);
@@ -384,7 +383,7 @@ public class TestHiveGlueMetastore
 
             doCreateEmptyTable(tableName, ORC, columns, partitionedBy);
 
-            HiveMetastoreClosure metastoreClient = new HiveMetastoreClosure(getMetastoreClient());
+            HiveMetastoreClosure metastoreClient = new HiveMetastoreClosure(getMetastoreClient(), TESTING_TYPE_MANAGER, false);
             Table table = metastoreClient.getTable(tableName.getSchemaName(), tableName.getTableName())
                     .orElseThrow(() -> new TableNotFoundException(tableName));
 
@@ -404,8 +403,8 @@ public class TestHiveGlueMetastore
                     tableName.getTableName(),
                     ImmutableList.of(reservedKeywordPartitionColumnName, regularColumnPartitionName),
                     TupleDomain.withColumnDomains(ImmutableMap.of(regularColumnPartitionName, Domain.singleValue(BIGINT, 2L))));
-            assertTrue(partitionNames.isPresent());
-            assertEquals(partitionNames.get(), ImmutableList.of("key=value2/int_partition=2"));
+            assertThat(partitionNames.isPresent()).isTrue();
+            assertThat(partitionNames.get()).isEqualTo(ImmutableList.of("key=value2/int_partition=2"));
 
             // KEY is a reserved keyword in the grammar of the SQL parser used internally by Glue API
             // and therefore should not be used in the partition filter
@@ -414,8 +413,8 @@ public class TestHiveGlueMetastore
                     tableName.getTableName(),
                     ImmutableList.of(reservedKeywordPartitionColumnName, regularColumnPartitionName),
                     TupleDomain.withColumnDomains(ImmutableMap.of(reservedKeywordPartitionColumnName, Domain.singleValue(VARCHAR, utf8Slice("value1")))));
-            assertTrue(partitionNames.isPresent());
-            assertEquals(partitionNames.get(), ImmutableList.of("key=value1/int_partition=1", "key=value2/int_partition=2"));
+            assertThat(partitionNames.isPresent()).isTrue();
+            assertThat(partitionNames.get()).isEqualTo(ImmutableList.of("key=value1/int_partition=1", "key=value2/int_partition=2"));
         }
         finally {
             dropTable(tableName);
@@ -432,7 +431,7 @@ public class TestHiveGlueMetastore
         getMetastoreClient().getAllDatabases();
         assertThat(stats.getGetDatabases().getTime().getAllTime().getCount()).isGreaterThan(initialCallCount);
         assertThat(stats.getGetDatabases().getTime().getAllTime().getAvg()).isGreaterThan(0.0);
-        assertEquals(stats.getGetDatabases().getTotalFailures().getTotalCount(), initialFailureCount);
+        assertThat(stats.getGetDatabases().getTotalFailures().getTotalCount()).isEqualTo(initialFailureCount);
     }
 
     @Test
@@ -444,7 +443,7 @@ public class TestHiveGlueMetastore
         assertThatThrownBy(() -> getMetastoreClient().getDatabase(null))
                 .isInstanceOf(TrinoException.class)
                 .hasMessageStartingWith("Database name cannot be equal to null or empty");
-        assertEquals(stats.getGetDatabase().getTotalFailures().getTotalCount(), initialFailureCount + 1);
+        assertThat(stats.getGetDatabase().getTotalFailures().getTotalCount()).isEqualTo(initialFailureCount + 1);
     }
 
     @Test
@@ -1374,7 +1373,7 @@ public class TestHiveGlueMetastore
             glueClient.createTable(new CreateTableRequest()
                     .withDatabaseName(database)
                     .withTableInput(tableInput));
-            assertTrue(isIcebergTable(metastore.getTable(table.getSchemaName(), table.getTableName()).orElseThrow()));
+            assertThat(isIcebergTable(metastore.getTable(table.getSchemaName(), table.getTableName()).orElseThrow())).isTrue();
             glueClient.deleteTable(deleteTableRequest);
 
             // Delta Lake table
@@ -1382,7 +1381,7 @@ public class TestHiveGlueMetastore
             glueClient.createTable(new CreateTableRequest()
                     .withDatabaseName(database)
                     .withTableInput(tableInput));
-            assertTrue(isDeltaLakeTable(metastore.getTable(table.getSchemaName(), table.getTableName()).orElseThrow()));
+            assertThat(isDeltaLakeTable(metastore.getTable(table.getSchemaName(), table.getTableName()).orElseThrow())).isTrue();
             glueClient.deleteTable(deleteTableRequest);
 
             // Iceberg materialized view
@@ -1395,7 +1394,7 @@ public class TestHiveGlueMetastore
             glueClient.createTable(new CreateTableRequest()
                     .withDatabaseName(database)
                     .withTableInput(tableInput));
-            assertTrue(isTrinoMaterializedView(metastore.getTable(table.getSchemaName(), table.getTableName()).orElseThrow()));
+            assertThat(isTrinoMaterializedView(metastore.getTable(table.getSchemaName(), table.getTableName()).orElseThrow())).isTrue();
             materializedViews.add(table);
             try (Transaction transaction = newTransaction()) {
                 ConnectorSession session = newSession();
@@ -1429,7 +1428,7 @@ public class TestHiveGlueMetastore
             assertThat(metastore.getTable(tableName.getSchemaName(), tableName.getTableName()).orElseThrow().getParameters()).doesNotContainKey(TABLE_COMMENT);
             metastore.commentTable(tableName.getSchemaName(), tableName.getTableName(), Optional.of("a table comment"));
             Map<String, String> tableParameters = metastore.getTable(tableName.getSchemaName(), tableName.getTableName()).orElseThrow().getParameters();
-            assertThat(tableParameters.get(TABLE_COMMENT)).isEqualTo("a table comment");
+            assertThat(tableParameters).containsEntry(TABLE_COMMENT, "a table comment");
 
             metastore.commentTable(tableName.getSchemaName(), tableName.getTableName(), Optional.empty());
             tableParameters = metastore.getTable(tableName.getSchemaName(), tableName.getTableName()).orElseThrow().getParameters();
@@ -1528,11 +1527,10 @@ public class TestHiveGlueMetastore
                         tableName.getTableName(),
                         partitionColumnNames,
                         filter);
-                assertTrue(partitionNames.isPresent());
-                assertEquals(
-                        partitionNames.get(),
-                        expectedResults,
-                        format("lists \nactual: %s\nexpected: %s\nmismatch for filter %s (input index %d)\n", partitionNames.get(), expectedResults, filter, i));
+                assertThat(partitionNames.isPresent()).isTrue();
+                assertThat(partitionNames.get())
+                        .describedAs(format("lists \nactual: %s\nexpected: %s\nmismatch for filter %s (input index %d)\n", partitionNames.get(), expectedResults, filter, i))
+                        .isEqualTo(expectedResults);
             }
         }
     }
@@ -1542,7 +1540,7 @@ public class TestHiveGlueMetastore
     {
         doCreateEmptyTable(tableName, ORC, columns, partitionColumnNames);
 
-        HiveMetastoreClosure metastoreClient = new HiveMetastoreClosure(getMetastoreClient());
+        HiveMetastoreClosure metastoreClient = new HiveMetastoreClosure(getMetastoreClient(), TESTING_TYPE_MANAGER, false);
         Table table = metastoreClient.getTable(tableName.getSchemaName(), tableName.getTableName())
                 .orElseThrow(() -> new TableNotFoundException(tableName));
         List<PartitionWithStatistics> partitions = new ArrayList<>();

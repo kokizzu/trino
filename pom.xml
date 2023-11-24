@@ -174,18 +174,18 @@
         <!-- keep dependency properties sorted -->
         <dep.accumulo-hadoop.version>2.7.7-1</dep.accumulo-hadoop.version>
         <dep.accumulo.version>1.10.2</dep.accumulo.version>
-        <dep.airlift.version>238</dep.airlift.version>
+        <dep.airlift.version>239</dep.airlift.version>
         <dep.antlr.version>4.13.1</dep.antlr.version>
         <dep.arrow.version>14.0.0</dep.arrow.version>
         <dep.avro.version>1.11.3</dep.avro.version>
-        <dep.aws-sdk.version>1.12.581</dep.aws-sdk.version>
+        <dep.aws-sdk.version>1.12.590</dep.aws-sdk.version>
         <dep.casandra.version>4.17.0</dep.casandra.version>
         <dep.confluent.version>7.4.1</dep.confluent.version>
         <dep.docker.images.version>87</dep.docker.images.version>
         <dep.drift.version>1.21</dep.drift.version>
         <dep.duct-tape.version>1.0.8</dep.duct-tape.version>
         <dep.errorprone.version>2.23.0</dep.errorprone.version>
-        <dep.flyway.version>10.0.0</dep.flyway.version>
+        <dep.flyway.version>10.0.1</dep.flyway.version>
         <dep.google.http.client.version>1.43.3</dep.google.http.client.version>
         <dep.iceberg.version>1.4.2</dep.iceberg.version>
         <dep.jna.version>5.13.0</dep.jna.version>
@@ -193,10 +193,9 @@
         <dep.kafka-clients.version>3.6.0</dep.kafka-clients.version>
         <dep.kotlin.version>1.9.20</dep.kotlin.version>
         <dep.okio.version>3.6.0</dep.okio.version>
-        <dep.oracle.version>21.9.0.0</dep.oracle.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
         <dep.parquet.version>1.13.1</dep.parquet.version>
-        <dep.protobuf.version>3.25.0</dep.protobuf.version>
+        <dep.protobuf.version>3.25.1</dep.protobuf.version>
         <dep.swagger.version>1.6.12</dep.swagger.version>
         <dep.takari.version>2.1.1</dep.takari.version>
         <dep.tcnative.version>2.0.62.Final</dep.tcnative.version>
@@ -219,6 +218,14 @@
                 <groupId>com.google.cloud</groupId>
                 <artifactId>libraries-bom</artifactId>
                 <version>26.27.0</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>com.oracle.database.jdbc</groupId>
+                <artifactId>ojdbc10-production</artifactId>
+                <version>19.21.0.0</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -282,7 +289,7 @@
             <dependency>
                 <groupId>org.testcontainers</groupId>
                 <artifactId>testcontainers-bom</artifactId>
-                <version>1.19.1</version>
+                <version>1.19.3</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -290,7 +297,7 @@
             <dependency>
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
-                <version>2.21.19</version>
+                <version>2.21.24</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -298,7 +305,7 @@
             <dependency>
                 <groupId>com.adobe.testing</groupId>
                 <artifactId>s3mock-testcontainers</artifactId>
-                <version>3.1.0</version>
+                <version>3.2.0</version>
             </dependency>
 
             <dependency>
@@ -471,7 +478,7 @@
             <dependency>
                 <groupId>com.github.docker-java</groupId>
                 <artifactId>docker-java-api</artifactId>
-                <version>3.3.3</version>
+                <version>3.3.4</version>
             </dependency>
 
             <dependency>
@@ -618,7 +625,7 @@
             <dependency>
                 <groupId>commons-io</groupId>
                 <artifactId>commons-io</artifactId>
-                <version>2.14.0</version>
+                <version>2.15.0</version>
             </dependency>
 
             <dependency>
@@ -832,7 +839,7 @@
             <dependency>
                 <groupId>io.minio</groupId>
                 <artifactId>minio</artifactId>
-                <version>8.5.6</version>
+                <version>8.5.7</version>
             </dependency>
 
             <dependency>
@@ -1502,7 +1509,7 @@
             <dependency>
                 <groupId>io.trino.benchto</groupId>
                 <artifactId>benchto-driver</artifactId>
-                <version>0.25</version>
+                <version>0.26</version>
             </dependency>
 
             <dependency>

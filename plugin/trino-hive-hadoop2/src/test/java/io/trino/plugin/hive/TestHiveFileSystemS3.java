@@ -49,6 +49,7 @@ import org.junit.jupiter.api.TestInstance;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -58,9 +59,8 @@ import static io.trino.plugin.hive.HiveType.HIVE_STRING;
 import static java.io.InputStream.nullInputStream;
 import static java.lang.String.format;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.util.Strings.isNullOrEmpty;
 import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS;
-import static org.testng.Assert.assertFalse;
-import static org.testng.util.Strings.isNullOrEmpty;
 
 @TestInstance(PER_CLASS)
 public class TestHiveFileSystemS3
@@ -132,7 +132,7 @@ public class TestHiveFileSystemS3
         Path filePath = new Path(basePath, markerFileName);
         fs.create(filePath).close();
 
-        assertFalse(Arrays.stream(fs.listStatus(basePath)).anyMatch(file -> file.getPath().getName().equalsIgnoreCase(markerFileName)));
+        assertThat(Arrays.stream(fs.listStatus(basePath)).anyMatch(file -> file.getPath().getName().equalsIgnoreCase(markerFileName))).isFalse();
     }
 
     /**
@@ -146,8 +146,8 @@ public class TestHiveFileSystemS3
         Table.Builder tableBuilder = Table.builder()
                 .setDatabaseName(table.getSchemaName())
                 .setTableName(table.getTableName())
-                .setDataColumns(ImmutableList.of(new Column("data", HIVE_LONG, Optional.empty())))
-                .setPartitionColumns(ImmutableList.of(new Column("part", HIVE_STRING, Optional.empty())))
+                .setDataColumns(ImmutableList.of(new Column("data", HIVE_LONG, Optional.empty(), Map.of())))
+                .setPartitionColumns(ImmutableList.of(new Column("part", HIVE_STRING, Optional.empty(), Map.of())))
                 .setOwner(Optional.empty())
                 .setTableType("fake");
         tableBuilder.getStorageBuilder()
