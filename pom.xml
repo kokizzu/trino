@@ -10,7 +10,7 @@
 
     <groupId>io.trino</groupId>
     <artifactId>trino-root</artifactId>
-    <version>434-SNAPSHOT</version>
+    <version>435-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>${project.artifactId}</name>
@@ -147,6 +147,8 @@
         <air.java.version>17.0.5</air.java.version>
         <air.javadoc.lint>-missing</air.javadoc.lint>
         <air.main.basedir>${project.basedir}</air.main.basedir>
+        <air.modernizer.java-version>8</air.modernizer.java-version>
+        <air.release.preparation-goals>clean verify -DskipTests</air.release.preparation-goals>
         <!--
           America/Bahia_Banderas has:
            - offset change since 1970 (offset Jan 1970: -08:00, offset Jan 2018: -06:00)
@@ -154,8 +156,6 @@
            - has forward offset change on first day of epoch (1970-01-01 00:00:00 clocks turned forward 1 hour)
            - had forward change at midnight (1970-01-01 00:00:00 clocks turned forward 1 hour)
           -->
-        <air.modernizer.java-version>8</air.modernizer.java-version>
-        <air.release.preparation-goals>clean verify -DskipTests</air.release.preparation-goals>
         <air.test.timezone>America/Bahia_Banderas</air.test.timezone>
         <air.test.parallel>methods</air.test.parallel>
         <air.test.thread-count>2</air.test.thread-count>
@@ -176,16 +176,16 @@
         <dep.accumulo.version>1.10.2</dep.accumulo.version>
         <dep.airlift.version>239</dep.airlift.version>
         <dep.antlr.version>4.13.1</dep.antlr.version>
-        <dep.arrow.version>14.0.0</dep.arrow.version>
+        <dep.arrow.version>14.0.1</dep.arrow.version>
         <dep.avro.version>1.11.3</dep.avro.version>
-        <dep.aws-sdk.version>1.12.590</dep.aws-sdk.version>
-        <dep.casandra.version>4.17.0</dep.casandra.version>
-        <dep.confluent.version>7.4.1</dep.confluent.version>
+        <dep.aws-sdk.version>1.12.595</dep.aws-sdk.version>
+        <dep.cassandra.version>4.17.0</dep.cassandra.version>
+        <dep.confluent.version>7.5.1</dep.confluent.version>
         <dep.docker.images.version>87</dep.docker.images.version>
         <dep.drift.version>1.21</dep.drift.version>
         <dep.duct-tape.version>1.0.8</dep.duct-tape.version>
         <dep.errorprone.version>2.23.0</dep.errorprone.version>
-        <dep.flyway.version>10.0.1</dep.flyway.version>
+        <dep.flyway.version>10.1.0</dep.flyway.version>
         <dep.google.http.client.version>1.43.3</dep.google.http.client.version>
         <dep.iceberg.version>1.4.2</dep.iceberg.version>
         <dep.jna.version>5.13.0</dep.jna.version>
@@ -196,11 +196,11 @@
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
         <dep.parquet.version>1.13.1</dep.parquet.version>
         <dep.protobuf.version>3.25.1</dep.protobuf.version>
-        <dep.swagger.version>1.6.12</dep.swagger.version>
-        <dep.takari.version>2.1.1</dep.takari.version>
+        <dep.swagger.version>2.2.19</dep.swagger.version>
+        <dep.takari.version>2.1.2</dep.takari.version>
         <dep.tcnative.version>2.0.62.Final</dep.tcnative.version>
         <dep.tempto.version>201</dep.tempto.version>
-        <dep.wire.version>4.5.0</dep.wire.version>
+        <dep.wire.version>4.8.0</dep.wire.version>
     </properties>
 
     <dependencyManagement>
@@ -297,7 +297,7 @@
             <dependency>
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
-                <version>2.21.24</version>
+                <version>2.21.29</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -427,6 +427,18 @@
             </dependency>
 
             <dependency>
+                <groupId>com.azure</groupId>
+                <artifactId>azure-core-tracing-opentelemetry</artifactId>
+                <version>1.0.0-beta.42</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>com.azure</groupId>
+                        <artifactId>azure-core</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+
+            <dependency>
                 <groupId>com.clearspring.analytics</groupId>
                 <artifactId>stream</artifactId>
                 <version>2.9.8</version>
@@ -442,7 +454,7 @@
             <dependency>
                 <groupId>com.datastax.oss</groupId>
                 <artifactId>java-driver-core</artifactId>
-                <version>${dep.casandra.version}</version>
+                <version>${dep.cassandra.version}</version>
                 <exclusions>
                     <exclusion>
                         <groupId>org.ow2.asm</groupId>
@@ -815,7 +827,7 @@
             <dependency>
                 <groupId>io.dropwizard.metrics</groupId>
                 <artifactId>metrics-core</artifactId>
-                <version>4.2.21</version>
+                <version>4.2.22</version>
             </dependency>
 
             <dependency>
@@ -925,14 +937,14 @@
 
             <!-- io.confluent:kafka-avro-serializer uses multiple versions of this transitive dependency -->
             <dependency>
-                <groupId>io.swagger</groupId>
+                <groupId>io.swagger.core.v3</groupId>
                 <artifactId>swagger-annotations</artifactId>
                 <version>${dep.swagger.version}</version>
             </dependency>
 
             <!-- io.confluent:kafka-avro-serializer uses multiple versions of this transitive dependency -->
             <dependency>
-                <groupId>io.swagger</groupId>
+                <groupId>io.swagger.core.v3</groupId>
                 <artifactId>swagger-core</artifactId>
                 <version>${dep.swagger.version}</version>
             </dependency>
@@ -1615,11 +1627,11 @@
                 <version>4.13.2</version>
             </dependency>
 
-            <!-- force newer version to be used for dependencies -->
+            <!-- TODO: remove when updated in airbase -->
             <dependency>
                 <groupId>net.bytebuddy</groupId>
                 <artifactId>byte-buddy</artifactId>
-                <version>1.14.9</version>
+                <version>1.14.10</version>
             </dependency>
 
             <dependency>
@@ -1722,13 +1734,13 @@
             <dependency>
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-compress</artifactId>
-                <version>1.24.0</version>
+                <version>1.25.0</version>
             </dependency>
 
             <dependency>
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-lang3</artifactId>
-                <version>3.13.0</version>
+                <version>3.14.0</version>
             </dependency>
 
             <dependency>
@@ -1990,7 +2002,7 @@
             <dependency>
                 <groupId>org.jetbrains</groupId>
                 <artifactId>annotations</artifactId>
-                <version>19.0.0</version>
+                <version>24.1.0</version>
             </dependency>
 
             <dependency>
@@ -2032,7 +2044,7 @@
             <dependency>
                 <groupId>org.postgresql</groupId>
                 <artifactId>postgresql</artifactId>
-                <version>42.6.0</version>
+                <version>42.7.0</version>
             </dependency>
 
             <dependency>
@@ -2180,7 +2192,7 @@
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>
                     <artifactId>exec-maven-plugin</artifactId>
-                    <version>3.1.0</version>
+                    <version>3.1.1</version>
                 </plugin>
 
                 <plugin>
@@ -2659,13 +2671,15 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <properties>
-                        <configurationParameters>junit.jupiter.execution.timeout.thread.mode.default = SEPARATE_THREAD
-                            junit.jupiter.extensions.autodetection.enabled = true
-                            junit.jupiter.execution.parallel.enabled = true
-                            junit.jupiter.execution.parallel.mode.default = concurrent
-                            junit.jupiter.execution.parallel.mode.classes.default = concurrent</configurationParameters>
-                    </properties>
+                    <!-- TODO: these should use https://junit.org/junit5/docs/current/user-guide/#running-tests-build-maven-config-params -->
+                    <!-- use system properties to work around https://youtrack.jetbrains.com/issue/IDEA-339034 -->
+                    <systemPropertyVariables>
+                        <junit.jupiter.execution.timeout.thread.mode.default>SEPARATE_THREAD</junit.jupiter.execution.timeout.thread.mode.default>
+                        <junit.jupiter.extensions.autodetection.enabled>true</junit.jupiter.extensions.autodetection.enabled>
+                        <junit.jupiter.execution.parallel.enabled>true</junit.jupiter.execution.parallel.enabled>
+                        <junit.jupiter.execution.parallel.mode.default>concurrent</junit.jupiter.execution.parallel.mode.default>
+                        <junit.jupiter.execution.parallel.mode.classes.default>concurrent</junit.jupiter.execution.parallel.mode.classes.default>
+                    </systemPropertyVariables>
                     <includes>
                         <!-- Tests classes should start with "Test", but we do also want to include tests incorrectly named, with "Test" at the end -->
                         <include>**/Test*.java</include>
@@ -2700,6 +2714,7 @@
                                 <arg>-XDcompilePolicy=simple</arg>
                                 <arg>
                                     -Xplugin:ErrorProne \
+                                    -Xep:AnnotateFormatMethod:ERROR \
                                     -Xep:BadComparable:ERROR \
                                     -Xep:BadInstanceof:ERROR \
                                     -Xep:BoxedPrimitiveConstructor:ERROR \
@@ -2707,6 +2722,7 @@
                                     -Xep:CompareToZero:ERROR \
                                     -Xep:DefaultCharset:ERROR \
                                     -Xep:DistinctVarargsChecker:ERROR \
+                                    -Xep:DoNotCallSuggester:OFF \
                                     -Xep:EmptyBlockTag:ERROR \
                                     <!-- we would rather want the opposite check -->
                                     -Xep:EqualsGetClass:OFF \
@@ -2741,10 +2757,13 @@
                                     <!-- flags List fields even if initialized with ImmutableList -->
                                     -Xep:PreferredInterfaceType:OFF \
                                     -Xep:PrimitiveArrayPassedToVarargsMethod:ERROR \
+                                    -Xep:RethrowReflectiveOperationExceptionAsLinkageError:OFF \
                                     -Xep:StaticAssignmentOfThrowable:ERROR \
                                     -Xep:StreamResourceLeak:ERROR \
+                                    -Xep:UnicodeEscape:ERROR \
                                     -Xep:UnnecessaryMethodReference:ERROR \
                                     -Xep:UnnecessaryOptionalGet:ERROR \
+                                    -Xep:UnnecessaryParentheses:ERROR \
                                     <!-- Enable when https://github.com/google/error-prone/pull/3837 is fixed -->
                                     <!-- -Xep:UnusedVariable:ERROR \ -->
                                     -Xep:UseEnumSwitch:ERROR \

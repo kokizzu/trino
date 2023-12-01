@@ -31,9 +31,12 @@ import io.trino.plugin.deltalake.transactionlog.DeltaLakeTransactionLogEntry;
 import io.trino.plugin.deltalake.transactionlog.MetadataEntry;
 import io.trino.plugin.deltalake.transactionlog.ProtocolEntry;
 import io.trino.plugin.deltalake.transactionlog.RemoveFileEntry;
+import io.trino.plugin.deltalake.transactionlog.statistics.DeltaLakeParquetFileStatistics;
 import io.trino.plugin.hive.FileFormatDataSourceStats;
 import io.trino.plugin.hive.parquet.ParquetReaderConfig;
+import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.TupleDomain;
+import io.trino.spi.predicate.ValueSet;
 import io.trino.spi.type.Int128;
 import io.trino.spi.type.Type;
 import org.junit.jupiter.api.AfterAll;
@@ -53,14 +56,20 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import static com.google.common.base.Predicates.alwaysTrue;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.io.Resources.getResource;
 import static com.google.common.math.LongMath.divide;
 import static io.airlift.slice.Slices.utf8Slice;
+import static io.airlift.units.DataSize.Unit.KILOBYTE;
 import static io.trino.plugin.deltalake.DeltaLakeColumnType.REGULAR;
 import static io.trino.plugin.deltalake.DeltaTestingConnectorSession.SESSION;
 import static io.trino.plugin.deltalake.transactionlog.checkpoint.CheckpointEntryIterator.EntryType.ADD;
@@ -74,6 +83,7 @@ import static io.trino.plugin.hive.HiveTestUtils.HDFS_FILE_SYSTEM_STATS;
 import static io.trino.spi.predicate.Domain.notNull;
 import static io.trino.spi.predicate.Domain.onlyNull;
 import static io.trino.spi.predicate.Domain.singleValue;
+import static io.trino.spi.predicate.Range.range;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.DateTimeEncoding.packDateTimeWithZone;
@@ -124,7 +134,7 @@ public class TestCheckpointEntryIterator
             throws Exception
     {
         URI checkpointUri = getResource(TEST_CHECKPOINT).toURI();
-        assertThatThrownBy(() -> createCheckpointEntryIterator(checkpointUri, ImmutableSet.of(), Optional.empty(), Optional.empty(), TupleDomain.all()))
+        assertThatThrownBy(() -> createCheckpointEntryIterator(checkpointUri, ImmutableSet.of(), Optional.empty(), Optional.empty(), TupleDomain.all(), Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("fields is empty");
     }
@@ -168,7 +178,7 @@ public class TestCheckpointEntryIterator
             throws Exception
     {
         URI checkpointUri = getResource(TEST_CHECKPOINT).toURI();
-        CheckpointEntryIterator checkpointEntryIterator = createCheckpointEntryIterator(checkpointUri, ImmutableSet.of(PROTOCOL), Optional.empty(), Optional.empty(), TupleDomain.all());
+        CheckpointEntryIterator checkpointEntryIterator = createCheckpointEntryIterator(checkpointUri, ImmutableSet.of(PROTOCOL), Optional.empty(), Optional.empty(), TupleDomain.all(), Optional.empty());
         List<DeltaLakeTransactionLogEntry> entries = ImmutableList.copyOf(checkpointEntryIterator);
 
         assertThat(entries).hasSize(1);
@@ -186,7 +196,13 @@ public class TestCheckpointEntryIterator
             throws Exception
     {
         URI checkpointUri = getResource(TEST_CHECKPOINT).toURI();
-        CheckpointEntryIterator checkpointEntryIterator = createCheckpointEntryIterator(checkpointUri, ImmutableSet.of(METADATA, PROTOCOL), Optional.empty(), Optional.empty(), TupleDomain.all());
+        CheckpointEntryIterator checkpointEntryIterator = createCheckpointEntryIterator(
+                checkpointUri,
+                ImmutableSet.of(METADATA, PROTOCOL),
+                Optional.empty(),
+                Optional.empty(),
+                TupleDomain.all(),
+                Optional.empty());
         List<DeltaLakeTransactionLogEntry> entries = ImmutableList.copyOf(checkpointEntryIterator);
 
         assertThat(entries).hasSize(2);
@@ -229,7 +245,13 @@ public class TestCheckpointEntryIterator
             throws Exception
     {
         URI checkpointUri = getResource(TEST_CHECKPOINT).toURI();
-        CheckpointEntryIterator checkpointEntryIterator = createCheckpointEntryIterator(checkpointUri, ImmutableSet.of(ADD), Optional.of(readMetadataEntry(checkpointUri)), Optional.of(readProtocolEntry(checkpointUri)), TupleDomain.all());
+        CheckpointEntryIterator checkpointEntryIterator = createCheckpointEntryIterator(
+                checkpointUri,
+                ImmutableSet.of(ADD),
+                Optional.of(readMetadataEntry(checkpointUri)),
+                Optional.of(readProtocolEntry(checkpointUri)),
+                TupleDomain.all(),
+                Optional.of(alwaysTrue()));
         List<DeltaLakeTransactionLogEntry> entries = ImmutableList.copyOf(checkpointEntryIterator);
 
         assertThat(entries).hasSize(9);
@@ -300,7 +322,8 @@ public class TestCheckpointEntryIterator
                 ImmutableSet.of(ADD),
                 Optional.of(readMetadataEntry(checkpointUri)),
                 Optional.of(readProtocolEntry(checkpointUri)),
-                TupleDomain.withColumnDomains(ImmutableMap.of(intPartField, singleValue(BIGINT, 10L), stringPartField, singleValue(VARCHAR, utf8Slice("part1")))));
+                TupleDomain.withColumnDomains(ImmutableMap.of(intPartField, singleValue(BIGINT, 10L), stringPartField, singleValue(VARCHAR, utf8Slice("part1")))),
+                Optional.of(alwaysTrue()));
         List<DeltaLakeTransactionLogEntry> partitionsEntries = ImmutableList.copyOf(partitionsEntryIterator);
 
         assertThat(partitionsEntryIterator.getCompletedPositions().orElseThrow()).isEqualTo(5);
@@ -315,7 +338,8 @@ public class TestCheckpointEntryIterator
                 ImmutableSet.of(ADD),
                 Optional.of(readMetadataEntry(checkpointUri)),
                 Optional.of(readProtocolEntry(checkpointUri)),
-                TupleDomain.withColumnDomains(ImmutableMap.of(intPartField, singleValue(BIGINT, 10L))));
+                TupleDomain.withColumnDomains(ImmutableMap.of(intPartField, singleValue(BIGINT, 10L))),
+                Optional.of(alwaysTrue()));
         List<DeltaLakeTransactionLogEntry> partitionEntries = ImmutableList.copyOf(partitionEntryIterator);
 
         assertThat(partitionEntryIterator.getCompletedPositions().orElseThrow()).isEqualTo(5);
@@ -332,7 +356,8 @@ public class TestCheckpointEntryIterator
                 Optional.of(readProtocolEntry(checkpointUri)),
                 TupleDomain.withColumnDomains(ImmutableMap.of(
                         intPartField, singleValue(BIGINT, 10L),
-                        stringPartField, singleValue(VARCHAR, utf8Slice("unmatched partition condition")))));
+                        stringPartField, singleValue(VARCHAR, utf8Slice("unmatched partition condition")))),
+                Optional.of(alwaysTrue()));
         assertThat(ImmutableList.copyOf(emptyIterator)).isEmpty();
 
         // Verify IS NULL condition
@@ -343,7 +368,8 @@ public class TestCheckpointEntryIterator
                 Optional.of(readProtocolEntry(checkpointUri)),
                 TupleDomain.withColumnDomains(ImmutableMap.of(
                         intPartField, onlyNull(BIGINT),
-                        stringPartField, onlyNull(VARCHAR))));
+                        stringPartField, onlyNull(VARCHAR))),
+                Optional.of(alwaysTrue()));
         assertThat(ImmutableList.copyOf(isNullIterator))
                 .hasSize(1)
                 .extracting(entry -> entry.getAdd().getPath())
@@ -357,7 +383,8 @@ public class TestCheckpointEntryIterator
                 Optional.of(readProtocolEntry(checkpointUri)),
                 TupleDomain.withColumnDomains(ImmutableMap.of(
                         intPartField, notNull(BIGINT),
-                        stringPartField, notNull(VARCHAR))));
+                        stringPartField, notNull(VARCHAR))),
+                Optional.of(alwaysTrue()));
         assertThat(ImmutableList.copyOf(isNotNullIterator))
                 .hasSize(2)
                 .extracting(entry -> entry.getAdd().getPath())
@@ -402,11 +429,131 @@ public class TestCheckpointEntryIterator
                 ImmutableSet.of(ADD),
                 Optional.of(readMetadataEntry(checkpointUri)),
                 Optional.of(readProtocolEntry(checkpointUri)),
-                TupleDomain.withColumnDomains(ImmutableMap.of(intPartField, singleValue(type, value))));
+                TupleDomain.withColumnDomains(ImmutableMap.of(intPartField, singleValue(type, value))),
+                Optional.of(alwaysTrue()));
         List<DeltaLakeTransactionLogEntry> partitionEntries = ImmutableList.copyOf(partitionEntryIterator);
 
         assertThat(partitionEntryIterator.getCompletedPositions().orElseThrow()).isEqualTo(5);
         assertThat(partitionEntries).hasSize(1);
+    }
+
+    @Test
+    public void testReadAddEntriesStatsProjection()
+            throws Exception
+    {
+        int countIntegerColumns = 20;
+        int countStringColumns = 20;
+        MetadataEntry metadataEntry = new MetadataEntry(
+                "metadataId",
+                "metadataName",
+                "metadataDescription",
+                new MetadataEntry.Format(
+                        "metadataFormatProvider",
+                        ImmutableMap.of()),
+                "{\"type\":\"struct\",\"fields\":" +
+                        "[" +
+                        IntStream.rangeClosed(1, countIntegerColumns)
+                                .boxed()
+                                .map("{\"name\":\"intcol%s\",\"type\":\"integer\",\"nullable\":true,\"metadata\":{}}"::formatted)
+                                .collect(Collectors.joining(",", "", ",")) +
+                        IntStream.rangeClosed(1, countStringColumns)
+                                .boxed()
+                                .map("{\"name\":\"stringcol%s\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}"::formatted)
+                                .collect(Collectors.joining(",")) +
+                        "]}",
+                ImmutableList.of(),
+                ImmutableMap.of("delta.checkpoint.writeStatsAsJson", "false", "delta.checkpoint.writeStatsAsStruct", "true"),
+                1000);
+        ProtocolEntry protocolEntry = new ProtocolEntry(10, 20, Optional.empty(), Optional.empty());
+
+        int countAddEntries = 30;
+        Set<AddFileEntry> addFileEntries = IntStream.rangeClosed(1, countAddEntries).mapToObj(fileIndex -> new AddFileEntry(
+                "addFilePathParquetStats" + fileIndex,
+                ImmutableMap.of(),
+                1000,
+                1001,
+                true,
+                Optional.empty(),
+                Optional.of(createDeltaLakeParquetFileStatistics(countIntegerColumns, countStringColumns)),
+                ImmutableMap.of(),
+                Optional.empty()))
+                .collect(toImmutableSet());
+
+        CheckpointEntries entries = new CheckpointEntries(
+                metadataEntry,
+                protocolEntry,
+                ImmutableSet.of(),
+                addFileEntries,
+                ImmutableSet.of());
+
+        CheckpointWriter writer = new CheckpointWriter(
+                TESTING_TYPE_MANAGER,
+                checkpointSchemaManager,
+                "test",
+                ParquetWriterOptions.builder().build());
+
+        File targetFile = File.createTempFile("testAddStatsProjection-", ".checkpoint.parquet");
+        targetFile.deleteOnExit();
+
+        String targetPath = "file://" + targetFile.getAbsolutePath();
+        targetFile.delete(); // file must not exist when writer is called
+        writer.write(entries, createOutputFile(targetPath));
+
+        MetadataEntry readMetadataEntry = readMetadataEntry(URI.create(targetPath));
+        ProtocolEntry readProtocolEntry = readProtocolEntry(URI.create(targetPath));
+        CheckpointEntryIterator checkpointEntryWithNameColumnStatsIterator = createCheckpointEntryIterator(
+                URI.create(targetPath),
+                ImmutableSet.of(ADD),
+                Optional.of(readMetadataEntry),
+                Optional.of(readProtocolEntry),
+                TupleDomain.all(),
+                Optional.of(columnName -> ImmutableList.of("intcol1", "stringcol1").contains(columnName)));
+        List<DeltaLakeTransactionLogEntry> checkpointEntryWithNameColumnStatsEntries = ImmutableList.copyOf(checkpointEntryWithNameColumnStatsIterator);
+        assertThat(checkpointEntryWithNameColumnStatsEntries).hasSize(countAddEntries);
+        CheckpointEntryIterator checkpointEntryWithAllColumnStatsIterator = createCheckpointEntryIterator(
+                URI.create(targetPath),
+                ImmutableSet.of(ADD),
+                Optional.of(readMetadataEntry),
+                Optional.of(readProtocolEntry),
+                TupleDomain.all(),
+                Optional.of(alwaysTrue()));
+        List<DeltaLakeTransactionLogEntry> checkpointEntryWithAllStatsEntries = ImmutableList.copyOf(checkpointEntryWithAllColumnStatsIterator);
+        assertThat(checkpointEntryWithAllStatsEntries).hasSize(countAddEntries);
+        assertThat(checkpointEntryWithNameColumnStatsIterator.getCompletedBytes()).isLessThan(checkpointEntryWithAllColumnStatsIterator.getCompletedBytes() * 9 / 10);
+    }
+
+    private static DeltaLakeParquetFileStatistics createDeltaLakeParquetFileStatistics(int countIntegerColumns, int countStringColumns)
+    {
+        Random random = new Random();
+        Map<String, Object> minValues = ImmutableMap.<String, Object>builder()
+                .putAll(IntStream.rangeClosed(1, countIntegerColumns)
+                        .boxed()
+                        .collect(toImmutableMap("intcol%s"::formatted, columnIndex -> random.nextLong(0, 1000))))
+                .putAll(IntStream.rangeClosed(1, countStringColumns)
+                        .boxed()
+                        .collect(toImmutableMap("stringcol%s"::formatted, columnIndex -> "A".repeat(random.nextInt(0, 10)) + UUID.randomUUID())))
+                .buildOrThrow();
+        Map<String, Object> maxValues = ImmutableMap.<String, Object>builder()
+                .putAll(IntStream.rangeClosed(1, countIntegerColumns)
+                        .boxed()
+                        .collect(toImmutableMap("intcol%s"::formatted, columnIndex -> 1000L + random.nextLong(0, 1000))))
+                .putAll(IntStream.rangeClosed(1, countStringColumns)
+                        .boxed()
+                        .collect(toImmutableMap("stringcol%s"::formatted, columnIndex -> "Z".repeat(random.nextInt(0, 10)) + UUID.randomUUID())))
+                .buildOrThrow();
+        Map<String, Object> nullCount = ImmutableMap.<String, Object>builder()
+                .putAll(IntStream.rangeClosed(1, countIntegerColumns)
+                        .boxed()
+                        .collect(toImmutableMap("intcol%s"::formatted, columnIndex -> random.nextLong(0, 1000))))
+                .putAll(IntStream.rangeClosed(1, countStringColumns)
+                        .boxed()
+                        .collect(toImmutableMap("stringcol%s"::formatted, columnIndex -> random.nextLong(0, 1000))))
+                .buildOrThrow();
+        return new DeltaLakeParquetFileStatistics(
+                Optional.of(1000L),
+                Optional.of(minValues),
+                Optional.of(maxValues),
+                Optional.of(nullCount));
     }
 
     @Test
@@ -420,7 +567,8 @@ public class TestCheckpointEntryIterator
                 ImmutableSet.of(METADATA, PROTOCOL, TRANSACTION, ADD, REMOVE, COMMIT),
                 Optional.of(readMetadataEntry(checkpointUri)),
                 Optional.of(readProtocolEntry(checkpointUri)),
-                TupleDomain.all());
+                TupleDomain.all(),
+                Optional.of(alwaysTrue()));
         List<DeltaLakeTransactionLogEntry> entries = ImmutableList.copyOf(checkpointEntryIterator);
 
         assertThat(entries).hasSize(17);
@@ -472,6 +620,127 @@ public class TestCheckpointEntryIterator
     }
 
     @Test
+    public void testSkipAddEntriesThroughPartitionPruning()
+            throws IOException
+    {
+        MetadataEntry metadataEntry = new MetadataEntry(
+                "metadataId",
+                "metadataName",
+                "metadataDescription",
+                new MetadataEntry.Format(
+                        "metadataFormatProvider",
+                        ImmutableMap.of()),
+                "{\"type\":\"struct\",\"fields\":" +
+                        "[{\"name\":\"ts\",\"type\":\"timestamp\",\"nullable\":true,\"metadata\":{}}," +
+                        "{\"name\":\"part_key\",\"type\":\"integer\",\"nullable\":true,\"metadata\":{}}]}",
+                ImmutableList.of("part_key"),
+                ImmutableMap.of(),
+                1000);
+        ProtocolEntry protocolEntry = new ProtocolEntry(1, 1, Optional.empty(), Optional.empty());
+        int numAddEntries = 100;
+        Set<AddFileEntry> addFileEntries = IntStream.rangeClosed(1, numAddEntries).mapToObj(value ->
+                        new AddFileEntry(
+                                "addFilePath",
+                                ImmutableMap.of("part_key", Integer.toString(value)),
+                                1000,
+                                1001,
+                                true,
+                                Optional.of("{" +
+                                        "\"numRecords\":20," +
+                                        "\"minValues\":{" +
+                                        "\"ts\":\"1990-10-31T01:00:00.000Z\"" +
+                                        "}," +
+                                        "\"maxValues\":{" +
+                                        "\"ts\":\"1990-10-31T02:00:00.000Z\"" +
+                                        "}," +
+                                        "\"nullCount\":{" +
+                                        "\"ts\":1" +
+                                        "}}"),
+                                Optional.empty(),
+                                ImmutableMap.of(),
+                                Optional.empty()))
+                .collect(toImmutableSet());
+
+        CheckpointEntries entries = new CheckpointEntries(
+                metadataEntry,
+                protocolEntry,
+                ImmutableSet.of(),
+                addFileEntries,
+                ImmutableSet.of());
+
+        CheckpointWriter writer = new CheckpointWriter(
+                TESTING_TYPE_MANAGER,
+                checkpointSchemaManager,
+                "test",
+                ParquetWriterOptions.builder() // approximately 2 rows per row group
+                        .setMaxBlockSize(DataSize.ofBytes(64L))
+                        .setMaxPageSize(DataSize.ofBytes(64L))
+                        .build());
+
+        File targetFile = File.createTempFile("testSkipAddEntries-", ".checkpoint.parquet");
+        targetFile.deleteOnExit();
+
+        String targetPath = "file://" + targetFile.getAbsolutePath();
+        targetFile.delete(); // file must not exist when writer is called
+        writer.write(entries, createOutputFile(targetPath));
+
+        CheckpointEntryIterator metadataAndProtocolEntryIterator = createCheckpointEntryIterator(
+                URI.create(targetPath),
+                ImmutableSet.of(METADATA, PROTOCOL),
+                Optional.empty(),
+                Optional.empty(),
+                TupleDomain.all(),
+                Optional.empty());
+
+        DeltaLakeColumnHandle partitionKeyField = new DeltaLakeColumnHandle(
+                "part_key",
+                INTEGER,
+                OptionalInt.empty(),
+                "part_key",
+                INTEGER,
+                REGULAR,
+                Optional.empty());
+
+        CheckpointEntryIterator addEntryIterator = createCheckpointEntryIterator(
+                URI.create(targetPath),
+                ImmutableSet.of(ADD),
+                Optional.of(metadataEntry),
+                Optional.of(protocolEntry),
+                TupleDomain.all(),
+                Optional.of(alwaysTrue()));
+
+        CheckpointEntryIterator addEntryIteratorWithEqualityPartitionFilter = createCheckpointEntryIterator(
+                URI.create(targetPath),
+                ImmutableSet.of(ADD),
+                Optional.of(metadataEntry),
+                Optional.of(protocolEntry),
+                TupleDomain.withColumnDomains(ImmutableMap.of(partitionKeyField, singleValue(INTEGER, 10L))),
+                Optional.of(alwaysTrue()));
+
+        CheckpointEntryIterator addEntryIteratorWithRangePartitionFilter = createCheckpointEntryIterator(
+                URI.create(targetPath),
+                ImmutableSet.of(ADD),
+                Optional.of(metadataEntry),
+                Optional.of(protocolEntry),
+                TupleDomain.withColumnDomains(ImmutableMap.of(
+                        partitionKeyField,
+                        Domain.create(ValueSet.ofRanges(range(INTEGER, 9L, true, 11L, true)), false))),
+                Optional.of(alwaysTrue()));
+
+        assertThat(Iterators.size(metadataAndProtocolEntryIterator)).isEqualTo(2);
+        assertThat(metadataAndProtocolEntryIterator.getCompletedPositions().orElseThrow()).isEqualTo(3L);
+
+        assertThat(Iterators.size(addEntryIterator)).isEqualTo(numAddEntries);
+        assertThat(addEntryIterator.getCompletedPositions().orElseThrow()).isEqualTo(101L);
+
+        assertThat(Iterators.size(addEntryIteratorWithEqualityPartitionFilter)).isEqualTo(1);
+        assertThat(addEntryIteratorWithEqualityPartitionFilter.getCompletedPositions().orElseThrow()).isEqualTo(1L);
+
+        assertThat(Iterators.size(addEntryIteratorWithRangePartitionFilter)).isEqualTo(3);
+        assertThat(addEntryIteratorWithRangePartitionFilter.getCompletedPositions().orElseThrow()).isEqualTo(3L);
+    }
+
+    @Test
     public void testSkipRemoveEntries()
             throws IOException
     {
@@ -491,7 +760,7 @@ public class TestCheckpointEntryIterator
         ProtocolEntry protocolEntry = new ProtocolEntry(10, 20, Optional.empty(), Optional.empty());
         AddFileEntry addFileEntryJsonStats = new AddFileEntry(
                 "addFilePathJson",
-                ImmutableMap.of(),
+                ImmutableMap.of("part_key", "2023-01-01 00:00:00"),
                 1000,
                 1001,
                 true,
@@ -542,17 +811,18 @@ public class TestCheckpointEntryIterator
         writer.write(entries, createOutputFile(targetPath));
 
         CheckpointEntryIterator metadataAndProtocolEntryIterator =
-                createCheckpointEntryIterator(URI.create(targetPath), ImmutableSet.of(METADATA, PROTOCOL), Optional.empty(), Optional.empty(), TupleDomain.all());
+                createCheckpointEntryIterator(URI.create(targetPath), ImmutableSet.of(METADATA, PROTOCOL), Optional.empty(), Optional.empty(), TupleDomain.all(), Optional.empty());
         CheckpointEntryIterator addEntryIterator = createCheckpointEntryIterator(
                 URI.create(targetPath),
                 ImmutableSet.of(ADD),
                 Optional.of(metadataEntry),
                 Optional.of(protocolEntry),
-                TupleDomain.all());
+                TupleDomain.all(),
+                Optional.of(alwaysTrue()));
         CheckpointEntryIterator removeEntryIterator =
-                createCheckpointEntryIterator(URI.create(targetPath), ImmutableSet.of(REMOVE), Optional.empty(), Optional.empty(), TupleDomain.all());
+                createCheckpointEntryIterator(URI.create(targetPath), ImmutableSet.of(REMOVE), Optional.empty(), Optional.empty(), TupleDomain.all(), Optional.empty());
         CheckpointEntryIterator txnEntryIterator =
-                createCheckpointEntryIterator(URI.create(targetPath), ImmutableSet.of(TRANSACTION), Optional.empty(), Optional.empty(), TupleDomain.all());
+                createCheckpointEntryIterator(URI.create(targetPath), ImmutableSet.of(TRANSACTION), Optional.empty(), Optional.empty(), TupleDomain.all(), Optional.empty());
 
         assertThat(Iterators.size(metadataAndProtocolEntryIterator)).isEqualTo(2);
         assertThat(Iterators.size(addEntryIterator)).isEqualTo(1);
@@ -568,14 +838,26 @@ public class TestCheckpointEntryIterator
     private MetadataEntry readMetadataEntry(URI checkpointUri)
             throws IOException
     {
-        CheckpointEntryIterator checkpointEntryIterator = createCheckpointEntryIterator(checkpointUri, ImmutableSet.of(METADATA), Optional.empty(), Optional.empty(), TupleDomain.all());
+        CheckpointEntryIterator checkpointEntryIterator = createCheckpointEntryIterator(
+                checkpointUri,
+                ImmutableSet.of(METADATA),
+                Optional.empty(),
+                Optional.empty(),
+                TupleDomain.all(),
+                Optional.empty());
         return Iterators.getOnlyElement(checkpointEntryIterator).getMetaData();
     }
 
     private ProtocolEntry readProtocolEntry(URI checkpointUri)
             throws IOException
     {
-        CheckpointEntryIterator checkpointEntryIterator = createCheckpointEntryIterator(checkpointUri, ImmutableSet.of(PROTOCOL), Optional.empty(), Optional.empty(), TupleDomain.all());
+        CheckpointEntryIterator checkpointEntryIterator = createCheckpointEntryIterator(
+                checkpointUri,
+                ImmutableSet.of(PROTOCOL),
+                Optional.empty(),
+                Optional.empty(),
+                TupleDomain.all(),
+                Optional.empty());
         return Iterators.getOnlyElement(checkpointEntryIterator).getProtocol();
     }
 
@@ -584,7 +866,8 @@ public class TestCheckpointEntryIterator
             Set<CheckpointEntryIterator.EntryType> entryTypes,
             Optional<MetadataEntry> metadataEntry,
             Optional<ProtocolEntry> protocolEntry,
-            TupleDomain<DeltaLakeColumnHandle> partitionConstraint)
+            TupleDomain<DeltaLakeColumnHandle> partitionConstraint,
+            Optional<Predicate<String>> addStatsMinMaxColumnFilter)
             throws IOException
     {
         TrinoFileSystem fileSystem = new HdfsFileSystemFactory(HDFS_ENVIRONMENT, HDFS_FILE_SYSTEM_STATS).create(SESSION);
@@ -600,10 +883,14 @@ public class TestCheckpointEntryIterator
                 metadataEntry,
                 protocolEntry,
                 new FileFormatDataSourceStats(),
-                new ParquetReaderConfig().toParquetReaderOptions(),
+                new ParquetReaderConfig()
+                        .setMaxBufferSize(DataSize.ofBytes(500))
+                        .setSmallFileThreshold(DataSize.of(1, KILOBYTE))
+                        .toParquetReaderOptions(),
                 true,
                 new DeltaLakeConfig().getDomainCompactionThreshold(),
-                partitionConstraint);
+                partitionConstraint,
+                addStatsMinMaxColumnFilter);
     }
 
     private static TrinoOutputFile createOutputFile(String path)

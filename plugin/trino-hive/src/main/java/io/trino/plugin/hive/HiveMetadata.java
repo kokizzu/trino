@@ -88,6 +88,7 @@ import io.trino.spi.connector.LocalProperty;
 import io.trino.spi.connector.MaterializedViewFreshness;
 import io.trino.spi.connector.MetadataProvider;
 import io.trino.spi.connector.ProjectionApplicationResult;
+import io.trino.spi.connector.RelationType;
 import io.trino.spi.connector.RetryMode;
 import io.trino.spi.connector.RowChangeParadigm;
 import io.trino.spi.connector.SchemaNotFoundException;
@@ -137,6 +138,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -330,9 +332,9 @@ public class HiveMetadata
 {
     private static final Logger log = Logger.get(HiveMetadata.class);
 
-    public static final String PRESTO_VERSION_NAME = "presto_version";
+    public static final String TRINO_VERSION_NAME = "trino_version";
     public static final String TRINO_CREATED_BY = "trino_created_by";
-    public static final String PRESTO_QUERY_ID_NAME = "presto_query_id";
+    public static final String TRINO_QUERY_ID_NAME = "trino_query_id";
     public static final String BUCKETING_VERSION = "bucketing_version";
     public static final String TABLE_COMMENT = "comment";
     public static final String STORAGE_TABLE = "storage_table";
@@ -379,7 +381,7 @@ public class HiveMetadata
     private final boolean translateHiveViews;
     private final boolean hiveViewsRunAsInvoker;
     private final boolean hideDeltaLakeTables;
-    private final String prestoVersion;
+    private final String trinoVersion;
     private final HiveStatisticsProvider hiveStatisticsProvider;
     private final HiveRedirectionsProvider hiveRedirectionsProvider;
     private final Set<SystemTableProvider> systemTableProviders;
@@ -434,7 +436,7 @@ public class HiveMetadata
         this.translateHiveViews = translateHiveViews;
         this.hiveViewsRunAsInvoker = hiveViewsRunAsInvoker;
         this.hideDeltaLakeTables = hideDeltaLakeTables;
-        this.prestoVersion = requireNonNull(trinoVersion, "trinoVersion is null");
+        this.trinoVersion = requireNonNull(trinoVersion, "trinoVersion is null");
         this.hiveStatisticsProvider = requireNonNull(hiveStatisticsProvider, "hiveStatisticsProvider is null");
         this.hiveRedirectionsProvider = requireNonNull(hiveRedirectionsProvider, "hiveRedirectionsProvider is null");
         this.systemTableProviders = requireNonNull(systemTableProviders, "systemTableProviders is null");
@@ -814,6 +816,34 @@ public class HiveMetadata
         return tableNames.build().asList();
     }
 
+    @Override
+    public Map<SchemaTableName, RelationType> getRelationTypes(ConnectorSession session, Optional<String> optionalSchemaName)
+    {
+        ImmutableMap.Builder<SchemaTableName, RelationType> result = ImmutableMap.builder();
+
+        boolean fetched = false;
+        if (optionalSchemaName.isEmpty()) {
+            Optional<Map<SchemaTableName, RelationType>> relationTypes = metastore.getRelationTypes();
+            if (relationTypes.isPresent()) {
+                relationTypes.get().entrySet().stream()
+                        .filter(entry -> !isHiveSystemSchema(entry.getKey().getSchemaName()))
+                        .forEach(result::put);
+                fetched = true;
+            }
+        }
+        if (!fetched) {
+            for (String schemaName : listSchemas(session, optionalSchemaName)) {
+                for (Entry<String, RelationType> entry : metastore.getRelationTypes(schemaName).entrySet()) {
+                    result.put(new SchemaTableName(schemaName, entry.getKey()), entry.getValue());
+                }
+            }
+        }
+
+        listMaterializedViews(session, optionalSchemaName)
+                .forEach(name -> result.put(name, RelationType.MATERIALIZED_VIEW));
+        return result.buildKeepingLast();
+    }
+
     private List<String> listSchemas(ConnectorSession session, Optional<String> schemaName)
     {
         if (schemaName.isPresent()) {
@@ -892,7 +922,7 @@ public class HiveMetadata
                 .collect(toImmutableMap(HiveColumnHandle::getName, Function.identity()));
 
         Map<String, Type> columnTypes = columns.entrySet().stream()
-                .collect(toImmutableMap(Map.Entry::getKey, entry -> getColumnMetadata(session, tableHandle, entry.getValue()).getType()));
+                .collect(toImmutableMap(Entry::getKey, entry -> getColumnMetadata(session, tableHandle, entry.getValue()).getType()));
         HivePartitionResult partitionResult = partitionManager.getPartitions(metastore, tableHandle, new Constraint(hiveTableHandle.getEnforcedConstraint()));
         // If partitions are not loaded, then don't generate table statistics.
         // Note that the computation is not persisted in the table handle, so can be redone many times
@@ -955,7 +985,7 @@ public class HiveMetadata
                 .setLocation(location)
                 .setOwnerType(accessControlMetadata.isUsingSystemSecurity() ? Optional.empty() : Optional.of(owner.getType()))
                 .setOwnerName(accessControlMetadata.isUsingSystemSecurity() ? Optional.empty() : Optional.of(owner.getName()))
-                .setParameters(ImmutableMap.of(PRESTO_QUERY_ID_NAME, session.getQueryId()))
+                .setParameters(ImmutableMap.of(TRINO_QUERY_ID_NAME, session.getQueryId()))
                 .build();
 
         metastore.createDatabase(session, database);
@@ -1075,7 +1105,7 @@ public class HiveMetadata
                 tableProperties,
                 targetPath,
                 external,
-                prestoVersion,
+                trinoVersion,
                 accessControlMetadata.isUsingSystemSecurity());
         PrincipalPrivileges principalPrivileges = accessControlMetadata.isUsingSystemSecurity() ? NO_PRIVILEGES : buildInitialPrivilegeSet(session.getUser());
         HiveBasicStatistics basicStatistics = (!external && table.getPartitionColumns().isEmpty()) ? createZeroStatistics() : createEmptyStatistics();
@@ -1382,7 +1412,7 @@ public class HiveMetadata
             Map<String, String> additionalTableParameters,
             Optional<Location> targetPath,
             boolean external,
-            String prestoVersion,
+            String trinoVersion,
             boolean usingSystemSecurity)
     {
         Map<String, HiveColumnHandle> columnHandlesByName = Maps.uniqueIndex(columnHandles, HiveColumnHandle::getName);
@@ -1407,8 +1437,8 @@ public class HiveMetadata
         }
 
         ImmutableMap.Builder<String, String> tableParameters = ImmutableMap.<String, String>builder()
-                .put(PRESTO_VERSION_NAME, prestoVersion)
-                .put(PRESTO_QUERY_ID_NAME, queryId)
+                .put(TRINO_VERSION_NAME, trinoVersion)
+                .put(TRINO_QUERY_ID_NAME, queryId)
                 .putAll(additionalTableParameters);
 
         if (external) {
@@ -1797,7 +1827,7 @@ public class HiveMetadata
                 handle.getAdditionalTableParameters(),
                 Optional.of(writeInfo.targetPath()),
                 handle.isExternal(),
-                prestoVersion,
+                trinoVersion,
                 accessControlMetadata.isUsingSystemSecurity());
         PrincipalPrivileges principalPrivileges = accessControlMetadata.isUsingSystemSecurity() ? NO_PRIVILEGES : buildInitialPrivilegeSet(handle.getTableOwner());
 
@@ -2345,8 +2375,8 @@ public class HiveMetadata
                 .setColumns(table.getDataColumns())
                 .setValues(extractPartitionValues(partitionUpdate.getName()))
                 .setParameters(ImmutableMap.<String, String>builder()
-                        .put(PRESTO_VERSION_NAME, prestoVersion)
-                        .put(PRESTO_QUERY_ID_NAME, session.getQueryId())
+                        .put(TRINO_VERSION_NAME, trinoVersion)
+                        .put(TRINO_QUERY_ID_NAME, session.getQueryId())
                         .buildOrThrow())
                 .withStorage(storage -> storage
                         .setStorageFormat(isRespectTableFormat(session) ?
@@ -2661,8 +2691,8 @@ public class HiveMetadata
                 .put(TABLE_COMMENT, PRESTO_VIEW_COMMENT)
                 .put(PRESTO_VIEW_FLAG, "true")
                 .put(TRINO_CREATED_BY, "Trino Hive connector")
-                .put(PRESTO_VERSION_NAME, prestoVersion)
-                .put(PRESTO_QUERY_ID_NAME, session.getQueryId())
+                .put(TRINO_VERSION_NAME, trinoVersion)
+                .put(TRINO_QUERY_ID_NAME, session.getQueryId())
                 .buildOrThrow();
 
         Column dummyColumn = new Column("dummy", HIVE_STRING, Optional.empty(), ImmutableMap.of());
@@ -3075,7 +3105,7 @@ public class HiveMetadata
         ImmutableMap.Builder<ConnectorExpression, Variable> newVariablesBuilder = ImmutableMap.builder();
         ImmutableSet.Builder<ColumnHandle> projectedColumnsBuilder = ImmutableSet.builder();
 
-        for (Map.Entry<ConnectorExpression, ProjectedColumnRepresentation> entry : columnProjections.entrySet()) {
+        for (Entry<ConnectorExpression, ProjectedColumnRepresentation> entry : columnProjections.entrySet()) {
             ConnectorExpression expression = entry.getKey();
             ProjectedColumnRepresentation projectedColumn = entry.getValue();
 

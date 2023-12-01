@@ -69,6 +69,7 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Queue;
 import java.util.Set;
+import java.util.function.Predicate;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Verify.verify;
@@ -159,7 +160,8 @@ public class CheckpointEntryIterator
             ParquetReaderOptions parquetReaderOptions,
             boolean checkpointRowStatisticsWritingEnabled,
             int domainCompactionThreshold,
-            TupleDomain<DeltaLakeColumnHandle> partitionConstraint)
+            TupleDomain<DeltaLakeColumnHandle> partitionConstraint,
+            Optional<Predicate<String>> addStatsMinMaxColumnFilter)
     {
         this.checkpointPath = checkpoint.location().toString();
         this.session = requireNonNull(session, "session is null");
@@ -167,6 +169,7 @@ public class CheckpointEntryIterator
         this.stringMap = (MapType) typeManager.getType(TypeSignature.mapType(VARCHAR.getTypeSignature(), VARCHAR.getTypeSignature()));
         this.checkpointRowStatisticsWritingEnabled = checkpointRowStatisticsWritingEnabled;
         this.partitionConstraint = requireNonNull(partitionConstraint, "partitionConstraint is null");
+        requireNonNull(addStatsMinMaxColumnFilter, "addStatsMinMaxColumnFilter is null");
         checkArgument(!fields.isEmpty(), "fields is empty");
         Map<EntryType, CheckPointFieldExtractor> extractors = ImmutableMap.<EntryType, CheckPointFieldExtractor>builder()
                 .put(TRANSACTION, this::buildTxnEntry)
@@ -182,14 +185,19 @@ public class CheckpointEntryIterator
             this.metadataEntry = metadataEntry.get();
             checkArgument(protocolEntry.isPresent(), "Protocol entry must be provided when reading ADD entries from Checkpoint files");
             this.protocolEntry = protocolEntry.get();
+            checkArgument(addStatsMinMaxColumnFilter.isPresent(), "addStatsMinMaxColumnFilter must be provided when reading ADD entries from Checkpoint files");
             this.schema = extractSchema(this.metadataEntry, this.protocolEntry, typeManager);
             this.columnsWithMinMaxStats = columnsWithStats(schema, this.metadataEntry.getOriginalPartitionColumns());
+            Predicate<String> columnStatsFilterFunction = addStatsMinMaxColumnFilter.orElseThrow();
+            this.columnsWithMinMaxStats = columnsWithMinMaxStats.stream()
+                    .filter(column -> columnStatsFilterFunction.test(column.getName()))
+                    .collect(toImmutableList());
         }
 
         ImmutableList.Builder<HiveColumnHandle> columnsBuilder = ImmutableList.builderWithExpectedSize(fields.size());
         ImmutableList.Builder<TupleDomain<HiveColumnHandle>> disjunctDomainsBuilder = ImmutableList.builderWithExpectedSize(fields.size());
         for (EntryType field : fields) {
-            HiveColumnHandle column = buildColumnHandle(field, checkpointSchemaManager, this.metadataEntry, this.protocolEntry).toHiveColumnHandle();
+            HiveColumnHandle column = buildColumnHandle(field, checkpointSchemaManager, this.metadataEntry, this.protocolEntry, addStatsMinMaxColumnFilter).toHiveColumnHandle();
             columnsBuilder.add(column);
             disjunctDomainsBuilder.add(buildTupleDomainColumnHandle(field, column));
         }
@@ -220,11 +228,16 @@ public class CheckpointEntryIterator
                 .collect(toImmutableList());
     }
 
-    private DeltaLakeColumnHandle buildColumnHandle(EntryType entryType, CheckpointSchemaManager schemaManager, MetadataEntry metadataEntry, ProtocolEntry protocolEntry)
+    private DeltaLakeColumnHandle buildColumnHandle(
+            EntryType entryType,
+            CheckpointSchemaManager schemaManager,
+            MetadataEntry metadataEntry,
+            ProtocolEntry protocolEntry,
+            Optional<Predicate<String>> addStatsMinMaxColumnFilter)
     {
         Type type = switch (entryType) {
             case TRANSACTION -> schemaManager.getTxnEntryType();
-            case ADD -> schemaManager.getAddEntryType(metadataEntry, protocolEntry, true, true, true);
+            case ADD -> schemaManager.getAddEntryType(metadataEntry, protocolEntry, addStatsMinMaxColumnFilter.orElseThrow(), true, true);
             case REMOVE -> schemaManager.getRemoveEntryType();
             case METADATA -> schemaManager.getMetadataEntryType();
             case PROTOCOL -> schemaManager.getProtocolEntryType(true, true);
@@ -522,11 +535,8 @@ public class CheckpointEntryIterator
         if (!columnsWithMinMaxStats.isEmpty()) {
             minValues = Optional.of(parseMinMax(stats.getRow("minValues"), columnsWithMinMaxStats));
             maxValues = Optional.of(parseMinMax(stats.getRow("maxValues"), columnsWithMinMaxStats));
-            nullCount = Optional.of(parseNullCount(stats.getRow("nullCount"), schema));
         }
-        else {
-            nullCount = Optional.of(parseNullCount(stats.getRow("nullCount"), schema));
-        }
+        nullCount = Optional.of(parseNullCount(stats.getRow("nullCount"), schema));
 
         return new DeltaLakeParquetFileStatistics(
                 Optional.of(numRecords),
@@ -697,6 +707,12 @@ public class CheckpointEntryIterator
     OptionalLong getCompletedPositions()
     {
         return pageSource.getCompletedPositions();
+    }
+
+    @VisibleForTesting
+    long getCompletedBytes()
+    {
+        return pageSource.getCompletedBytes();
     }
 
     @FunctionalInterface

@@ -93,6 +93,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static com.google.cloud.bigquery.StandardSQLTypeName.INT64;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -110,6 +111,7 @@ import static io.trino.plugin.bigquery.BigQueryUtil.isWildcardTable;
 import static io.trino.plugin.bigquery.BigQueryUtil.quote;
 import static io.trino.plugin.bigquery.BigQueryUtil.quoted;
 import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
+import static io.trino.spi.type.BigintType.BIGINT;
 import static java.lang.String.format;
 import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
@@ -169,13 +171,13 @@ public class BigQueryMetadata
     public boolean schemaExists(ConnectorSession session, String schemaName)
     {
         BigQueryClient client = bigQueryClientFactory.create(session);
+        DatasetId localDatasetId = client.toDatasetId(schemaName);
 
         // Overridden to make sure an error message is returned in case of an ambiguous schema name
         log.debug("schemaExists(session=%s)", session);
-        String projectId = client.getProjectId();
-        return client.toRemoteDataset(projectId, schemaName)
+        return client.toRemoteDataset(localDatasetId)
                 .map(RemoteDatabaseObject::getOnlyRemoteName)
-                .filter(remoteSchema -> client.getDataset(DatasetId.of(projectId, remoteSchema)) != null)
+                .filter(remoteSchema -> client.getDataset(DatasetId.of(localDatasetId.getProject(), remoteSchema)) != null)
                 .isPresent();
     }
 
@@ -185,15 +187,23 @@ public class BigQueryMetadata
         BigQueryClient client = bigQueryClientFactory.create(session);
 
         log.debug("listTables(session=%s, schemaName=%s)", session, schemaName);
-        String projectId = client.getProjectId();
+        String projectId;
 
-        // filter ambiguous schemas
-        Optional<String> remoteSchema = schemaName.flatMap(schema -> client.toRemoteDataset(projectId, schema)
-                .filter(dataset -> !dataset.isAmbiguous())
-                .map(RemoteDatabaseObject::getOnlyRemoteName));
+        Set<String> remoteSchemaNames;
+        if (schemaName.isPresent()) {
+            DatasetId localDatasetId = client.toDatasetId(schemaName.get());
+            projectId = localDatasetId.getProject();
+            // filter ambiguous schemas
+            Optional<String> remoteSchema = client.toRemoteDataset(localDatasetId)
+                    .filter(dataset -> !dataset.isAmbiguous())
+                    .map(RemoteDatabaseObject::getOnlyRemoteName);
 
-        Set<String> remoteSchemaNames = remoteSchema.map(ImmutableSet::of)
-                .orElseGet(() -> ImmutableSet.copyOf(listRemoteSchemaNames(session)));
+            remoteSchemaNames = remoteSchema.map(ImmutableSet::of).orElse(ImmutableSet.of());
+        }
+        else {
+            projectId = client.getProjectId();
+            remoteSchemaNames = ImmutableSet.copyOf(listRemoteSchemaNames(session));
+        }
 
         return processInParallel(remoteSchemaNames.stream().toList(), remoteSchemaName -> listTablesInRemoteSchema(client, projectId, remoteSchemaName))
                 .flatMap(Collection::stream)
@@ -211,7 +221,7 @@ public class BigQueryMetadata
                         .filter(RemoteDatabaseObject::isAmbiguous)
                         .ifPresentOrElse(
                                 remoteTable -> log.debug("Filtered out [%s.%s] from list of tables due to ambiguous name", remoteSchemaName, table.getTableId().getTable()),
-                                () -> tableNames.add(new SchemaTableName(table.getTableId().getDataset(), table.getTableId().getTable())));
+                                () -> tableNames.add(new SchemaTableName(client.toSchemaName(DatasetId.of(projectId, table.getTableId().getDataset())), table.getTableId().getTable())));
             }
         }
         catch (BigQueryException e) {
@@ -230,15 +240,15 @@ public class BigQueryMetadata
     public ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName schemaTableName)
     {
         BigQueryClient client = bigQueryClientFactory.create(session);
-        String projectId = client.getProjectId();
         log.debug("getTableHandle(session=%s, schemaTableName=%s)", session, schemaTableName);
-        String remoteSchemaName = client.toRemoteDataset(projectId, schemaTableName.getSchemaName())
+        DatasetId localDatasetId = client.toDatasetId(schemaTableName.getSchemaName());
+        String remoteSchemaName = client.toRemoteDataset(localDatasetId)
                 .map(RemoteDatabaseObject::getOnlyRemoteName)
-                .orElse(schemaTableName.getSchemaName());
-        String remoteTableName = client.toRemoteTable(projectId, remoteSchemaName, schemaTableName.getTableName())
+                .orElse(localDatasetId.getDataset());
+        String remoteTableName = client.toRemoteTable(localDatasetId.getProject(), remoteSchemaName, schemaTableName.getTableName())
                 .map(RemoteDatabaseObject::getOnlyRemoteName)
                 .orElse(schemaTableName.getTableName());
-        Optional<TableInfo> tableInfo = client.getTable(TableId.of(projectId, remoteSchemaName, remoteTableName));
+        Optional<TableInfo> tableInfo = client.getTable(TableId.of(localDatasetId.getProject(), remoteSchemaName, remoteTableName));
         if (tableInfo.isEmpty()) {
             log.debug("Table [%s.%s] was not found", schemaTableName.getSchemaName(), schemaTableName.getTableName());
             return null;
@@ -263,14 +273,14 @@ public class BigQueryMetadata
     private ConnectorTableHandle getTableHandleIgnoringConflicts(ConnectorSession session, SchemaTableName schemaTableName)
     {
         BigQueryClient client = bigQueryClientFactory.create(session);
-        String projectId = client.getProjectId();
-        String remoteSchemaName = client.toRemoteDataset(projectId, schemaTableName.getSchemaName())
+        DatasetId localDatasetId = client.toDatasetId(schemaTableName.getSchemaName());
+        String remoteSchemaName = client.toRemoteDataset(localDatasetId)
                 .map(RemoteDatabaseObject::getAnyRemoteName)
-                .orElse(schemaTableName.getSchemaName());
-        String remoteTableName = client.toRemoteTable(projectId, remoteSchemaName, schemaTableName.getTableName())
+                .orElse(localDatasetId.getDataset());
+        String remoteTableName = client.toRemoteTable(localDatasetId.getProject(), remoteSchemaName, schemaTableName.getTableName())
                 .map(RemoteDatabaseObject::getAnyRemoteName)
                 .orElse(schemaTableName.getTableName());
-        Optional<TableInfo> tableInfo = client.getTable(TableId.of(projectId, remoteSchemaName, remoteTableName));
+        Optional<TableInfo> tableInfo = client.getTable(TableId.of(localDatasetId.getProject(), remoteSchemaName, remoteTableName));
         if (tableInfo.isEmpty()) {
             log.debug("Table [%s.%s] was not found", schemaTableName.getSchemaName(), schemaTableName.getTableName());
             return null;
@@ -289,7 +299,7 @@ public class BigQueryMetadata
     {
         BigQueryClient client = bigQueryClientFactory.create(session);
         log.debug("getTableMetadata(session=%s, tableHandle=%s)", session, tableHandle);
-        BigQueryTableHandle handle = ((BigQueryTableHandle) tableHandle);
+        BigQueryTableHandle handle = (BigQueryTableHandle) tableHandle;
 
         List<ColumnMetadata> columns = client.getColumns(handle).stream()
                 .map(BigQueryColumnHandle::getColumnMetadata)
@@ -309,14 +319,14 @@ public class BigQueryMetadata
     private Optional<SystemTable> getViewDefinitionSystemTable(ConnectorSession session, SchemaTableName viewDefinitionTableName, SchemaTableName sourceTableName)
     {
         BigQueryClient client = bigQueryClientFactory.create(session);
-        String projectId = client.getProjectId();
-        String remoteSchemaName = client.toRemoteDataset(projectId, sourceTableName.getSchemaName())
+        DatasetId localDatasetId = client.toDatasetId(sourceTableName.getSchemaName());
+        String remoteSchemaName = client.toRemoteDataset(localDatasetId)
                 .map(RemoteDatabaseObject::getOnlyRemoteName)
                 .orElseThrow(() -> new TableNotFoundException(viewDefinitionTableName));
-        String remoteTableName = client.toRemoteTable(projectId, remoteSchemaName, sourceTableName.getTableName())
+        String remoteTableName = client.toRemoteTable(localDatasetId.getProject(), remoteSchemaName, sourceTableName.getTableName())
                 .map(RemoteDatabaseObject::getOnlyRemoteName)
                 .orElseThrow(() -> new TableNotFoundException(viewDefinitionTableName));
-        TableInfo tableInfo = client.getTable(TableId.of(projectId, remoteSchemaName, remoteTableName))
+        TableInfo tableInfo = client.getTable(TableId.of(localDatasetId.getProject(), remoteSchemaName, remoteTableName))
                 .orElseThrow(() -> new TableNotFoundException(viewDefinitionTableName));
         if (!(tableInfo.getDefinition() instanceof ViewDefinition)) {
             throw new TableNotFoundException(viewDefinitionTableName);
@@ -422,7 +432,7 @@ public class BigQueryMetadata
     {
         BigQueryClient client = bigQueryClientFactory.create(session);
         checkArgument(properties.isEmpty(), "Can't have properties for schema creation");
-        DatasetInfo datasetInfo = DatasetInfo.newBuilder(client.getProjectId(), schemaName).build();
+        DatasetInfo datasetInfo = DatasetInfo.newBuilder(client.toDatasetId(schemaName)).build();
         client.createSchema(datasetInfo);
     }
 
@@ -430,9 +440,9 @@ public class BigQueryMetadata
     public void dropSchema(ConnectorSession session, String schemaName, boolean cascade)
     {
         BigQueryClient client = bigQueryClientFactory.create(session);
-        String projectId = client.getProjectId();
-        String remoteSchemaName = getRemoteSchemaName(client, projectId, schemaName);
-        client.dropSchema(DatasetId.of(projectId, remoteSchemaName), cascade);
+        DatasetId localDatasetId = client.toDatasetId(schemaName);
+        String remoteSchemaName = getRemoteSchemaName(client, localDatasetId.getProject(), localDatasetId.getDataset());
+        client.dropSchema(DatasetId.of(localDatasetId.getProject(), remoteSchemaName), cascade);
     }
 
     private void setRollback(Runnable action)
@@ -492,8 +502,8 @@ public class BigQueryMetadata
         }
 
         BigQueryClient client = bigQueryClientFactory.create(session);
-        String projectId = client.getProjectId();
-        String remoteSchemaName = getRemoteSchemaName(client, projectId, schemaName);
+        DatasetId localDatasetId = client.toDatasetId(schemaName);
+        String remoteSchemaName = getRemoteSchemaName(client, localDatasetId.getProject(), localDatasetId.getDataset());
 
         Closer closer = Closer.create();
         setRollback(() -> {
@@ -505,13 +515,13 @@ public class BigQueryMetadata
             }
         });
 
-        TableId tableId = createTable(client, projectId, remoteSchemaName, tableName, fields.build(), tableMetadata.getComment());
+        TableId tableId = createTable(client, localDatasetId.getProject(), remoteSchemaName, tableName, fields.build(), tableMetadata.getComment());
         closer.register(() -> bigQueryClientFactory.create(session).dropTable(tableId));
 
         Optional<String> temporaryTableName = pageSinkIdColumn.map(column -> {
             tempFields.add(typeManager.toField(column.getName(), column.getType(), column.getComment()));
             String tempTableName = generateTemporaryTableName(session);
-            TableId tempTableId = createTable(client, projectId, remoteSchemaName, tempTableName, tempFields.build(), tableMetadata.getComment());
+            TableId tempTableId = createTable(client, localDatasetId.getProject(), remoteSchemaName, tempTableName, tempFields.build(), tableMetadata.getComment());
             closer.register(() -> bigQueryClientFactory.create(session).dropTable(tempTableId));
             return tempTableName;
         });
@@ -672,17 +682,37 @@ public class BigQueryMetadata
     }
 
     @Override
+    public ColumnHandle getMergeRowIdColumnHandle(ConnectorSession session, ConnectorTableHandle tableHandle)
+    {
+        return new BigQueryColumnHandle("$merge_row_id", BIGINT, INT64, true, Field.Mode.REQUIRED, ImmutableList.of(), null, true);
+    }
+
+    @Override
     public Optional<ConnectorTableHandle> applyDelete(ConnectorSession session, ConnectorTableHandle handle)
     {
-        // TODO Fix BaseBigQueryFailureRecoveryTest when implementing this method
-        return ConnectorMetadata.super.applyDelete(session, handle);
+        return Optional.of(handle);
     }
 
     @Override
     public OptionalLong executeDelete(ConnectorSession session, ConnectorTableHandle handle)
     {
-        // TODO Fix BaseBigQueryFailureRecoveryTest when implementing this method
-        return ConnectorMetadata.super.executeDelete(session, handle);
+        BigQueryTableHandle tableHandle = ((BigQueryTableHandle) handle);
+        checkArgument(tableHandle.isNamedRelation(), "Unable to delete from synthetic table: %s", tableHandle);
+        TupleDomain<ColumnHandle> tableConstraint = tableHandle.getConstraint();
+        Optional<String> filter = BigQueryFilterQueryBuilder.buildFilter(tableConstraint);
+
+        RemoteTableName remoteTableName = tableHandle.asPlainTable().getRemoteTableName();
+        String sql = format(
+                "DELETE FROM %s.%s.%s WHERE %s",
+                quote(remoteTableName.getProjectId()),
+                quote(remoteTableName.getDatasetName()),
+                quote(remoteTableName.getTableName()),
+                filter.orElse("true"));
+        BigQueryClient client = bigQueryClientFactory.create(session);
+        long rows = client.executeUpdate(session, QueryJobConfiguration.newBuilder(sql)
+                .setQuery(sql)
+                .build());
+        return OptionalLong.of(rows);
     }
 
     @Override

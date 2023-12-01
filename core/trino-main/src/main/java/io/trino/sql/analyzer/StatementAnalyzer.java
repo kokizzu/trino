@@ -550,7 +550,7 @@ class StatementAnalyzer
             }
 
             // analyze the query that creates the data
-            Scope queryScope = analyze(insert.getQuery());
+            Scope queryScope = analyze(insert.getQuery(), Optional.empty(), false);
 
             // verify the insert destination columns match the query
             RedirectionAwareTableHandle redirection = metadata.getRedirectionAwareTableHandle(session, targetTable);
@@ -1519,7 +1519,7 @@ class StatementAnalyzer
         {
             for (FunctionSpecification function : node.getFunctions()) {
                 if (function.getName().getPrefix().isPresent()) {
-                    throw semanticException(SYNTAX_ERROR, function, "Inline function names cannot be qualified: " + function.getName());
+                    throw semanticException(SYNTAX_ERROR, function, "Inline function names cannot be qualified: %s", function.getName());
                 }
                 function.getRoutineCharacteristics().stream()
                         .filter(SecurityCharacteristic.class::isInstance)
@@ -2500,7 +2500,7 @@ class StatementAnalyzer
             Query query = parseView(originalSql, name, table);
 
             if (!query.getFunctions().isEmpty()) {
-                throw semanticException(NOT_SUPPORTED, table, "View contains inline function: " + name);
+                throw semanticException(NOT_SUPPORTED, table, "View contains inline function: %s", name);
             }
 
             analysis.registerTableForView(table);
@@ -4238,7 +4238,7 @@ class StatementAnalyzer
 
                         Optional<String> name;
                         if (!allColumns.getAliases().isEmpty()) {
-                            name = Optional.of((allColumns.getAliases().get(i)).getCanonicalValue());
+                            name = Optional.of(allColumns.getAliases().get(i).getCanonicalValue());
                         }
                         else {
                             name = field.getName();
@@ -4468,7 +4468,7 @@ class StatementAnalyzer
 
                 Optional<String> alias = field.getName();
                 if (!allColumns.getAliases().isEmpty()) {
-                    alias = Optional.of((allColumns.getAliases().get(i)).getValue());
+                    alias = Optional.of(allColumns.getAliases().get(i).getValue());
                 }
 
                 Field newField = new Field(
@@ -4519,13 +4519,13 @@ class StatementAnalyzer
                 unfoldedExpressionsBuilder.add(outputExpression);
 
                 Type outputExpressionType = type.getTypeParameters().get(i);
-                if (node.getSelect().isDistinct() && !(outputExpressionType.isComparable())) {
+                if (node.getSelect().isDistinct() && !outputExpressionType.isComparable()) {
                     throw semanticException(TYPE_MISMATCH, node.getSelect(), "DISTINCT can only be applied to comparable types (actual: %s)", type.getTypeParameters().get(i));
                 }
 
                 Optional<String> name = ((RowType) type).getFields().get(i).getName();
                 if (!allColumns.getAliases().isEmpty()) {
-                    name = Optional.of((allColumns.getAliases().get(i)).getValue());
+                    name = Optional.of(allColumns.getAliases().get(i).getValue());
                 }
                 itemOutputFieldBuilder.add(Field.newUnqualified(name, outputExpressionType));
             }

@@ -159,6 +159,10 @@ implementation is used:
     materialized view definition. When the `storage_schema` materialized view
     property is specified, it takes precedence over this catalog property.
   - Empty
+* - `iceberg.materialized-views.hide-storage-table`
+  - Hide the information about the storage table backing the materialized view
+    in the metastore.
+  - `true`
 * - `iceberg.register-table-procedure.enabled`
   - Enable to allow user to call `register_table` procedure.
   - `false`
@@ -1407,13 +1411,8 @@ CREATE TABLE example_table (
 When trying to insert/update data in the table, the query fails if trying to set
 `NULL` value on a column having the `NOT NULL` constraint.
 
-### View management
-
-Trino allows reading from Iceberg materialized views.
-
 (iceberg-materialized-views)=
-
-#### Materialized views
+### Materialized views
 
 The Iceberg connector supports {ref}`sql-materialized-view-management`. In the
 underlying system, each materialized view consists of a view definition and an

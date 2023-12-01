@@ -316,6 +316,55 @@ public class TestIcebergGlueCatalogAccessOperations
     }
 
     @Test
+    public void testMaterializedViewMetadata()
+    {
+        try {
+            assertUpdate("CREATE TABLE test_mview_metadata_table (id VARCHAR, age INT)");
+            assertUpdate("CREATE MATERIALIZED VIEW test_mview_metadata_view AS SELECT id, age FROM test_mview_metadata_table");
+
+            // listing
+            assertGlueMetastoreApiInvocations(
+                    "SELECT * FROM system.metadata.materialized_views WHERE catalog_name = CURRENT_CATALOG AND schema_name = CURRENT_SCHEMA",
+                    ImmutableMultiset.builder()
+                            .add(GET_TABLES)
+                            .add(GET_TABLE)
+                            .build());
+
+            // pointed lookup
+            assertGlueMetastoreApiInvocations(
+                    "SELECT * FROM system.metadata.materialized_views WHERE catalog_name = CURRENT_CATALOG AND schema_name = CURRENT_SCHEMA AND name = 'test_mview_metadata_view'",
+                    ImmutableMultiset.builder()
+                            .add(GET_TABLE)
+                            .build());
+
+            // just names
+            assertGlueMetastoreApiInvocations(
+                    "SELECT name FROM system.metadata.materialized_views WHERE catalog_name = CURRENT_CATALOG AND schema_name = CURRENT_SCHEMA",
+                    ImmutableMultiset.builder()
+                            .add(GET_TABLES)
+                            .add(GET_TABLE)
+                            .build());
+
+            // getting relations with their types, like some tools do
+            assertGlueMetastoreApiInvocations(
+                    """
+                            SELECT table_name, IF(mv.name IS NOT NULL, 'MATERIALIZED VIEW', table_type) AS table_type
+                            FROM information_schema.tables t
+                            JOIN system.metadata.materialized_views mv ON t.table_schema = mv.schema_name AND t.table_name = mv.name
+                            WHERE t.table_schema = CURRENT_SCHEMA AND mv.catalog_name = CURRENT_CATALOG
+                            """,
+                    ImmutableMultiset.builder()
+                            .addCopies(GET_TABLES, 2)
+                            .add(GET_TABLE)
+                            .build());
+        }
+        finally {
+            getQueryRunner().execute("DROP MATERIALIZED VIEW IF EXISTS test_mview_metadata_view");
+            getQueryRunner().execute("DROP TABLE IF EXISTS test_mview_metadata_table");
+        }
+    }
+
+    @Test
     public void testJoin()
     {
         try {
@@ -458,7 +507,7 @@ public class TestIcebergGlueCatalogAccessOperations
     }
 
     @Test
-    public void testInformationSchemaColumns()
+    public void testInformationSchemaTableAndColumns()
     {
         String schemaName = "test_i_s_columns_schema" + randomNameSuffix();
         assertUpdate("CREATE SCHEMA " + schemaName);
@@ -483,7 +532,7 @@ public class TestIcebergGlueCatalogAccessOperations
                         assertUpdate(session, "CREATE TABLE test_other_select_i_s_columns" + i + "(id varchar, age integer)"); // won't match the filter
                     }
 
-                    // Bulk retrieval
+                    // Bulk columns retrieval
                     assertInvocations(
                             session,
                             "SELECT * FROM information_schema.columns WHERE table_schema = CURRENT_SCHEMA AND table_name LIKE 'test_select_i_s_columns%'",
@@ -493,7 +542,16 @@ public class TestIcebergGlueCatalogAccessOperations
                             ImmutableMultiset.of());
                 }
 
-                // Pointed lookup
+                // Tables listing
+                assertInvocations(
+                        session,
+                        "SELECT * FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA",
+                        ImmutableMultiset.<GlueMetastoreMethod>builder()
+                                .add(GET_TABLES)
+                                .build(),
+                        ImmutableMultiset.of());
+
+                // Pointed columns lookup
                 assertInvocations(
                         session,
                         "SELECT * FROM information_schema.columns WHERE table_schema = CURRENT_SCHEMA AND table_name = 'test_select_i_s_columns0'",
@@ -504,7 +562,7 @@ public class TestIcebergGlueCatalogAccessOperations
                                 .add(new FileOperation(METADATA_JSON, INPUT_FILE_NEW_STREAM))
                                 .build());
 
-                // Pointed lookup via DESCRIBE (which does some additional things before delegating to information_schema.columns)
+                // Pointed columns lookup via DESCRIBE (which does some additional things before delegating to information_schema.columns)
                 assertInvocations(
                         session,
                         "DESCRIBE test_select_i_s_columns0",

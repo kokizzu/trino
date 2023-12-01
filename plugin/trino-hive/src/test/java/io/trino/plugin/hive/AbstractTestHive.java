@@ -216,8 +216,8 @@ import static io.trino.plugin.hive.HiveColumnHandle.createBaseColumn;
 import static io.trino.plugin.hive.HiveErrorCode.HIVE_INVALID_BUCKET_FILES;
 import static io.trino.plugin.hive.HiveErrorCode.HIVE_INVALID_PARTITION_VALUE;
 import static io.trino.plugin.hive.HiveErrorCode.HIVE_PARTITION_SCHEMA_MISMATCH;
-import static io.trino.plugin.hive.HiveMetadata.PRESTO_QUERY_ID_NAME;
-import static io.trino.plugin.hive.HiveMetadata.PRESTO_VERSION_NAME;
+import static io.trino.plugin.hive.HiveMetadata.TRINO_QUERY_ID_NAME;
+import static io.trino.plugin.hive.HiveMetadata.TRINO_VERSION_NAME;
 import static io.trino.plugin.hive.HiveStorageFormat.AVRO;
 import static io.trino.plugin.hive.HiveStorageFormat.CSV;
 import static io.trino.plugin.hive.HiveStorageFormat.JSON;
@@ -2776,8 +2776,8 @@ public abstract class AbstractTestHive
                 .setOwner(Optional.of(tableOwner))
                 .setTableType(MANAGED_TABLE.name())
                 .setParameters(ImmutableMap.of(
-                        PRESTO_VERSION_NAME, TEST_SERVER_VERSION,
-                        PRESTO_QUERY_ID_NAME, queryId))
+                        TRINO_VERSION_NAME, TEST_SERVER_VERSION,
+                        TRINO_QUERY_ID_NAME, queryId))
                 .setDataColumns(columns)
                 .withStorage(storage -> storage
                         .setLocation(targetPath.toString())
@@ -3086,8 +3086,8 @@ public abstract class AbstractTestHive
                             .setOwner(Optional.of(tableOwner))
                             .setTableType(MANAGED_TABLE.name())
                             .setParameters(ImmutableMap.of(
-                                    PRESTO_VERSION_NAME, TEST_SERVER_VERSION,
-                                    PRESTO_QUERY_ID_NAME, session.getQueryId()))
+                                    TRINO_VERSION_NAME, TEST_SERVER_VERSION,
+                                    TRINO_QUERY_ID_NAME, session.getQueryId()))
                             .setDataColumns(columns);
                     tableBuilder.getStorageBuilder()
                             .setLocation(targetPath.toString())
@@ -3556,8 +3556,8 @@ public abstract class AbstractTestHive
                     .setOwner(Optional.of(tableOwner))
                     .setTableType(MANAGED_TABLE.name())
                     .setParameters(ImmutableMap.of(
-                            PRESTO_VERSION_NAME, TEST_SERVER_VERSION,
-                            PRESTO_QUERY_ID_NAME, session.getQueryId()))
+                            TRINO_VERSION_NAME, TEST_SERVER_VERSION,
+                            TRINO_QUERY_ID_NAME, session.getQueryId()))
                     .setDataColumns(columns)
                     .withStorage(storage -> storage
                             .setLocation(targetPath.toString())
@@ -3762,8 +3762,8 @@ public abstract class AbstractTestHive
                         .setStorageFormat(fromHiveStorageFormat(ORC))
                         .setLocation(partitionTargetPath(new SchemaTableName(table.getDatabaseName(), table.getTableName()), partitionName)))
                 .setParameters(ImmutableMap.of(
-                        PRESTO_VERSION_NAME, "testversion",
-                        PRESTO_QUERY_ID_NAME, "20180101_123456_00001_x1y2z"))
+                        TRINO_VERSION_NAME, "testversion",
+                        TRINO_QUERY_ID_NAME, "20180101_123456_00001_x1y2z"))
                 .build();
     }
 
@@ -4218,8 +4218,8 @@ public abstract class AbstractTestHive
 
             // verify the node version and query ID in table
             Table table = getMetastoreClient().getTable(tableName.getSchemaName(), tableName.getTableName()).get();
-            assertThat(table.getParameters()).containsEntry(PRESTO_VERSION_NAME, TEST_SERVER_VERSION);
-            assertThat(table.getParameters()).containsEntry(PRESTO_QUERY_ID_NAME, queryId);
+            assertThat(table.getParameters()).containsEntry(TRINO_VERSION_NAME, TEST_SERVER_VERSION);
+            assertThat(table.getParameters()).containsEntry(TRINO_QUERY_ID_NAME, queryId);
 
             // verify basic statistics
             HiveBasicStatistics statistics = getBasicStatisticsForTable(transaction, tableName);
@@ -4282,8 +4282,8 @@ public abstract class AbstractTestHive
             assertThat(table.getStorage().getStorageFormat().getInputFormat()).isEqualTo(storageFormat.getInputFormat());
 
             // verify the node version and query ID
-            assertThat(table.getParameters()).containsEntry(PRESTO_VERSION_NAME, TEST_SERVER_VERSION);
-            assertThat(table.getParameters()).containsEntry(PRESTO_QUERY_ID_NAME, queryId);
+            assertThat(table.getParameters()).containsEntry(TRINO_VERSION_NAME, TEST_SERVER_VERSION);
+            assertThat(table.getParameters()).containsEntry(TRINO_QUERY_ID_NAME, queryId);
 
             // verify the table is empty
             List<ColumnHandle> columnHandles = filterNonHiddenColumnHandles(metadata.getColumnHandles(session, tableHandle).values());
@@ -4643,8 +4643,8 @@ public abstract class AbstractTestHive
             assertThat(partitions.size()).isEqualTo(partitionNames.size());
             for (String partitionName : partitionNames) {
                 Partition partition = partitions.get(partitionName).get();
-                assertThat(partition.getParameters()).containsEntry(PRESTO_VERSION_NAME, TEST_SERVER_VERSION);
-                assertThat(partition.getParameters()).containsEntry(PRESTO_QUERY_ID_NAME, queryId);
+                assertThat(partition.getParameters()).containsEntry(TRINO_VERSION_NAME, TEST_SERVER_VERSION);
+                assertThat(partition.getParameters()).containsEntry(TRINO_QUERY_ID_NAME, queryId);
             }
 
             // load the new table
@@ -5630,8 +5630,8 @@ public abstract class AbstractTestHive
             targetPath = new Path(locationService.forNewTable(transaction.getMetastore(), session, schemaName, tableName).toString());
 
             ImmutableMap.Builder<String, String> tableParamBuilder = ImmutableMap.<String, String>builder()
-                    .put(PRESTO_VERSION_NAME, TEST_SERVER_VERSION)
-                    .put(PRESTO_QUERY_ID_NAME, session.getQueryId());
+                    .put(TRINO_VERSION_NAME, TEST_SERVER_VERSION)
+                    .put(TRINO_QUERY_ID_NAME, session.getQueryId());
             if (isTransactional) {
                 tableParamBuilder.put(TRANSACTIONAL, "true");
             }

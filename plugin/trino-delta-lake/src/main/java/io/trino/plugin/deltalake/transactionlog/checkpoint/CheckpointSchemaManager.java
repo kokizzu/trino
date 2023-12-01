@@ -15,6 +15,7 @@ package io.trino.plugin.deltalake.transactionlog.checkpoint;
 
 import com.google.common.collect.ImmutableList;
 import com.google.inject.Inject;
+import io.trino.plugin.deltalake.DeltaHiveTypeTranslator;
 import io.trino.plugin.deltalake.DeltaLakeColumnHandle;
 import io.trino.plugin.deltalake.DeltaLakeColumnMetadata;
 import io.trino.plugin.deltalake.transactionlog.MetadataEntry;
@@ -29,6 +30,7 @@ import io.trino.spi.type.TypeSignature;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.extractPartitionColumns;
@@ -114,10 +116,18 @@ public class CheckpointSchemaManager
         return metadataEntryType;
     }
 
-    public RowType getAddEntryType(MetadataEntry metadataEntry, ProtocolEntry protocolEntry, boolean requireWriteStatsAsJson, boolean requireWriteStatsAsStruct, boolean usePartitionValuesParsed)
+    public RowType getAddEntryType(
+            MetadataEntry metadataEntry,
+            ProtocolEntry protocolEntry,
+            Predicate<String> addStatsMinMaxColumnFilter,
+            boolean requireWriteStatsAsJson,
+            boolean requireWriteStatsAsStruct)
     {
         List<DeltaLakeColumnMetadata> allColumns = extractSchema(metadataEntry, protocolEntry, typeManager);
         List<DeltaLakeColumnMetadata> minMaxColumns = columnsWithStats(metadataEntry, protocolEntry, typeManager);
+        minMaxColumns = minMaxColumns.stream()
+                .filter(column -> addStatsMinMaxColumnFilter.test(column.getName()))
+                .collect(toImmutableList());
         boolean deletionVectorEnabled = isDeletionVectorEnabled(metadataEntry, protocolEntry);
 
         ImmutableList.Builder<RowType.Field> minMaxFields = ImmutableList.builder();
@@ -158,16 +168,14 @@ public class CheckpointSchemaManager
         if (requireWriteStatsAsJson) {
             addFields.add(RowType.field("stats", VARCHAR));
         }
-        if (usePartitionValuesParsed) {
+        if (requireWriteStatsAsStruct) {
             List<DeltaLakeColumnHandle> partitionColumns = extractPartitionColumns(metadataEntry, protocolEntry, typeManager);
             if (!partitionColumns.isEmpty()) {
                 List<RowType.Field> partitionValuesParsed = partitionColumns.stream()
-                        .map(column -> RowType.field(column.getColumnName(), column.getType()))
+                        .map(column -> RowType.field(column.getColumnName(), typeManager.getType(DeltaHiveTypeTranslator.toHiveType(column.getType()).getTypeSignature())))
                         .collect(toImmutableList());
                 addFields.add(RowType.field("partitionValues_parsed", RowType.from(partitionValuesParsed)));
             }
-        }
-        if (requireWriteStatsAsStruct) {
             addFields.add(RowType.field("stats_parsed", RowType.from(statsColumns.build())));
         }
         addFields.add(RowType.field("tags", stringMap));

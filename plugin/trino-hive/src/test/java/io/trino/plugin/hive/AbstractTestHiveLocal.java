@@ -52,9 +52,9 @@ import java.util.OptionalInt;
 
 import static com.google.common.io.MoreFiles.deleteRecursively;
 import static com.google.common.io.RecursiveDeleteOption.ALLOW_INSECURE;
-import static io.trino.plugin.hive.HiveMetadata.PRESTO_QUERY_ID_NAME;
-import static io.trino.plugin.hive.HiveMetadata.PRESTO_VERSION_NAME;
 import static io.trino.plugin.hive.HiveMetadata.TABLE_COMMENT;
+import static io.trino.plugin.hive.HiveMetadata.TRINO_QUERY_ID_NAME;
+import static io.trino.plugin.hive.HiveMetadata.TRINO_VERSION_NAME;
 import static io.trino.plugin.hive.HiveStorageFormat.ORC;
 import static io.trino.plugin.hive.HiveStorageFormat.TEXTFILE;
 import static io.trino.plugin.hive.HiveTestUtils.HDFS_ENVIRONMENT;
@@ -121,8 +121,8 @@ public abstract class AbstractTestHiveLocal
     protected void createTestTables()
             throws Exception
     {
-        Location location = Location.of((metastoreClient.getDatabase(database).orElseThrow()
-                .getLocation().orElseThrow()));
+        Location location = Location.of(metastoreClient.getDatabase(database).orElseThrow()
+                .getLocation().orElseThrow());
 
         createTestTable(
                 // Matches create-test.sql » trino_test_partition_format
@@ -308,8 +308,8 @@ public abstract class AbstractTestHiveLocal
                     .setOwner(Optional.of(tableOwner))
                     .setTableType(EXTERNAL_TABLE.name())
                     .setParameters(ImmutableMap.of(
-                            PRESTO_VERSION_NAME, TEST_SERVER_VERSION,
-                            PRESTO_QUERY_ID_NAME, session.getQueryId()))
+                            TRINO_VERSION_NAME, TEST_SERVER_VERSION,
+                            TRINO_QUERY_ID_NAME, session.getQueryId()))
                     .setDataColumns(columns)
                     .setPartitionColumns(partitionColumns);
 
