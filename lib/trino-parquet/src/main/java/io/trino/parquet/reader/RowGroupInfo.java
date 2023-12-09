@@ -11,13 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.benchmark;
+package io.trino.parquet.reader;
 
-import java.util.Map;
+import org.apache.parquet.hadoop.metadata.BlockMetaData;
+import org.apache.parquet.internal.filter2.columnindex.ColumnIndexStore;
 
-public interface BenchmarkResultHook
-{
-    BenchmarkResultHook addResults(Map<String, Long> results);
+import java.util.Optional;
 
-    void finished();
-}
+public record RowGroupInfo(BlockMetaData blockMetaData, long fileRowOffset, Optional<ColumnIndexStore> columnIndexStore) {}
