@@ -22,6 +22,10 @@ import com.google.inject.Module;
 import io.airlift.discovery.server.testing.TestingDiscoveryServer;
 import io.airlift.log.Logger;
 import io.airlift.log.Logging;
+import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
+import io.opentelemetry.sdk.trace.SpanProcessor;
+import io.opentelemetry.sdk.trace.data.SpanData;
+import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 import io.trino.Session;
 import io.trino.Session.SessionBuilder;
 import io.trino.connector.CoordinatorDynamicCatalogManager;
@@ -55,7 +59,6 @@ import io.trino.sql.analyzer.QueryExplainer;
 import io.trino.sql.parser.SqlParser;
 import io.trino.sql.planner.NodePartitioningManager;
 import io.trino.sql.planner.Plan;
-import io.trino.sql.tree.Statement;
 import io.trino.testing.containers.OpenTracingCollector;
 import io.trino.transaction.TransactionManager;
 import org.intellij.lang.annotations.Language;
@@ -78,6 +81,7 @@ import java.util.function.Function;
 
 import static com.google.common.base.MoreObjects.firstNonNull;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Throwables.throwIfUnchecked;
 import static com.google.common.base.Verify.verify;
 import static com.google.inject.util.Modules.EMPTY_MODULE;
@@ -102,6 +106,7 @@ public class DistributedQueryRunner
     private TestingTrinoServer coordinator;
     private Optional<TestingTrinoServer> backupCoordinator;
     private Runnable registerNewWorker;
+    private final InMemorySpanExporter spanExporter = InMemorySpanExporter.create();
     private final List<TestingTrinoServer> servers = new CopyOnWriteArrayList<>();
     private final List<FunctionBundle> functionBundles = new CopyOnWriteArrayList<>(ImmutableList.of(AbstractTestQueries.CUSTOM_FUNCTIONS));
     private final List<Plugin> plugins = new CopyOnWriteArrayList<>();
@@ -147,7 +152,15 @@ public class DistributedQueryRunner
             closer.register(() -> extraCloseables.forEach(DistributedQueryRunner::closeUnchecked));
             log.info("Created TestingDiscoveryServer in %s", nanosSince(discoveryStart));
 
-            registerNewWorker = () -> createServer(false, extraProperties, environment, additionalModule, baseDataDir, Optional.empty(), Optional.of(ImmutableList.of()), ImmutableList.of());
+            registerNewWorker = () -> createServer(
+                    false,
+                    extraProperties,
+                    environment,
+                    additionalModule,
+                    baseDataDir,
+                    Optional.empty(),
+                    Optional.of(ImmutableList.of()),
+                    ImmutableList.of());
 
             int coordinatorCount = backupCoordinatorProperties.isEmpty() ? 1 : 2;
             checkArgument(nodeCount >= coordinatorCount, "nodeCount includes coordinator(s) count, so must be at least %s, got: %s", coordinatorCount, nodeCount);
@@ -166,24 +179,28 @@ public class DistributedQueryRunner
                 extraCoordinatorProperties.put("web-ui.user", "admin");
             }
 
-            coordinator = createServer(true, extraCoordinatorProperties, environment, additionalModule, baseDataDir, systemAccessControlConfiguration, systemAccessControls, eventListeners);
-            if (backupCoordinatorProperties.isPresent()) {
-                Map<String, String> extraBackupCoordinatorProperties = new HashMap<>();
-                extraBackupCoordinatorProperties.putAll(extraProperties);
-                extraBackupCoordinatorProperties.putAll(backupCoordinatorProperties.get());
-                backupCoordinator = Optional.of(createServer(
-                        true,
-                        extraBackupCoordinatorProperties,
-                        environment,
-                        additionalModule,
-                        baseDataDir,
-                        systemAccessControlConfiguration,
-                        systemAccessControls,
-                        eventListeners));
-            }
-            else {
-                backupCoordinator = Optional.empty();
-            }
+            coordinator = createServer(
+                    true,
+                    extraCoordinatorProperties,
+                    environment,
+                    additionalModule,
+                    baseDataDir,
+                    systemAccessControlConfiguration,
+                    systemAccessControls,
+                    eventListeners);
+
+            backupCoordinator = backupCoordinatorProperties.map(properties -> createServer(
+                    true,
+                    ImmutableMap.<String, String>builder()
+                            .putAll(extraProperties)
+                            .putAll(properties)
+                            .buildOrThrow(),
+                    environment,
+                    additionalModule,
+                    baseDataDir,
+                    systemAccessControlConfiguration,
+                    systemAccessControls,
+                    eventListeners));
         }
         catch (Exception e) {
             try {
@@ -195,7 +212,11 @@ public class DistributedQueryRunner
         }
 
         // copy session using property manager in coordinator
-        defaultSession = defaultSession.toSessionRepresentation().toSession(coordinator.getSessionPropertyManager(), defaultSession.getIdentity().getExtraCredentials(), defaultSession.getExchangeEncryptionKey());
+        defaultSession = defaultSession.toSessionRepresentation().toSession(
+                coordinator.getSessionPropertyManager(),
+                defaultSession.getIdentity().getExtraCredentials(),
+                defaultSession.getExchangeEncryptionKey());
+
         this.trinoClient = closer.register(testingTrinoClientFactory.create(coordinator, defaultSession));
 
         ensureNodesGloballyVisible();
@@ -219,6 +240,7 @@ public class DistributedQueryRunner
                 environment,
                 additionalModule,
                 baseDataDir,
+                Optional.of(SimpleSpanProcessor.create(spanExporter)),
                 systemAccessControlConfiguration,
                 systemAccessControls,
                 eventListeners));
@@ -247,6 +269,7 @@ public class DistributedQueryRunner
             String environment,
             Module additionalModule,
             Optional<Path> baseDataDir,
+            Optional<SpanProcessor> spanProcessor,
             Optional<FactoryConfiguration> systemAccessControlConfiguration,
             Optional<List<SystemAccessControl>> systemAccessControls,
             List<EventListener> eventListeners)
@@ -281,6 +304,7 @@ public class DistributedQueryRunner
                 .setDiscoveryUri(discoveryUri)
                 .setAdditionalModule(additionalModule)
                 .setBaseDataDir(baseDataDir)
+                .setSpanProcessor(spanProcessor)
                 .setSystemAccessControlConfiguration(systemAccessControlConfiguration)
                 .setSystemAccessControls(systemAccessControls)
                 .setEventListeners(eventListeners)
@@ -312,6 +336,11 @@ public class DistributedQueryRunner
     public TestingTrinoClient getClient()
     {
         return trinoClient;
+    }
+
+    public List<SpanData> getSpans()
+    {
+        return spanExporter.getFinishedSpanItems();
     }
 
     @Override
@@ -485,13 +514,7 @@ public class DistributedQueryRunner
     @Override
     public MaterializedResult execute(@Language("SQL") String sql)
     {
-        lock.readLock().lock();
-        try {
-            return trinoClient.execute(sql).getResult();
-        }
-        finally {
-            lock.readLock().unlock();
-        }
+        return execute(getDefaultSession(), sql);
     }
 
     @Override
@@ -504,6 +527,7 @@ public class DistributedQueryRunner
     {
         lock.readLock().lock();
         try {
+            spanExporter.reset();
             ResultWithQueryId<MaterializedResult> result = trinoClient.execute(session, sql);
             return new MaterializedResultWithQueryId(result.getQueryId(), result.getResult());
         }
@@ -529,9 +553,12 @@ public class DistributedQueryRunner
         // session must be in a transaction registered with the transaction manager in this query runner
         getTransactionManager().getTransactionInfo(session.getRequiredTransactionId());
 
-        SqlParser sqlParser = coordinator.getInstance(Key.get(SqlParser.class));
-        Statement statement = sqlParser.createStatement(sql);
-        return coordinator.getQueryExplainer().getLogicalPlan(session, statement, ImmutableList.of(), WarningCollector.NOOP, createPlanOptimizersStatsCollector());
+        return coordinator.getQueryExplainer().getLogicalPlan(
+                session,
+                coordinator.getInstance(Key.get(SqlParser.class)).createStatement(sql),
+                ImmutableList.of(),
+                WarningCollector.NOOP,
+                createPlanOptimizersStatsCollector());
     }
 
     public Plan getQueryPlan(QueryId queryId)
@@ -630,6 +657,7 @@ public class DistributedQueryRunner
     public static class Builder<SELF extends Builder<?>>
     {
         private Session defaultSession;
+        private boolean withTracing;
         private int nodeCount = 3;
         private Map<String, String> extraProperties = ImmutableMap.of();
         private Map<String, String> coordinatorProperties = ImmutableMap.of();
@@ -647,6 +675,8 @@ public class DistributedQueryRunner
         protected Builder(Session defaultSession)
         {
             this.defaultSession = requireNonNull(defaultSession, "defaultSession is null");
+            String tracingEnabled = firstNonNull(getenv("TESTS_TRACING_ENABLED"), "false");
+            this.withTracing = parseBoolean(tracingEnabled) || tracingEnabled.equals("1");
         }
 
         @CanIgnoreReturnValue
@@ -802,19 +832,7 @@ public class DistributedQueryRunner
 
         public SELF withTracing()
         {
-            OpenTracingCollector collector = new OpenTracingCollector();
-            collector.start();
-            extraCloseables = ImmutableList.of(collector);
-            this.addExtraProperties(Map.of("tracing.enabled", "true", "tracing.exporter.endpoint", collector.getExporterEndpoint().toString()));
-            this.setEventListener(new EventListener()
-            {
-                @Override
-                public void queryCompleted(QueryCompletedEvent queryCompletedEvent)
-                {
-                    String queryId = queryCompletedEvent.getMetadata().getQueryId();
-                    log.info("TRACING: %s :: %s", queryId, collector.searchForQueryId(queryId));
-                }
-            });
+            this.withTracing = true;
             return self();
         }
 
@@ -827,9 +845,22 @@ public class DistributedQueryRunner
         public DistributedQueryRunner build()
                 throws Exception
         {
-            String tracingEnabled = firstNonNull(getenv("TESTS_TRACING_ENABLED"), "false");
-            if (parseBoolean(tracingEnabled) || tracingEnabled.equals("1")) {
-                withTracing();
+            if (withTracing) {
+                checkState(extraCloseables.isEmpty(), "extraCloseables already set");
+                OpenTracingCollector collector = new OpenTracingCollector();
+                collector.start();
+                extraCloseables = ImmutableList.of(collector);
+                addExtraProperties(Map.of("tracing.enabled", "true", "tracing.exporter.endpoint", collector.getExporterEndpoint().toString()));
+                checkState(eventListeners.isEmpty(), "eventListeners already set");
+                setEventListener(new EventListener()
+                {
+                    @Override
+                    public void queryCompleted(QueryCompletedEvent queryCompletedEvent)
+                    {
+                        String queryId = queryCompletedEvent.getMetadata().getQueryId();
+                        log.info("TRACING: %s :: %s", queryId, collector.searchForQueryId(queryId));
+                    }
+                });
             }
 
             Optional<FactoryConfiguration> systemAccessControlConfiguration = this.systemAccessControlConfiguration;

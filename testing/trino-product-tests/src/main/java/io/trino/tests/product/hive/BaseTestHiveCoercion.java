@@ -155,6 +155,8 @@ public abstract class BaseTestHiveCoercion
                 "string_to_double",
                 "varchar_to_double_infinity",
                 "varchar_to_special_double",
+                "date_to_string",
+                "date_to_bounded_varchar",
                 "char_to_bigger_char",
                 "char_to_smaller_char",
                 "timestamp_millis_to_date",
@@ -253,6 +255,8 @@ public abstract class BaseTestHiveCoercion
                         "  '1234.01234', " +
                         "  'Infinity'," +
                         "  'NaN'," +
+                        "  DATE '2023-09-28', " +
+                        "  DATE '2000-04-13', " +
                         "  'abc', " +
                         "  'abc', " +
                         "  TIMESTAMP '2022-12-31 23:59:59.999', " +
@@ -323,6 +327,8 @@ public abstract class BaseTestHiveCoercion
                         "  '0', " +
                         "  '-Infinity'," +
                         "  'Invalid Double'," +
+                        "  DATE '2123-09-27', " +
+                        "  DATE '1900-01-01', " +
                         "  '\uD83D\uDCB0\uD83D\uDCB0\uD83D\uDCB0', " +
                         "  '\uD83D\uDCB0\uD83D\uDCB0\uD83D\uDCB0', " +
                         "  TIMESTAMP '1970-01-01 00:00:00.123', " +
@@ -347,7 +353,7 @@ public abstract class BaseTestHiveCoercion
         if (Stream.of("rctext", "textfile", "sequencefile").anyMatch(isFormat)) {
             hiveValueForCaseChangeField = "\"lower2uppercase\":2";
         }
-        else if (getHiveVersionMajor() == 3 && isFormat.test("orc")) {
+        else if (isFormat.test("orc")) {
             hiveValueForCaseChangeField = "\"LOWER2UPPERCASE\":null";
         }
         else {
@@ -567,6 +573,12 @@ public abstract class BaseTestHiveCoercion
                 .put("varchar_to_special_double", Arrays.asList(
                         coercedNaN == null ? null : Double.NaN,
                         null))
+                .put("date_to_string", ImmutableList.of(
+                        "2023-09-28",
+                        "2123-09-27"))
+                .put("date_to_bounded_varchar", ImmutableList.of(
+                        "2000-04-13",
+                        "1900-01-01"))
                 .put("char_to_bigger_char", ImmutableList.of(
                         "abc ",
                         "\uD83D\uDCB0\uD83D\uDCB0\uD83D\uDCB0 "))
@@ -801,7 +813,7 @@ public abstract class BaseTestHiveCoercion
 
         Map<String, List<Object>> expectedNestedFieldTrino = ImmutableMap.of("nested_field", ImmutableList.of(2L, 2L));
         Map<String, List<Object>> expectedNestedFieldHive;
-        if (getHiveVersionMajor() == 3 && isFormat.test("orc")) {
+        if (isFormat.test("orc")) {
             expectedNestedFieldHive = ImmutableMap.of("nested_field", Arrays.asList(null, null));
         }
         else {
@@ -824,14 +836,7 @@ public abstract class BaseTestHiveCoercion
         }
         else if (isFormat.test("parquet")) {
             assertQueryResults(Engine.HIVE, subfieldQueryUpperCase, expectedNestedFieldHive, expectedColumns, 2, tableName);
-
-            if (getHiveVersionMajor() == 1) {
-                assertThatThrownBy(() -> assertQueryResults(Engine.HIVE, subfieldQueryLowerCase, expectedNestedFieldHive, expectedColumns, 2, tableName))
-                        .hasMessageContaining("java.sql.SQLException");
-            }
-            else {
-                assertQueryResults(Engine.HIVE, subfieldQueryLowerCase, expectedNestedFieldHive, expectedColumns, 2, tableName);
-            }
+            assertQueryResults(Engine.HIVE, subfieldQueryLowerCase, expectedNestedFieldHive, expectedColumns, 2, tableName);
         }
         else {
             assertQueryResults(Engine.HIVE, subfieldQueryUpperCase, expectedNestedFieldHive, expectedColumns, 2, tableName);
@@ -1057,6 +1062,8 @@ public abstract class BaseTestHiveCoercion
                 row("string_to_double", "double"),
                 row("varchar_to_double_infinity", "double"),
                 row("varchar_to_special_double", "double"),
+                row("date_to_string", "varchar"),
+                row("date_to_bounded_varchar", "varchar(12)"),
                 row("char_to_bigger_char", "char(4)"),
                 row("char_to_smaller_char", "char(2)"),
                 row("timestamp_millis_to_date", "date"),
@@ -1143,6 +1150,8 @@ public abstract class BaseTestHiveCoercion
                 .put("string_to_double", DOUBLE)
                 .put("varchar_to_double_infinity", DOUBLE)
                 .put("varchar_to_special_double", DOUBLE)
+                .put("date_to_string", VARCHAR)
+                .put("date_to_bounded_varchar", VARCHAR)
                 .put("char_to_bigger_char", CHAR)
                 .put("char_to_smaller_char", CHAR)
                 .put("id", BIGINT)
@@ -1224,6 +1233,8 @@ public abstract class BaseTestHiveCoercion
         onHive().executeQuery(format("ALTER TABLE %s CHANGE COLUMN varchar_to_bigger_varchar varchar_to_bigger_varchar varchar(4)", tableName));
         onHive().executeQuery(format("ALTER TABLE %s CHANGE COLUMN varchar_to_smaller_varchar varchar_to_smaller_varchar varchar(2)", tableName));
         onHive().executeQuery(format("ALTER TABLE %s CHANGE COLUMN varchar_to_date varchar_to_date date", tableName));
+        onHive().executeQuery(format("ALTER TABLE %s CHANGE COLUMN date_to_string date_to_string string", tableName));
+        onHive().executeQuery(format("ALTER TABLE %s CHANGE COLUMN date_to_bounded_varchar date_to_bounded_varchar varchar(12)", tableName));
         onHive().executeQuery(format("ALTER TABLE %s CHANGE COLUMN varchar_to_distant_date varchar_to_distant_date date", tableName));
         onHive().executeQuery(format("ALTER TABLE %s CHANGE COLUMN varchar_to_double varchar_to_double double", tableName));
         onHive().executeQuery(format("ALTER TABLE %s CHANGE COLUMN string_to_double string_to_double double", tableName));

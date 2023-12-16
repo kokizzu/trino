@@ -132,8 +132,8 @@ import static io.trino.testing.QueryAssertions.assertEqualsIgnoreOrder;
 import static io.trino.testing.TestingConnectorSession.SESSION;
 import static io.trino.testing.TestingNames.randomNameSuffix;
 import static io.trino.testing.TestingSession.testSessionBuilder;
+import static io.trino.testing.TransactionBuilder.transaction;
 import static io.trino.testing.assertions.Assert.assertEventually;
-import static io.trino.transaction.TransactionBuilder.transaction;
 import static java.lang.String.format;
 import static java.lang.String.join;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -6351,6 +6351,55 @@ public abstract class BaseIcebergConnectorTest
                     .isEqualTo("This is a table");
             assertThat(getColumnComment(table.getName(), "a"))
                     .isEqualTo("This is a column");
+        }
+    }
+
+    @Test
+    public void testCreateOrReplaceTableWithSameLocation()
+    {
+        try (TestTable table = new TestTable(
+                getQueryRunner()::execute,
+                "test_create_or_replace_with_same_location_",
+                "(a integer)")) {
+            String initialTableLocation = getTableLocation(table.getName());
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 1", 1);
+            assertThat(query("SELECT * FROM " + table.getName()))
+                    .matches("VALUES 1");
+            long v1SnapshotId = getCurrentSnapshotId(table.getName());
+            assertUpdate("CREATE OR REPLACE TABLE " + table.getName() + " (a integer)");
+            assertThat(getTableLocation(table.getName()))
+                    .isEqualTo(initialTableLocation);
+            assertUpdate("CREATE OR REPLACE TABLE " + table.getName() + " (a integer) WITH (location = '" + initialTableLocation + "')");
+            String initialTableLocationWithTrailingSlash = initialTableLocation.endsWith("/") ? initialTableLocation : initialTableLocation + "/";
+            assertUpdate("CREATE OR REPLACE TABLE " + table.getName() + " (a integer) WITH (location = '" + initialTableLocationWithTrailingSlash + "')");
+            assertThat(getTableLocation(table.getName()))
+                    .isEqualTo(initialTableLocation);
+            assertThat(query("SELECT * FROM " + table.getName()))
+                    .returnsEmptyResult();
+            assertUpdate("CREATE OR REPLACE TABLE " + table.getName() + " WITH (location = '" + initialTableLocation + "') AS SELECT 2 as a", 1);
+            assertThat(query("SELECT * FROM " + table.getName()))
+                    .matches("VALUES 2");
+            assertThat(getTableLocation(table.getName()))
+                    .isEqualTo(initialTableLocation);
+            assertThat(query("SELECT *  FROM " + table.getName() + " FOR VERSION AS OF " + v1SnapshotId))
+                    .matches("VALUES 1");
+        }
+    }
+
+    @Test
+    public void testCreateOrReplaceTableWithChangeInLocation()
+    {
+        try (TestTable table = new TestTable(getQueryRunner()::execute, "test_create_or_replace_change_location_", "(a integer) ")) {
+            String initialTableLocation = getTableLocation(table.getName()) + randomNameSuffix();
+            long v1SnapshotId = getCurrentSnapshotId(table.getName());
+            assertQueryFails(
+                    "CREATE OR REPLACE TABLE " + table.getName() + " (a integer) WITH (location = '%s')".formatted(initialTableLocation),
+                    "The provided location '%s' does not match the existing table location '.*'".formatted(initialTableLocation));
+            assertQueryFails(
+                    "CREATE OR REPLACE TABLE " + table.getName() + " WITH (location = '%s') AS SELECT 1 AS a".formatted(initialTableLocation),
+                    "The provided location '%s' does not match the existing table location '.*'".formatted(initialTableLocation));
+            assertThat(getCurrentSnapshotId(table.getName()))
+                    .isEqualTo(v1SnapshotId);
         }
     }
 

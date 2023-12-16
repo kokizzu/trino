@@ -59,6 +59,7 @@ public final class DeltaLakeSessionProperties
     private static final String PARQUET_WRITER_BLOCK_SIZE = "parquet_writer_block_size";
     private static final String PARQUET_WRITER_PAGE_SIZE = "parquet_writer_page_size";
     private static final String TARGET_MAX_FILE_SIZE = "target_max_file_size";
+    private static final String IDLE_WRITER_MIN_FILE_SIZE = "idle_writer_min_file_size";
     private static final String COMPRESSION_CODEC = "compression_codec";
     // This property is not supported by Delta Lake and exists solely for technical reasons.
     @Deprecated
@@ -150,6 +151,11 @@ public final class DeltaLakeSessionProperties
                         "Target maximum size of written files; the actual size may be larger",
                         deltaLakeConfig.getTargetMaxFileSize(),
                         false),
+                dataSizeProperty(
+                        IDLE_WRITER_MIN_FILE_SIZE,
+                        "Minimum data written by a single partition writer before it can be consider as 'idle' and could be closed by the engine",
+                        deltaLakeConfig.getIdleWriterMinFileSize(),
+                        false),
                 enumProperty(
                         TIMESTAMP_PRECISION,
                         "Internal Delta Lake connector property",
@@ -201,7 +207,7 @@ public final class DeltaLakeSessionProperties
                 booleanProperty(
                         CHECKPOINT_FILTERING_ENABLED,
                         "Use filter in checkpoint reader",
-                        deltaLakeConfig.isCheckpointPartitionFilterEnabled(),
+                        deltaLakeConfig.isCheckpointFilteringEnabled(),
                         false));
     }
 
@@ -264,6 +270,11 @@ public final class DeltaLakeSessionProperties
     public static long getTargetMaxFileSize(ConnectorSession session)
     {
         return session.getProperty(TARGET_MAX_FILE_SIZE, DataSize.class).toBytes();
+    }
+
+    public static long getIdleWriterMinFileSize(ConnectorSession session)
+    {
+        return session.getProperty(IDLE_WRITER_MIN_FILE_SIZE, DataSize.class).toBytes();
     }
 
     public static Duration getDynamicFilteringWaitTimeout(ConnectorSession session)

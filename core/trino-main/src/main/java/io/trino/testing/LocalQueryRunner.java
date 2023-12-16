@@ -77,7 +77,6 @@ import io.trino.execution.scheduler.NodeScheduler;
 import io.trino.execution.scheduler.NodeSchedulerConfig;
 import io.trino.execution.scheduler.UniformNodeSelectorFactory;
 import io.trino.execution.warnings.WarningCollector;
-import io.trino.index.IndexManager;
 import io.trino.memory.MemoryManagerConfig;
 import io.trino.memory.NodeMemoryConfig;
 import io.trino.metadata.AnalyzePropertyManager;
@@ -121,6 +120,7 @@ import io.trino.operator.PagesIndex;
 import io.trino.operator.PagesIndexPageSorter;
 import io.trino.operator.TaskContext;
 import io.trino.operator.index.IndexJoinLookupStats;
+import io.trino.operator.index.IndexManager;
 import io.trino.operator.scalar.json.JsonExistsFunction;
 import io.trino.operator.scalar.json.JsonQueryFunction;
 import io.trino.operator.scalar.json.JsonValueFunction;
@@ -253,8 +253,8 @@ import static io.trino.spi.connector.DynamicFilter.EMPTY;
 import static io.trino.sql.planner.LogicalPlanner.Stage.OPTIMIZED_AND_VALIDATED;
 import static io.trino.sql.planner.optimizations.PlanNodeSearcher.searchFrom;
 import static io.trino.sql.testing.TreeAssertions.assertFormattedSql;
-import static io.trino.transaction.TransactionBuilder.transaction;
-import static io.trino.version.EmbedVersion.testingVersionEmbedder;
+import static io.trino.testing.TransactionBuilder.transaction;
+import static io.trino.util.EmbedVersion.testingVersionEmbedder;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.Executors.newCachedThreadPool;
 import static java.util.concurrent.Executors.newScheduledThreadPool;
@@ -378,7 +378,10 @@ public class LocalQueryRunner
         TypeManager typeManager = new InternalTypeManager(typeRegistry);
         InternalBlockEncodingSerde blockEncodingSerde = new InternalBlockEncodingSerde(blockEncodingManager, typeManager);
 
-        this.globalFunctionCatalog = new GlobalFunctionCatalog();
+        this.globalFunctionCatalog = new GlobalFunctionCatalog(
+                this::getMetadata,
+                this::getTypeManager,
+                this::getFunctionManager);
         globalFunctionCatalog.addFunctions(new InternalFunctionBundle(new LiteralFunction(blockEncodingSerde)));
         globalFunctionCatalog.addFunctions(SystemFunctionBundle.create(featuresConfig, typeOperators, blockTypeOperators, nodeManager.getCurrentNode().getNodeVersion()));
         this.groupProvider = new TestingGroupProviderManager();
@@ -1201,11 +1204,10 @@ public class LocalQueryRunner
         private final Session defaultSession;
         private FeaturesConfig featuresConfig = new FeaturesConfig();
         private NodeSpillConfig nodeSpillConfig = new NodeSpillConfig();
-        private boolean initialTransaction;
         private boolean alwaysRevokeMemory;
         private Map<String, List<PropertyMetadata<?>>> defaultSessionProperties = ImmutableMap.of();
         private Set<SystemSessionPropertiesProvider> extraSessionProperties = ImmutableSet.of();
-        private int nodeCountForStats;
+        private int nodeCountForStats = 1;
         private Function<Metadata, Metadata> metadataDecorator = Function.identity();
 
         private Builder(Session defaultSession)

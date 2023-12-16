@@ -76,6 +76,7 @@ public class DeltaLakeConfig
     private boolean deleteSchemaLocationsFallback;
     private String parquetTimeZone = TimeZone.getDefault().getID();
     private DataSize targetMaxFileSize = DataSize.of(1, GIGABYTE);
+    private DataSize idleWriterMinFileSize = DataSize.of(16, MEGABYTE);
     private boolean uniqueTableLocation = true;
     private boolean registerTableProcedureEnabled;
     private boolean projectionPushdownEnabled = true;
@@ -271,13 +272,13 @@ public class DeltaLakeConfig
         return defaultCheckpointWritingInterval;
     }
 
-    public boolean isCheckpointPartitionFilterEnabled()
+    public boolean isCheckpointFilteringEnabled()
     {
         return checkpointFilteringEnabled;
     }
 
     @Config("delta.checkpoint-filtering.enabled")
-    public DeltaLakeConfig setCheckpointPartitionFilterEnabled(boolean checkpointFilteringEnabled)
+    public DeltaLakeConfig setCheckpointFilteringEnabled(boolean checkpointFilteringEnabled)
     {
         this.checkpointFilteringEnabled = checkpointFilteringEnabled;
         return this;
@@ -447,6 +448,20 @@ public class DeltaLakeConfig
     public DeltaLakeConfig setTargetMaxFileSize(DataSize targetMaxFileSize)
     {
         this.targetMaxFileSize = targetMaxFileSize;
+        return this;
+    }
+
+    @NotNull
+    public DataSize getIdleWriterMinFileSize()
+    {
+        return idleWriterMinFileSize;
+    }
+
+    @Config("delta.idle-writer-min-file-size")
+    @ConfigDescription("Minimum data written by a single partition writer before it can be consider as 'idle' and could be closed by the engine")
+    public DeltaLakeConfig setIdleWriterMinFileSize(DataSize idleWriterMinFileSize)
+    {
+        this.idleWriterMinFileSize = idleWriterMinFileSize;
         return this;
     }
 

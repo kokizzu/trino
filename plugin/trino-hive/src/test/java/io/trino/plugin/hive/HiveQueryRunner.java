@@ -19,7 +19,6 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.inject.Module;
 import io.airlift.log.Logger;
 import io.airlift.log.Logging;
-import io.opentelemetry.api.OpenTelemetry;
 import io.trino.Session;
 import io.trino.metadata.QualifiedObjectName;
 import io.trino.plugin.hive.fs.DirectoryLister;
@@ -50,6 +49,7 @@ import java.util.function.Function;
 import static com.google.inject.util.Modules.EMPTY_MODULE;
 import static io.airlift.log.Level.WARN;
 import static io.airlift.units.Duration.nanosSince;
+import static io.trino.plugin.hive.TestingHiveUtils.getConnectorService;
 import static io.trino.plugin.hive.security.HiveSecurityModule.ALLOW_ALL;
 import static io.trino.plugin.hive.security.HiveSecurityModule.SQL_STANDARD;
 import static io.trino.plugin.tpch.ColumnNaming.SIMPLIFIED;
@@ -104,9 +104,7 @@ public final class HiveQueryRunner
         private ImmutableMap.Builder<String, String> hiveProperties = ImmutableMap.builder();
         private List<TpchTable<?>> initialTables = ImmutableList.of();
         private Optional<String> initialSchemasLocationBase = Optional.empty();
-        private Function<Session, Session> initialTablesSessionMutator = Function.identity();
         private Optional<Function<DistributedQueryRunner, HiveMetastore>> metastore = Optional.empty();
-        private Optional<OpenTelemetry> openTelemetry = Optional.empty();
         private Module module = EMPTY_MODULE;
         private Optional<DirectoryLister> directoryLister = Optional.empty();
         private boolean tpcdsCatalogEnabled;
@@ -162,23 +160,9 @@ public final class HiveQueryRunner
         }
 
         @CanIgnoreReturnValue
-        public SELF setInitialTablesSessionMutator(Function<Session, Session> initialTablesSessionMutator)
-        {
-            this.initialTablesSessionMutator = requireNonNull(initialTablesSessionMutator, "initialTablesSessionMutator is null");
-            return self();
-        }
-
-        @CanIgnoreReturnValue
         public SELF setMetastore(Function<DistributedQueryRunner, HiveMetastore> metastore)
         {
             this.metastore = Optional.of(metastore);
-            return self();
-        }
-
-        @CanIgnoreReturnValue
-        public SELF setOpenTelemetry(OpenTelemetry openTelemetry)
-        {
-            this.openTelemetry = Optional.of(openTelemetry);
             return self();
         }
 
@@ -217,6 +201,7 @@ public final class HiveQueryRunner
             return self();
         }
 
+        @SuppressWarnings("unused")
         @CanIgnoreReturnValue
         public SELF setTpchColumnNaming(ColumnNaming tpchColumnNaming)
         {
@@ -224,6 +209,7 @@ public final class HiveQueryRunner
             return self();
         }
 
+        @SuppressWarnings("unused")
         @CanIgnoreReturnValue
         public SELF setTpchDecimalTypeMapping(DecimalTypeMapping tpchDecimalTypeMapping)
         {
@@ -252,7 +238,13 @@ public final class HiveQueryRunner
 
                 Optional<HiveMetastore> metastore = this.metastore.map(factory -> factory.apply(queryRunner));
                 Path dataDir = queryRunner.getCoordinator().getBaseDataDir().resolve("hive_data");
-                queryRunner.installPlugin(new TestingHivePlugin(dataDir, metastore, openTelemetry, module, directoryLister));
+
+                if (metastore.isEmpty() && !hiveProperties.buildOrThrow().containsKey("hive.metastore")) {
+                    hiveProperties.put("hive.metastore", "file");
+                    hiveProperties.put("hive.metastore.catalog.dir", queryRunner.getCoordinator().getBaseDataDir().resolve("hive_data").toString());
+                }
+
+                queryRunner.installPlugin(new TestingHivePlugin(dataDir, metastore, module, directoryLister));
 
                 Map<String, String> hiveProperties = new HashMap<>();
                 if (!skipTimezoneSetup) {
@@ -293,19 +285,19 @@ public final class HiveQueryRunner
             }
         }
 
-        private void populateData(DistributedQueryRunner queryRunner)
+        private void populateData(QueryRunner queryRunner)
         {
-            HiveMetastore metastore = TestingHiveUtils.getConnectorService(queryRunner, HiveMetastoreFactory.class)
+            HiveMetastore metastore = getConnectorService(queryRunner, HiveMetastoreFactory.class)
                     .createMetastore(Optional.empty());
             if (metastore.getDatabase(TPCH_SCHEMA).isEmpty()) {
                 metastore.createDatabase(createDatabaseMetastoreObject(TPCH_SCHEMA, initialSchemasLocationBase));
-                Session session = initialTablesSessionMutator.apply(queryRunner.getDefaultSession());
+                Session session = queryRunner.getDefaultSession();
                 copyTpchTables(queryRunner, "tpch", TINY_SCHEMA_NAME, session, initialTables);
             }
 
             if (tpchBucketedCatalogEnabled && metastore.getDatabase(TPCH_BUCKETED_SCHEMA).isEmpty()) {
                 metastore.createDatabase(createDatabaseMetastoreObject(TPCH_BUCKETED_SCHEMA, initialSchemasLocationBase));
-                Session session = initialTablesSessionMutator.apply(createBucketedSession(Optional.empty()));
+                Session session = createBucketedSession(Optional.empty());
                 copyTpchTablesBucketed(queryRunner, "tpch", TINY_SCHEMA_NAME, session, initialTables, tpchColumnNaming);
             }
         }
@@ -409,7 +401,7 @@ public final class HiveQueryRunner
             baseDataDir = Optional.of(path);
         }
 
-        DistributedQueryRunner queryRunner = HiveQueryRunner.builder()
+        DistributedQueryRunner queryRunner = builder()
                 .setExtraProperties(ImmutableMap.of("http-server.http.port", "8080"))
                 .setHiveProperties(ImmutableMap.of("hive.security", ALLOW_ALL))
                 .setSkipTimezoneSetup(true)

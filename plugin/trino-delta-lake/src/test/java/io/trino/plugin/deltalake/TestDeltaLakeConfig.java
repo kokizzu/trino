@@ -27,6 +27,7 @@ import static io.airlift.configuration.testing.ConfigAssertions.assertFullMappin
 import static io.airlift.configuration.testing.ConfigAssertions.assertRecordedDefaults;
 import static io.airlift.configuration.testing.ConfigAssertions.recordDefaults;
 import static io.airlift.units.DataSize.Unit.GIGABYTE;
+import static io.airlift.units.DataSize.Unit.MEGABYTE;
 import static io.trino.plugin.hive.util.TestHiveUtil.nonDefaultTimeZone;
 import static java.util.concurrent.TimeUnit.DAYS;
 import static java.util.concurrent.TimeUnit.HOURS;
@@ -53,7 +54,7 @@ public class TestDeltaLakeConfig
                 .setMaxPartitionsPerWriter(100)
                 .setUnsafeWritesEnabled(false)
                 .setDefaultCheckpointWritingInterval(10)
-                .setCheckpointPartitionFilterEnabled(false)
+                .setCheckpointFilteringEnabled(false)
                 .setCheckpointRowStatisticsWritingEnabled(true)
                 .setVacuumMinRetention(new Duration(7, DAYS))
                 .setHiveCatalogName(null)
@@ -66,6 +67,7 @@ public class TestDeltaLakeConfig
                 .setParquetTimeZone(TimeZone.getDefault().getID())
                 .setPerTransactionMetastoreCacheMaximumSize(1000)
                 .setTargetMaxFileSize(DataSize.of(1, GIGABYTE))
+                .setIdleWriterMinFileSize(DataSize.of(16, MEGABYTE))
                 .setUniqueTableLocation(true)
                 .setRegisterTableProcedureEnabled(false)
                 .setProjectionPushdownEnabled(true)
@@ -103,6 +105,7 @@ public class TestDeltaLakeConfig
                 .put("delta.delete-schema-locations-fallback", "true")
                 .put("delta.parquet.time-zone", nonDefaultTimeZone().getID())
                 .put("delta.target-max-file-size", "2 GB")
+                .put("delta.idle-writer-min-file-size", "1MB")
                 .put("delta.unique-table-location", "false")
                 .put("delta.register-table-procedure.enabled", "true")
                 .put("delta.projection-pushdown-enabled", "false")
@@ -125,7 +128,7 @@ public class TestDeltaLakeConfig
                 .setUnsafeWritesEnabled(true)
                 .setDefaultCheckpointWritingInterval(15)
                 .setCheckpointRowStatisticsWritingEnabled(false)
-                .setCheckpointPartitionFilterEnabled(true)
+                .setCheckpointFilteringEnabled(true)
                 .setVacuumMinRetention(new Duration(13, HOURS))
                 .setHiveCatalogName("hive")
                 .setDynamicFilteringWaitTimeout(new Duration(30, MINUTES))
@@ -137,6 +140,7 @@ public class TestDeltaLakeConfig
                 .setParquetTimeZone(nonDefaultTimeZone().getID())
                 .setPerTransactionMetastoreCacheMaximumSize(500)
                 .setTargetMaxFileSize(DataSize.of(2, GIGABYTE))
+                .setIdleWriterMinFileSize(DataSize.of(1, MEGABYTE))
                 .setUniqueTableLocation(false)
                 .setRegisterTableProcedureEnabled(true)
                 .setProjectionPushdownEnabled(false)
