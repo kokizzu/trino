@@ -60,11 +60,13 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static io.trino.plugin.hive.HiveTestUtils.HDFS_ENVIRONMENT;
 import static io.trino.plugin.hive.HiveTestUtils.HDFS_FILE_SYSTEM_FACTORY;
 import static io.trino.plugin.hive.HiveTestUtils.HDFS_FILE_SYSTEM_STATS;
 import static io.trino.plugin.hive.metastore.file.TestingFileHiveMetastore.createTestingFileHiveMetastore;
+import static java.lang.Math.clamp;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class TestDeltaLakeSplitManager
@@ -188,7 +190,7 @@ public class TestDeltaLakeSplitManager
                 new ParquetReaderConfig())
         {
             @Override
-            public List<AddFileEntry> getActiveFiles(
+            public Stream<AddFileEntry> getActiveFiles(
                     TableSnapshot tableSnapshot,
                     MetadataEntry metadataEntry,
                     ProtocolEntry protocolEntry,
@@ -196,7 +198,7 @@ public class TestDeltaLakeSplitManager
                     Optional<Set<DeltaLakeColumnHandle>> projectedColumns,
                     ConnectorSession session)
             {
-                return addFileEntries;
+                return addFileEntries.stream();
             }
         };
 
@@ -247,7 +249,7 @@ public class TestDeltaLakeSplitManager
 
     private DeltaLakeSplit makeSplit(long start, long splitSize, long fileSize, double minimumAssignedSplitWeight)
     {
-        SplitWeight splitWeight = SplitWeight.fromProportion(Math.min(Math.max((double) fileSize / splitSize, minimumAssignedSplitWeight), 1.0));
+        SplitWeight splitWeight = SplitWeight.fromProportion(clamp((double) fileSize / splitSize, minimumAssignedSplitWeight, 1.0));
         return new DeltaLakeSplit(FULL_PATH, start, splitSize, fileSize, Optional.empty(), 0, Optional.empty(), splitWeight, TupleDomain.all(), ImmutableMap.of());
     }
 

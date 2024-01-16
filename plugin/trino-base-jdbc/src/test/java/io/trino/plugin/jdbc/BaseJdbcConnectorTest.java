@@ -14,6 +14,7 @@
 package io.trino.plugin.jdbc;
 
 import com.google.common.collect.ImmutableList;
+import io.airlift.log.Logger;
 import io.airlift.units.Duration;
 import io.trino.Session;
 import io.trino.spi.QueryId;
@@ -63,6 +64,7 @@ import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static io.trino.SystemSessionProperties.MARK_DISTINCT_STRATEGY;
 import static io.trino.plugin.jdbc.JdbcDynamicFilteringSessionProperties.DYNAMIC_FILTERING_ENABLED;
 import static io.trino.plugin.jdbc.JdbcDynamicFilteringSessionProperties.DYNAMIC_FILTERING_WAIT_TIMEOUT;
+import static io.trino.plugin.jdbc.JdbcMetadataSessionProperties.COMPLEX_JOIN_PUSHDOWN_ENABLED;
 import static io.trino.plugin.jdbc.JdbcMetadataSessionProperties.DOMAIN_COMPACTION_THRESHOLD;
 import static io.trino.plugin.jdbc.JdbcMetadataSessionProperties.JOIN_PUSHDOWN_ENABLED;
 import static io.trino.plugin.jdbc.JoinOperator.FULL_JOIN;
@@ -124,6 +126,8 @@ import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS;
 public abstract class BaseJdbcConnectorTest
         extends BaseConnectorTest
 {
+    private static final Logger log = Logger.get(BaseJdbcConnectorTest.class);
+
     private final ExecutorService executor = newCachedThreadPool(daemonThreadsNamed(getClass().getName()));
 
     protected abstract SqlExecutor onRemoteDatabase();
@@ -1196,6 +1200,8 @@ public abstract class BaseJdbcConnectorTest
                 "nation_lowercase",
                 "AS SELECT nationkey, lower(name) name, regionkey FROM nation")) {
             for (JoinOperator joinOperator : JoinOperator.values()) {
+                log.info("Testing joinOperator=%s", joinOperator);
+
                 if (joinOperator == FULL_JOIN && !hasBehavior(SUPPORTS_JOIN_PUSHDOWN_WITH_FULL_JOIN)) {
                     assertThat(query(session, "SELECT r.name, n.name FROM nation n FULL JOIN region r ON n.regionkey = r.regionkey"))
                             .joinIsNotFullyPushedDown();
@@ -1255,6 +1261,7 @@ public abstract class BaseJdbcConnectorTest
 
                 // inequality along with an equality, which constitutes an equi-condition and allows filter to remain as part of the Join
                 for (String operator : nonEqualities) {
+                    log.info("Testing [joinOperator=%s] operator=%s on number", joinOperator, operator);
                     assertJoinConditionallyPushedDown(
                             session,
                             format("SELECT n.name, c.name FROM nation n %s customer c ON n.nationkey = c.nationkey AND n.regionkey %s c.custkey", joinOperator, operator),
@@ -1263,6 +1270,7 @@ public abstract class BaseJdbcConnectorTest
 
                 // varchar inequality along with an equality, which constitutes an equi-condition and allows filter to remain as part of the Join
                 for (String operator : nonEqualities) {
+                    log.info("Testing [joinOperator=%s] operator=%s on varchar", joinOperator, operator);
                     assertJoinConditionallyPushedDown(
                             session,
                             format("SELECT n.name, nl.name FROM nation n %s %s nl ON n.regionkey = nl.regionkey AND n.name %s nl.name", joinOperator, nationLowercaseTable.getName(), operator),
@@ -1316,6 +1324,28 @@ public abstract class BaseJdbcConnectorTest
                         .isFullyPushedDown();
             }
         }
+    }
+
+    @Test
+    public void testComplexJoinPushdown()
+    {
+        String catalog = getSession().getCatalog().orElseThrow();
+        Session session = joinPushdownEnabled(getSession());
+        String query = "SELECT n.name, o.orderstatus FROM nation n JOIN orders o ON n.regionkey = o.orderkey AND n.nationkey + o.custkey - 3 = 0";
+
+        // The join cannot be pushed down without "complex join pushdown"
+        assertThat(query(
+                Session.builder(session)
+                        .setCatalogSessionProperty(catalog, COMPLEX_JOIN_PUSHDOWN_ENABLED, "false")
+                        .build(),
+                query))
+                .joinIsNotFullyPushedDown();
+
+        // The join can be pushed down
+        assertJoinConditionallyPushedDown(
+                session,
+                query,
+                hasBehavior(SUPPORTS_JOIN_PUSHDOWN) && hasBehavior(SUPPORTS_PREDICATE_ARITHMETIC_EXPRESSION_PUSHDOWN));
     }
 
     @Test
@@ -1381,8 +1411,7 @@ public abstract class BaseJdbcConnectorTest
     protected boolean expectJoinPushdown(String operator)
     {
         if ("IS NOT DISTINCT FROM".equals(operator)) {
-            // TODO (https://github.com/trinodb/trino/issues/6967) support join pushdown for IS NOT DISTINCT FROM
-            return false;
+            return hasBehavior(SUPPORTS_JOIN_PUSHDOWN_WITH_DISTINCT_FROM);
         }
         return switch (toJoinConditionOperator(operator)) {
             case EQUAL, NOT_EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL, GREATER_THAN, GREATER_THAN_OR_EQUAL -> true;
@@ -1399,8 +1428,7 @@ public abstract class BaseJdbcConnectorTest
     private boolean expectVarcharJoinPushdown(String operator)
     {
         if ("IS NOT DISTINCT FROM".equals(operator)) {
-            // TODO (https://github.com/trinodb/trino/issues/6967) support join pushdown for IS NOT DISTINCT FROM
-            return false;
+            return hasBehavior(SUPPORTS_JOIN_PUSHDOWN_WITH_DISTINCT_FROM) && hasBehavior(SUPPORTS_JOIN_PUSHDOWN_WITH_VARCHAR_EQUALITY);
         }
         return switch (toJoinConditionOperator(operator)) {
             case EQUAL, NOT_EQUAL -> hasBehavior(SUPPORTS_JOIN_PUSHDOWN_WITH_VARCHAR_EQUALITY);

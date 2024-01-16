@@ -49,6 +49,7 @@ import io.trino.execution.ExplainAnalyzeContext;
 import io.trino.execution.ForQueryExecution;
 import io.trino.execution.QueryExecution;
 import io.trino.execution.QueryExecutionMBean;
+import io.trino.execution.QueryExecutorInternal;
 import io.trino.execution.QueryIdGenerator;
 import io.trino.execution.QueryManager;
 import io.trino.execution.QueryManagerConfig;
@@ -105,6 +106,7 @@ import io.trino.server.protocol.QueryInfoUrlFactory;
 import io.trino.server.remotetask.RemoteTaskStats;
 import io.trino.server.ui.WebUiModule;
 import io.trino.server.ui.WorkerResource;
+import io.trino.spi.VersionEmbedder;
 import io.trino.spi.memory.ClusterMemoryPoolManager;
 import io.trino.sql.PlannerContext;
 import io.trino.sql.analyzer.AnalyzerFactory;
@@ -141,6 +143,7 @@ import static io.airlift.jaxrs.JaxrsBinder.jaxrsBinder;
 import static io.airlift.json.JsonCodecBinder.jsonCodecBinder;
 import static io.airlift.units.DataSize.Unit.MEGABYTE;
 import static io.trino.server.InternalCommunicationHttpClientModule.internalHttpClientModule;
+import static io.trino.util.Executors.decorateWithVersion;
 import static java.util.concurrent.Executors.newCachedThreadPool;
 import static java.util.concurrent.Executors.newScheduledThreadPool;
 import static java.util.concurrent.Executors.newSingleThreadScheduledExecutor;
@@ -245,7 +248,8 @@ public class CoordinatorModule
         binder.bind(ByEagerParentOutputDataSizeEstimator.Factory.class).in(Scopes.SINGLETON);
         // use provider method returning list to ensure ordering
         // OutputDataSizeEstimator factories are ordered starting from most accurate
-        install(new AbstractConfigurationAwareModule() {
+        install(new AbstractConfigurationAwareModule()
+        {
             @Override
             protected void setup(Binder binder) {}
 
@@ -333,15 +337,6 @@ public class CoordinatorModule
                 .toInstance(newSingleThreadScheduledExecutor(threadsNamed("stage-scheduler")));
 
         // query execution
-        QueryManagerConfig queryManagerConfig = buildConfigObject(QueryManagerConfig.class);
-        ThreadPoolExecutor queryExecutor = new ThreadPoolExecutor(
-                queryManagerConfig.getQueryExecutorPoolSize(),
-                queryManagerConfig.getQueryExecutorPoolSize(),
-                60, SECONDS,
-                new LinkedBlockingQueue<>(1000),
-                threadsNamed("query-execution-%s"));
-        queryExecutor.allowCoreThreadTimeOut(true);
-        binder.bind(ExecutorService.class).annotatedWith(ForQueryExecution.class).toInstance(queryExecutor);
         binder.bind(QueryExecutionMBean.class).in(Scopes.SINGLETON);
         newExporter(binder).export(QueryExecutionMBean.class)
                 .as(generator -> generator.generatedNameOf(QueryExecution.class));
@@ -383,6 +378,29 @@ public class CoordinatorModule
     public static ResourceGroupManager<?> getResourceGroupManager(@SuppressWarnings("rawtypes") ResourceGroupManager manager)
     {
         return manager;
+    }
+
+    @Provides
+    @Singleton
+    @QueryExecutorInternal
+    public static ExecutorService createQueryExecutor(QueryManagerConfig queryManagerConfig)
+    {
+        ThreadPoolExecutor queryExecutor = new ThreadPoolExecutor(
+                queryManagerConfig.getQueryExecutorPoolSize(),
+                queryManagerConfig.getQueryExecutorPoolSize(),
+                60, SECONDS,
+                new LinkedBlockingQueue<>(1000),
+                threadsNamed("query-execution-%s"));
+        queryExecutor.allowCoreThreadTimeOut(true);
+        return queryExecutor;
+    }
+
+    @Provides
+    @Singleton
+    @ForQueryExecution
+    public static ExecutorService createQueryExecutor(@QueryExecutorInternal ExecutorService queryExecutor, VersionEmbedder versionEmbedder)
+    {
+        return decorateWithVersion(queryExecutor, versionEmbedder);
     }
 
     @Provides

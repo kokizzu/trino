@@ -227,6 +227,7 @@ import static io.trino.plugin.iceberg.IcebergSessionProperties.isProjectionPushd
 import static io.trino.plugin.iceberg.IcebergSessionProperties.isQueryPartitionFilterRequired;
 import static io.trino.plugin.iceberg.IcebergSessionProperties.isStatisticsEnabled;
 import static io.trino.plugin.iceberg.IcebergTableName.isDataTable;
+import static io.trino.plugin.iceberg.IcebergTableName.isIcebergTableName;
 import static io.trino.plugin.iceberg.IcebergTableName.isMaterializedViewStorage;
 import static io.trino.plugin.iceberg.IcebergTableName.tableNameFrom;
 import static io.trino.plugin.iceberg.IcebergTableProperties.FILE_FORMAT_PROPERTY;
@@ -390,6 +391,10 @@ public class IcebergMetadata
             throw new TrinoException(NOT_SUPPORTED, "Read table with start version is not supported");
         }
 
+        if (!isIcebergTableName(tableName.getTableName())) {
+            return null;
+        }
+
         if (isMaterializedViewStorage(tableName.getTableName())) {
             verify(endVersion.isEmpty(), "Materialized views do not support versioned queries");
 
@@ -550,7 +555,7 @@ public class IcebergMetadata
 
     private Optional<SystemTable> getRawSystemTable(ConnectorSession session, SchemaTableName tableName)
     {
-        if (isDataTable(tableName.getTableName()) || isMaterializedViewStorage(tableName.getTableName())) {
+        if (!isIcebergTableName(tableName.getTableName()) || isDataTable(tableName.getTableName()) || isMaterializedViewStorage(tableName.getTableName())) {
             return Optional.empty();
         }
 
@@ -568,21 +573,16 @@ public class IcebergMetadata
             return Optional.empty();
         }
 
-        Optional<TableType> tableType = IcebergTableName.tableTypeFrom(tableName.getTableName());
-        if (tableType.isEmpty()) {
-            return Optional.empty();
-        }
-        SchemaTableName systemTableName = new SchemaTableName(tableName.getSchemaName(), IcebergTableName.tableNameWithType(name, tableType.get()));
-        return switch (tableType.get()) {
-            case DATA -> throw new VerifyException("Unexpected DATA table type"); // Handled above.
-            case HISTORY -> Optional.of(new HistoryTable(systemTableName, table));
-            case SNAPSHOTS -> Optional.of(new SnapshotsTable(systemTableName, typeManager, table));
-            case PARTITIONS -> Optional.of(new PartitionTable(systemTableName, typeManager, table, getCurrentSnapshotId(table)));
-            case MANIFESTS -> Optional.of(new ManifestsTable(systemTableName, table, getCurrentSnapshotId(table)));
-            case FILES -> Optional.of(new FilesTable(systemTableName, typeManager, table, getCurrentSnapshotId(table)));
-            case PROPERTIES -> Optional.of(new PropertiesTable(systemTableName, table));
-            case REFS -> Optional.of(new RefsTable(systemTableName, table));
-            case MATERIALIZED_VIEW_STORAGE -> throw new VerifyException("Unexpected MATERIALIZED_VIEW_STORAGE table type");
+        TableType tableType = IcebergTableName.tableTypeFrom(tableName.getTableName());
+        return switch (tableType) {
+            case DATA, MATERIALIZED_VIEW_STORAGE -> throw new VerifyException("Unexpected table type: " + tableType); // Handled above.
+            case HISTORY -> Optional.of(new HistoryTable(tableName, table));
+            case SNAPSHOTS -> Optional.of(new SnapshotsTable(tableName, typeManager, table));
+            case PARTITIONS -> Optional.of(new PartitionTable(tableName, typeManager, table, getCurrentSnapshotId(table)));
+            case MANIFESTS -> Optional.of(new ManifestsTable(tableName, table, getCurrentSnapshotId(table)));
+            case FILES -> Optional.of(new FilesTable(tableName, typeManager, table, getCurrentSnapshotId(table)));
+            case PROPERTIES -> Optional.of(new PropertiesTable(tableName, table));
+            case REFS -> Optional.of(new RefsTable(tableName, table));
         };
     }
 
@@ -2984,21 +2984,19 @@ public class IcebergMetadata
             else {
                 snapshotAtRefresh = Optional.of(Long.parseLong(value));
             }
-            TableChangeInfo tableChangeInfo = getTableChangeInfo(session, (IcebergTableHandle) tableHandle, snapshotAtRefresh);
-            if (tableChangeInfo instanceof NoTableChange) {
-                // Fresh
-            }
-            else if (tableChangeInfo instanceof FirstChangeSnapshot firstChange) {
-                hasStaleIcebergTables = true;
-                firstTableChange = firstTableChange
-                        .map(epochMilli -> Math.min(epochMilli, firstChange.snapshot().timestampMillis()));
-            }
-            else if (tableChangeInfo instanceof UnknownTableChange) {
-                hasStaleIcebergTables = true;
-                firstTableChange = Optional.empty();
-            }
-            else {
-                throw new IllegalStateException("Unhandled table change info " + tableChangeInfo);
+            switch (getTableChangeInfo(session, (IcebergTableHandle) tableHandle, snapshotAtRefresh)) {
+                case NoTableChange() -> {
+                    // Fresh
+                }
+                case FirstChangeSnapshot(Snapshot snapshot) -> {
+                    hasStaleIcebergTables = true;
+                    firstTableChange = firstTableChange
+                            .map(epochMilli -> Math.min(epochMilli, snapshot.timestampMillis()));
+                }
+                case UnknownTableChange() -> {
+                    hasStaleIcebergTables = true;
+                    firstTableChange = Optional.empty();
+                }
             }
         }
 
@@ -3111,7 +3109,7 @@ public class IcebergMetadata
     private sealed interface TableChangeInfo
             permits NoTableChange, FirstChangeSnapshot, UnknownTableChange {}
 
-    private static final class NoTableChange
+    private record NoTableChange()
             implements TableChangeInfo {}
 
     private record FirstChangeSnapshot(Snapshot snapshot)
@@ -3123,6 +3121,6 @@ public class IcebergMetadata
         }
     }
 
-    private static final class UnknownTableChange
+    private record UnknownTableChange()
             implements TableChangeInfo {}
 }

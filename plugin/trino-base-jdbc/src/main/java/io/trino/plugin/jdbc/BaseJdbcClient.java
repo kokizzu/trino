@@ -527,6 +527,35 @@ public abstract class BaseJdbcClient
             ConnectorSession session,
             JoinType joinType,
             PreparedQuery leftSource,
+            Map<JdbcColumnHandle, String> leftProjections,
+            PreparedQuery rightSource,
+            Map<JdbcColumnHandle, String> rightProjections,
+            List<ParameterizedExpression> joinConditions,
+            JoinStatistics statistics)
+    {
+        try (Connection connection = this.connectionFactory.openConnection(session)) {
+            return Optional.of(queryBuilder.prepareJoinQuery(
+                    this,
+                    session,
+                    connection,
+                    joinType,
+                    leftSource,
+                    leftProjections,
+                    rightSource,
+                    rightProjections,
+                    joinConditions));
+        }
+        catch (SQLException e) {
+            throw new TrinoException(JDBC_ERROR, e);
+        }
+    }
+
+    @Deprecated
+    @Override
+    public Optional<PreparedQuery> legacyImplementJoin(
+            ConnectorSession session,
+            JoinType joinType,
+            PreparedQuery leftSource,
             PreparedQuery rightSource,
             List<JdbcJoinCondition> joinConditions,
             Map<JdbcColumnHandle, String> rightAssignments,
@@ -540,7 +569,7 @@ public abstract class BaseJdbcClient
         }
 
         try (Connection connection = this.connectionFactory.openConnection(session)) {
-            return Optional.of(queryBuilder.prepareJoinQuery(
+            return Optional.of(queryBuilder.legacyPrepareJoinQuery(
                     this,
                     session,
                     connection,
@@ -700,17 +729,11 @@ public abstract class BaseJdbcClient
 
     protected List<String> createTableSqls(RemoteTableName remoteTableName, List<String> columns, ConnectorTableMetadata tableMetadata)
     {
-        return ImmutableList.of(createTableSql(remoteTableName, columns, tableMetadata));
-    }
-
-    @Deprecated
-    protected String createTableSql(RemoteTableName remoteTableName, List<String> columns, ConnectorTableMetadata tableMetadata)
-    {
         if (tableMetadata.getComment().isPresent()) {
             throw new TrinoException(NOT_SUPPORTED, "This connector does not support creating tables with table comment");
         }
         checkArgument(tableMetadata.getProperties().isEmpty(), "Unsupported table properties: %s", tableMetadata.getProperties());
-        return format("CREATE TABLE %s (%s)", quoted(remoteTableName), join(", ", columns));
+        return ImmutableList.of(format("CREATE TABLE %s (%s)", quoted(remoteTableName), join(", ", columns)));
     }
 
     protected String getColumnDefinitionSql(ConnectorSession session, ColumnMetadata column, String columnName)

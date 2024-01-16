@@ -407,6 +407,7 @@ jobs:
             !:trino-memory,
             !:trino-mongodb,
             !:trino-mysql,
+            !:trino-opensearch,
             !:trino-oracle,
             !:trino-orc,
             !:trino-parquet,
@@ -533,6 +534,7 @@ jobs:
             - { modules: plugin/trino-mariadb }
             - { modules: plugin/trino-mongodb }
             - { modules: plugin/trino-mysql }
+            - { modules: plugin/trino-opensearch }
             - { modules: plugin/trino-oracle }
             - { modules: plugin/trino-phoenix5 }
             - { modules: plugin/trino-pinot }
@@ -882,7 +884,7 @@ jobs:
             - suite-5
             - suite-6-non-generic
             - suite-7-non-generic
-            - suite-8-non-generic
+            - suite-hive-transactional
             - suite-azure
             - suite-delta-lake-databricks91
             - suite-delta-lake-databricks104
