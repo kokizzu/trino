@@ -119,7 +119,6 @@ import static io.trino.sql.ReservedIdentifiers.reserved;
 import static io.trino.sql.RowPatternFormatter.formatPattern;
 import static io.trino.sql.SqlFormatter.formatName;
 import static io.trino.sql.SqlFormatter.formatSql;
-import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toList;
@@ -172,16 +171,15 @@ public final class ExpressionFormatter
         @Override
         protected String visitExpression(Expression node, Void context)
         {
-            throw new UnsupportedOperationException(format("not yet implemented: %s.visit%s", getClass().getName(), node.getClass().getSimpleName()));
+            throw new UnsupportedOperationException("not yet implemented: %s.visit%s".formatted(getClass().getName(), node.getClass().getSimpleName()));
         }
 
         @Override
         protected String visitAtTimeZone(AtTimeZone node, Void context)
         {
-            return new StringBuilder()
-                    .append(process(node.getValue(), context))
-                    .append(" AT TIME ZONE ")
-                    .append(process(node.getTimeZone(), context)).toString();
+            return process(node.getValue(), context) +
+                    " AT TIME ZONE " +
+                    process(node.getTimeZone(), context);
         }
 
         @Override
@@ -212,10 +210,10 @@ public final class ExpressionFormatter
         protected String visitTrim(Trim node, Void context)
         {
             if (!node.getTrimCharacter().isPresent()) {
-                return format("trim(%s FROM %s)", node.getSpecification(), process(node.getTrimSource(), context));
+                return "trim(%s FROM %s)".formatted(node.getSpecification(), process(node.getTrimSource(), context));
             }
 
-            return format("trim(%s %s FROM %s)", node.getSpecification(), process(node.getTrimCharacter().get(), context), process(node.getTrimSource(), context));
+            return "trim(%s %s FROM %s)".formatted(node.getSpecification(), process(node.getTrimCharacter().get(), context), process(node.getTrimSource(), context));
         }
 
         @Override
@@ -717,17 +715,11 @@ public final class ExpressionFormatter
         @Override
         protected String visitQuantifiedComparisonExpression(QuantifiedComparisonExpression node, Void context)
         {
-            return new StringBuilder()
-                    .append("(")
-                    .append(process(node.getValue(), context))
-                    .append(' ')
-                    .append(node.getOperator().getValue())
-                    .append(' ')
-                    .append(node.getQuantifier().toString())
-                    .append(' ')
-                    .append(process(node.getSubquery(), context))
-                    .append(")")
-                    .toString();
+            return "(%s %s %s %s)".formatted(
+                    process(node.getValue(), context),
+                    node.getOperator().getValue(),
+                    node.getQuantifier(),
+                    process(node.getSubquery(), context));
         }
 
         @Override

@@ -178,14 +178,14 @@
         <dep.antlr.version>4.13.1</dep.antlr.version>
         <dep.arrow.version>14.0.2</dep.arrow.version>
         <dep.avro.version>1.11.3</dep.avro.version>
-        <dep.aws-sdk.version>1.12.636</dep.aws-sdk.version>
+        <dep.aws-sdk.version>1.12.638</dep.aws-sdk.version>
         <dep.cassandra.version>4.17.0</dep.cassandra.version>
         <dep.confluent.version>7.5.1</dep.confluent.version>
         <dep.docker.images.version>87</dep.docker.images.version>
         <dep.drift.version>1.21</dep.drift.version>
         <dep.duct-tape.version>1.0.8</dep.duct-tape.version>
         <dep.errorprone.version>2.23.0</dep.errorprone.version>
-        <dep.flyway.version>10.5.0</dep.flyway.version>
+        <dep.flyway.version>10.6.0</dep.flyway.version>
         <dep.google.http.client.version>1.43.3</dep.google.http.client.version>
         <dep.iceberg.version>1.4.3</dep.iceberg.version>
         <dep.jna.version>5.14.0</dep.jna.version>
@@ -218,7 +218,7 @@
             <dependency>
                 <groupId>com.google.cloud</groupId>
                 <artifactId>libraries-bom</artifactId>
-                <version>26.29.0</version>
+                <version>26.30.0</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -298,7 +298,7 @@
             <dependency>
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
-                <version>2.23.2</version>
+                <version>2.23.4</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -2673,6 +2673,7 @@
                                     -Xep:UnnecessaryMethodReference:ERROR \
                                     -Xep:UnnecessaryOptionalGet:ERROR \
                                     -Xep:UnnecessaryParentheses:ERROR \
+                                    -Xep:UnnecessaryStringBuilder:ERROR \
                                     <!-- Enable when https://github.com/google/error-prone/pull/3837 is fixed -->
                                     <!-- -Xep:UnusedVariable:ERROR \ -->
                                     -Xep:UseEnumSwitch:ERROR \
