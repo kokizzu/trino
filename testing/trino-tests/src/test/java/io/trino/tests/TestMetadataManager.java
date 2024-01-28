@@ -22,6 +22,7 @@ import io.trino.dispatcher.DispatchManager;
 import io.trino.metadata.MetadataManager;
 import io.trino.metadata.QualifiedTablePrefix;
 import io.trino.server.BasicQueryInfo;
+import io.trino.server.SessionContext;
 import io.trino.server.protocol.Slug;
 import io.trino.spi.Plugin;
 import io.trino.spi.QueryId;
@@ -29,7 +30,6 @@ import io.trino.spi.connector.ConnectorFactory;
 import io.trino.spi.connector.ConnectorViewDefinition;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.testing.DistributedQueryRunner;
-import io.trino.testing.TestingSessionContext;
 import io.trino.testing.TransactionBuilder;
 import io.trino.tests.tpch.TpchQueryRunnerBuilder;
 import io.trino.tracing.TracingMetadata;
@@ -93,7 +93,7 @@ public class TestMetadataManager
             }
         });
         queryRunner.createCatalog("upper_case_schema_catalog", "mock");
-        metadataManager = (MetadataManager) ((TracingMetadata) queryRunner.getMetadata()).getDelegate();
+        metadataManager = (MetadataManager) ((TracingMetadata) queryRunner.getPlannerContext().getMetadata()).getDelegate();
     }
 
     @AfterAll
@@ -146,7 +146,7 @@ public class TestMetadataManager
                 queryId,
                 Span.getInvalid(),
                 Slug.createNew(),
-                TestingSessionContext.fromSession(TEST_SESSION),
+                SessionContext.fromSession(TEST_SESSION),
                 "SELECT * FROM lineitem")
                 .get();
 
@@ -176,7 +176,7 @@ public class TestMetadataManager
                         TEST_SESSION,
                         transactionSession -> {
                             List<String> expectedSchemas = ImmutableList.of("information_schema", "upper_case_schema");
-                            assertThat(queryRunner.getMetadata().listSchemaNames(transactionSession, "upper_case_schema_catalog")).isEqualTo(expectedSchemas);
+                            assertThat(queryRunner.getPlannerContext().getMetadata().listSchemaNames(transactionSession, "upper_case_schema_catalog")).isEqualTo(expectedSchemas);
                             return null;
                         });
     }

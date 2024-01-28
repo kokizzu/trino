@@ -718,6 +718,7 @@ public class IcebergMetadata
         return ColumnMetadata.builder()
                 .setName(column.getName())
                 .setType(column.getType())
+                .setNullable(column.isNullable())
                 .setComment(column.getComment())
                 .build();
     }
@@ -2083,6 +2084,25 @@ public class IcebergMetadata
     }
 
     @Override
+    public void dropNotNullConstraint(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle columnHandle)
+    {
+        IcebergTableHandle table = (IcebergTableHandle) tableHandle;
+        IcebergColumnHandle column = (IcebergColumnHandle) columnHandle;
+
+        Table icebergTable = catalog.loadTable(session, table.getSchemaTableName());
+        verify(column.isBaseColumn(), "Cannot drop a not null constraint on nested fields");
+
+        try {
+            icebergTable.updateSchema()
+                    .makeColumnOptional(column.getName())
+                    .commit();
+        }
+        catch (RuntimeException e) {
+            throw new TrinoException(ICEBERG_COMMIT_ERROR, "Failed to drop a not null constraint: " + firstNonNull(e.getMessage(), e), e);
+        }
+    }
+
+    @Override
     public TableStatisticsMetadata getStatisticsCollectionMetadataForWrite(ConnectorSession session, ConnectorTableMetadata tableMetadata)
     {
         if (!isExtendedStatisticsEnabled(session) || !isCollectExtendedStatisticsOnWrite(session)) {
@@ -2705,6 +2725,7 @@ public class IcebergMetadata
                 column.getBaseType(),
                 fullPath.build(),
                 projectedColumnType,
+                true,
                 Optional.empty());
     }
 

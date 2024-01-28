@@ -19,6 +19,7 @@ import io.trino.Session;
 import io.trino.client.NodeVersion;
 import io.trino.connector.CatalogServiceProvider;
 import io.trino.connector.MockConnectorFactory;
+import io.trino.connector.MockConnectorPlugin;
 import io.trino.execution.warnings.WarningCollector;
 import io.trino.metadata.AbstractMockMetadata;
 import io.trino.metadata.ColumnPropertyManager;
@@ -54,7 +55,8 @@ import io.trino.spi.type.Type;
 import io.trino.sql.PlannerContext;
 import io.trino.sql.planner.TestingConnectorTransactionHandle;
 import io.trino.sql.tree.QualifiedName;
-import io.trino.testing.LocalQueryRunner;
+import io.trino.testing.QueryRunner;
+import io.trino.testing.StandaloneQueryRunner;
 import io.trino.testing.TestingMetadata.TestingTableHandle;
 import io.trino.transaction.TransactionManager;
 import org.junit.jupiter.api.AfterEach;
@@ -109,7 +111,7 @@ public abstract class BaseDataDefinitionTaskTest
     protected static final String MATERIALIZED_VIEW_PROPERTY_2_DEFAULT_VALUE = "defaultProperty2Value";
     protected static final Map<String, Object> MATERIALIZED_VIEW_PROPERTIES = ImmutableMap.of(MATERIALIZED_VIEW_PROPERTY_2_NAME, MATERIALIZED_VIEW_PROPERTY_2_DEFAULT_VALUE);
 
-    private LocalQueryRunner queryRunner;
+    private QueryRunner queryRunner;
     protected Session testSession;
     protected MockMetadata metadata;
     protected PlannerContext plannerContext;
@@ -124,9 +126,10 @@ public abstract class BaseDataDefinitionTaskTest
         testSession = testSessionBuilder()
                 .setCatalog(TEST_CATALOG_NAME)
                 .build();
-        queryRunner = LocalQueryRunner.create(testSession);
+        queryRunner = new StandaloneQueryRunner(testSession);
         transactionManager = queryRunner.getTransactionManager();
-        queryRunner.createCatalog(TEST_CATALOG_NAME, MockConnectorFactory.create("initial"), ImmutableMap.of());
+        queryRunner.installPlugin(new MockConnectorPlugin(MockConnectorFactory.create("initial")));
+        queryRunner.createCatalog(TEST_CATALOG_NAME, "initial", ImmutableMap.of());
 
         metadata = new MockMetadata(TEST_CATALOG_NAME);
         plannerContext = plannerContextBuilder().withMetadata(metadata).build();
@@ -418,6 +421,19 @@ public abstract class BaseDataDefinitionTaskTest
             }
 
             tables.put(tableName, new ConnectorTableMetadata(tableName, columns.build()));
+        }
+
+        @Override
+        public void dropNotNullConstraint(Session session, TableHandle tableHandle, ColumnHandle columnHandle)
+        {
+            SchemaTableName tableName = getTableName(tableHandle);
+            ConnectorTableMetadata metadata = tables.get(tableName);
+            String columnName = ((TestingColumnHandle) columnHandle).getName();
+
+            List<ColumnMetadata> columns = metadata.getColumns().stream()
+                    .map(column -> column.getName().equals(columnName) ? ColumnMetadata.builderFrom(column).setNullable(true).build() : column)
+                    .collect(toImmutableList());
+            tables.put(tableName, new ConnectorTableMetadata(tableName, columns));
         }
 
         private ConnectorTableMetadata getTableMetadata(TableHandle tableHandle)

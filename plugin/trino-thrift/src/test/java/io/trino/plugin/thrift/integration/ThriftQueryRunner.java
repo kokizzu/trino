@@ -29,10 +29,8 @@ import io.airlift.log.Logging;
 import io.trino.Session;
 import io.trino.cost.StatsCalculator;
 import io.trino.execution.FailureInjector.InjectedFailureType;
+import io.trino.execution.warnings.WarningCollector;
 import io.trino.metadata.FunctionBundle;
-import io.trino.metadata.FunctionManager;
-import io.trino.metadata.LanguageFunctionManager;
-import io.trino.metadata.Metadata;
 import io.trino.metadata.QualifiedObjectName;
 import io.trino.metadata.SessionPropertyManager;
 import io.trino.plugin.thrift.ThriftPlugin;
@@ -42,12 +40,12 @@ import io.trino.plugin.tpch.TpchPlugin;
 import io.trino.server.testing.TestingTrinoServer;
 import io.trino.spi.ErrorType;
 import io.trino.spi.Plugin;
-import io.trino.spi.exchange.ExchangeManager;
-import io.trino.spi.type.TypeManager;
 import io.trino.split.PageSourceManager;
 import io.trino.split.SplitManager;
+import io.trino.sql.PlannerContext;
 import io.trino.sql.analyzer.QueryExplainer;
 import io.trino.sql.planner.NodePartitioningManager;
+import io.trino.sql.planner.Plan;
 import io.trino.testing.DistributedQueryRunner;
 import io.trino.testing.MaterializedResult;
 import io.trino.testing.QueryRunner;
@@ -69,7 +67,7 @@ import static java.util.stream.Collectors.joining;
 
 public final class ThriftQueryRunner
 {
-    public static final ThriftCodecManager CODEC_MANAGER = new ThriftCodecManager();
+    private static final ThriftCodecManager CODEC_MANAGER = new ThriftCodecManager();
 
     private ThriftQueryRunner() {}
 
@@ -218,15 +216,9 @@ public final class ThriftQueryRunner
         }
 
         @Override
-        public Metadata getMetadata()
+        public PlannerContext getPlannerContext()
         {
-            return source.getMetadata();
-        }
-
-        @Override
-        public TypeManager getTypeManager()
-        {
-            return source.getTypeManager();
+            return source.getPlannerContext();
         }
 
         @Override
@@ -242,27 +234,9 @@ public final class ThriftQueryRunner
         }
 
         @Override
-        public FunctionManager getFunctionManager()
-        {
-            return source.getFunctionManager();
-        }
-
-        @Override
-        public LanguageFunctionManager getLanguageFunctionManager()
-        {
-            return source.getLanguageFunctionManager();
-        }
-
-        @Override
         public SplitManager getSplitManager()
         {
             return source.getSplitManager();
-        }
-
-        @Override
-        public ExchangeManager getExchangeManager()
-        {
-            return source.getExchangeManager();
         }
 
         @Override
@@ -305,6 +279,18 @@ public final class ThriftQueryRunner
         public MaterializedResult execute(Session session, String sql)
         {
             return source.execute(session, sql);
+        }
+
+        @Override
+        public MaterializedResultWithPlan executeWithPlan(Session session, String sql, WarningCollector warningCollector)
+        {
+            return source.executeWithPlan(session, sql, warningCollector);
+        }
+
+        @Override
+        public Plan createPlan(Session session, String sql)
+        {
+            return source.createPlan(session, sql);
         }
 
         @Override

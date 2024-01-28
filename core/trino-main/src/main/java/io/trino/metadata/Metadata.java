@@ -222,7 +222,7 @@ public interface Metadata
     /**
      * Creates a table using the specified table metadata.
      *
-     * @throws TrinoException with {@code ALREADY_EXISTS} if the table already exists and {@param saveMode} is set to FAIL.
+     * @throws TrinoException with {@code ALREADY_EXISTS} if the table already exists and {@code saveMode} is set to FAIL.
      */
     void createTable(Session session, String catalogName, ConnectorTableMetadata tableMetadata, SaveMode saveMode);
 
@@ -285,6 +285,11 @@ public interface Metadata
      * Set the specified type to the field.
      */
     void setFieldType(Session session, TableHandle tableHandle, List<String> fieldPath, Type type);
+
+    /**
+     * Drop a not null constraint on the specified column.
+     */
+    void dropNotNullConstraint(Session session, TableHandle tableHandle, ColumnHandle column);
 
     /**
      * Set the authorization (owner) of specified table's user/role

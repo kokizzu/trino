@@ -16,7 +16,6 @@ package io.trino.plugin.iceberg;
 import com.google.common.collect.ImmutableMap;
 import io.opentelemetry.sdk.testing.junit5.OpenTelemetryExtension;
 import io.opentelemetry.sdk.trace.data.SpanData;
-import io.trino.metadata.InternalFunctionBundle;
 import io.trino.plugin.hive.metastore.Database;
 import io.trino.plugin.hive.metastore.HiveMetastore;
 import io.trino.plugin.hive.metastore.HiveMetastoreFactory;
@@ -40,10 +39,7 @@ import java.util.Optional;
 
 import static com.google.common.io.MoreFiles.deleteRecursively;
 import static com.google.common.io.RecursiveDeleteOption.ALLOW_INSECURE;
-import static io.trino.execution.querystats.PlanOptimizersStatsCollector.createPlanOptimizersStatsCollector;
-import static io.trino.execution.warnings.WarningCollector.NOOP;
 import static io.trino.plugin.iceberg.IcebergQueryRunner.ICEBERG_CATALOG;
-import static io.trino.sql.planner.LogicalPlanner.Stage.OPTIMIZED_AND_VALIDATED;
 import static io.trino.testing.TestingSession.testSessionBuilder;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS;
@@ -59,30 +55,24 @@ public class TestIcebergGetTableStatisticsOperations
     @RegisterExtension
     static final OpenTelemetryExtension TELEMETRY = OpenTelemetryExtension.create();
 
-    private LocalQueryRunner localQueryRunner;
+    private LocalQueryRunner queryRunner;
     private Path metastoreDir;
 
     @Override
     protected QueryRunner createQueryRunner()
             throws Exception
     {
-        localQueryRunner = LocalQueryRunner.builder(testSessionBuilder().build())
+        queryRunner = LocalQueryRunner.builder(testSessionBuilder().build())
                 .withMetadataDecorator(metadata -> new TracingMetadata(TELEMETRY.getOpenTelemetry().getTracer("test"), metadata))
                 .build();
-        localQueryRunner.installPlugin(new TpchPlugin());
-        localQueryRunner.createCatalog("tpch", "tpch", ImmutableMap.of());
-
-        InternalFunctionBundle.InternalFunctionBundleBuilder functions = InternalFunctionBundle.builder();
-        new IcebergPlugin().getFunctions().forEach(functions::functions);
-        localQueryRunner.addFunctions(functions.build());
+        queryRunner.installPlugin(new TpchPlugin());
+        queryRunner.createCatalog("tpch", "tpch", ImmutableMap.of());
 
         metastoreDir = Files.createTempDirectory("test_iceberg_get_table_statistics_operations");
-        localQueryRunner.createCatalog(
-                "iceberg",
-                new TestingIcebergConnectorFactory(metastoreDir),
-                ImmutableMap.of());
+        queryRunner.installPlugin(new TestingIcebergPlugin(metastoreDir));
+        queryRunner.createCatalog("iceberg", "iceberg", ImmutableMap.of());
 
-        HiveMetastore metastore = ((IcebergConnector) localQueryRunner.getConnector(ICEBERG_CATALOG)).getInjector()
+        HiveMetastore metastore = ((IcebergConnector) queryRunner.getConnector(ICEBERG_CATALOG)).getInjector()
                 .getInstance(HiveMetastoreFactory.class)
                 .createMetastore(Optional.empty());
 
@@ -93,11 +83,11 @@ public class TestIcebergGetTableStatisticsOperations
                 .build();
         metastore.createDatabase(database);
 
-        localQueryRunner.execute("CREATE TABLE iceberg.tiny.orders AS SELECT * FROM tpch.tiny.orders");
-        localQueryRunner.execute("CREATE TABLE iceberg.tiny.lineitem AS SELECT * FROM tpch.tiny.lineitem");
-        localQueryRunner.execute("CREATE TABLE iceberg.tiny.customer AS SELECT * FROM tpch.tiny.customer");
+        queryRunner.execute("CREATE TABLE iceberg.tiny.orders AS SELECT * FROM tpch.tiny.orders");
+        queryRunner.execute("CREATE TABLE iceberg.tiny.lineitem AS SELECT * FROM tpch.tiny.lineitem");
+        queryRunner.execute("CREATE TABLE iceberg.tiny.customer AS SELECT * FROM tpch.tiny.customer");
 
-        return localQueryRunner;
+        return queryRunner;
     }
 
     @AfterAll
@@ -105,7 +95,7 @@ public class TestIcebergGetTableStatisticsOperations
             throws IOException
     {
         deleteRecursively(metastoreDir, ALLOW_INSECURE);
-        localQueryRunner.close();
+        queryRunner.close();
     }
 
     @Test
@@ -128,13 +118,7 @@ public class TestIcebergGetTableStatisticsOperations
 
     private void planDistributedQuery(@Language("SQL") String sql)
     {
-        localQueryRunner.inTransaction(transactionSession -> localQueryRunner.createPlan(
-                transactionSession,
-                sql,
-                localQueryRunner.getPlanOptimizers(false),
-                OPTIMIZED_AND_VALIDATED,
-                NOOP,
-                createPlanOptimizersStatsCollector()));
+        queryRunner.inTransaction(transactionSession -> queryRunner.createPlan(transactionSession, sql));
     }
 
     private static long getTableStatisticsMethodInvocations()

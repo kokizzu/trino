@@ -35,9 +35,6 @@ import io.trino.execution.QueryManager;
 import io.trino.execution.warnings.WarningCollector;
 import io.trino.metadata.AllNodes;
 import io.trino.metadata.FunctionBundle;
-import io.trino.metadata.FunctionManager;
-import io.trino.metadata.LanguageFunctionManager;
-import io.trino.metadata.Metadata;
 import io.trino.metadata.QualifiedObjectName;
 import io.trino.metadata.SessionPropertyManager;
 import io.trino.server.BasicQueryInfo;
@@ -50,11 +47,10 @@ import io.trino.spi.Plugin;
 import io.trino.spi.QueryId;
 import io.trino.spi.eventlistener.EventListener;
 import io.trino.spi.eventlistener.QueryCompletedEvent;
-import io.trino.spi.exchange.ExchangeManager;
 import io.trino.spi.security.SystemAccessControl;
-import io.trino.spi.type.TypeManager;
 import io.trino.split.PageSourceManager;
 import io.trino.split.SplitManager;
+import io.trino.sql.PlannerContext;
 import io.trino.sql.analyzer.QueryExplainer;
 import io.trino.sql.parser.SqlParser;
 import io.trino.sql.planner.NodePartitioningManager;
@@ -108,7 +104,7 @@ public class DistributedQueryRunner
     private Runnable registerNewWorker;
     private final InMemorySpanExporter spanExporter = InMemorySpanExporter.create();
     private final List<TestingTrinoServer> servers = new CopyOnWriteArrayList<>();
-    private final List<FunctionBundle> functionBundles = new CopyOnWriteArrayList<>(ImmutableList.of(AbstractTestQueries.CUSTOM_FUNCTIONS));
+    private final List<FunctionBundle> functionBundles = new CopyOnWriteArrayList<>(ImmutableList.of(CustomFunctionBundle.CUSTOM_FUNCTIONS));
     private final List<Plugin> plugins = new CopyOnWriteArrayList<>();
 
     private final Closer closer = Closer.create();
@@ -362,15 +358,9 @@ public class DistributedQueryRunner
     }
 
     @Override
-    public Metadata getMetadata()
+    public PlannerContext getPlannerContext()
     {
-        return coordinator.getMetadata();
-    }
-
-    @Override
-    public TypeManager getTypeManager()
-    {
-        return coordinator.getTypeManager();
+        return coordinator.getPlannerContext();
     }
 
     @Override
@@ -386,27 +376,9 @@ public class DistributedQueryRunner
     }
 
     @Override
-    public FunctionManager getFunctionManager()
-    {
-        return coordinator.getFunctionManager();
-    }
-
-    @Override
-    public LanguageFunctionManager getLanguageFunctionManager()
-    {
-        return coordinator.getLanguageFunctionManager();
-    }
-
-    @Override
     public SplitManager getSplitManager()
     {
         return coordinator.getSplitManager();
-    }
-
-    @Override
-    public ExchangeManager getExchangeManager()
-    {
-        return coordinator.getExchangeManager();
     }
 
     @Override
@@ -447,11 +419,6 @@ public class DistributedQueryRunner
     public TestingTrinoServer getCoordinator()
     {
         return coordinator;
-    }
-
-    public Optional<TestingTrinoServer> getBackupCoordinator()
-    {
-        return backupCoordinator;
     }
 
     public List<TestingTrinoServer> getServers()
@@ -723,13 +690,6 @@ public class DistributedQueryRunner
         }
 
         @CanIgnoreReturnValue
-        public SELF addCoordinatorProperties(Map<String, String> coordinatorProperties)
-        {
-            this.coordinatorProperties = addProperties(this.coordinatorProperties, coordinatorProperties);
-            return self();
-        }
-
-        @CanIgnoreReturnValue
         public SELF addCoordinatorProperty(String key, String value)
         {
             this.coordinatorProperties = addProperty(this.coordinatorProperties, key, value);
@@ -830,6 +790,7 @@ public class DistributedQueryRunner
             return self();
         }
 
+        @CanIgnoreReturnValue
         public SELF withTracing()
         {
             this.withTracing = true;

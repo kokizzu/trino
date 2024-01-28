@@ -22,6 +22,7 @@ import com.google.common.collect.Multisets;
 import io.airlift.log.Logger;
 import io.airlift.units.Duration;
 import io.trino.Session;
+import io.trino.client.FailureException;
 import io.trino.execution.warnings.WarningCollector;
 import io.trino.metadata.QualifiedObjectName;
 import io.trino.spi.QueryId;
@@ -40,6 +41,7 @@ import java.util.function.Supplier;
 
 import static io.airlift.units.Duration.nanosSince;
 import static io.trino.testing.assertions.Assert.assertEventually;
+import static io.trino.testing.assertions.TrinoExceptionAssert.assertThatTrinoException;
 import static java.lang.String.format;
 import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
@@ -472,9 +474,8 @@ public final class QueryAssertions
         }
         catch (RuntimeException exception) {
             exception.addSuppressed(new Exception("Query: " + sql));
-            assertThat(exception)
-                    .hasMessageMatching(expectedMessageRegExp)
-                    .satisfies(e -> assertThat(getTrinoExceptionCause(e)).hasMessageMatching(expectedMessageRegExp));
+            assertThatTrinoException(exception)
+                    .hasCauseMessageMatching(expectedMessageRegExp);
         }
     }
 
@@ -551,16 +552,9 @@ public final class QueryAssertions
             return true;
         }
 
-        if (exception.getClass().getName().equals("io.trino.client.FailureInfo$FailureException")) {
-            try {
-                String originalClassName = exception.toString().split(":", 2)[0];
-                Class<? extends Throwable> originalClass = Class.forName(originalClassName).asSubclass(Throwable.class);
-                return TrinoException.class.isAssignableFrom(originalClass) ||
-                        ParsingException.class.isAssignableFrom(originalClass);
-            }
-            catch (ClassNotFoundException e) {
-                return false;
-            }
+        if (exception instanceof FailureException failureException) {
+            String type = failureException.getFailureInfo().getType();
+            return type.equals(TrinoException.class.getName()) || type.equals(ParsingException.class.getName());
         }
 
         return false;
