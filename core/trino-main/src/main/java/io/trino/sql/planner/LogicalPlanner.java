@@ -181,7 +181,7 @@ public class LogicalPlanner
     private final Metadata metadata;
     private final PlannerContext plannerContext;
     private final TypeCoercion typeCoercion;
-    private final TypeAnalyzer typeAnalyzer;
+    private final IrTypeAnalyzer typeAnalyzer;
     private final StatisticsAggregationPlanner statisticsAggregationPlanner;
     private final StatsCalculator statsCalculator;
     private final CostCalculator costCalculator;
@@ -193,7 +193,7 @@ public class LogicalPlanner
             List<PlanOptimizer> planOptimizers,
             PlanNodeIdAllocator idAllocator,
             PlannerContext plannerContext,
-            TypeAnalyzer typeAnalyzer,
+            IrTypeAnalyzer typeAnalyzer,
             StatsCalculator statsCalculator,
             CostCalculator costCalculator,
             WarningCollector warningCollector,
@@ -208,7 +208,7 @@ public class LogicalPlanner
             PlanSanityChecker planSanityChecker,
             PlanNodeIdAllocator idAllocator,
             PlannerContext plannerContext,
-            TypeAnalyzer typeAnalyzer,
+            IrTypeAnalyzer typeAnalyzer,
             StatsCalculator statsCalculator,
             CostCalculator costCalculator,
             WarningCollector warningCollector,
@@ -306,7 +306,7 @@ public class LogicalPlanner
     {
         PlanNode result;
         try (var ignored = optimizerSpan(optimizer)) {
-            result = optimizer.optimize(root, session, symbolAllocator.getTypes(), symbolAllocator, idAllocator, warningCollector, planOptimizersStatsCollector, tableStatsProvider);
+            result = optimizer.optimize(root, new PlanOptimizer.Context(session, symbolAllocator.getTypes(), symbolAllocator, idAllocator, warningCollector, planOptimizersStatsCollector, tableStatsProvider));
         }
         if (result == null) {
             throw new NullPointerException(optimizer.getClass().getName() + " returned a null plan");
@@ -626,7 +626,7 @@ public class LogicalPlanner
 
     private Expression coerceOrCastToTableType(Symbol fieldMapping, Type tableType, Type queryType)
     {
-        if (queryType.equals(tableType) || typeCoercion.isTypeOnlyCoercion(queryType, tableType)) {
+        if (queryType.equals(tableType)) {
             return fieldMapping.toSymbolReference();
         }
         return noTruncationCast(fieldMapping.toSymbolReference(), queryType, tableType);

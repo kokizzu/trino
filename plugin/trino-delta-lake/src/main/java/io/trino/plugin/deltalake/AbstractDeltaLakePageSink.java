@@ -60,6 +60,7 @@ import static io.trino.plugin.deltalake.DeltaLakeErrorCode.DELTA_LAKE_BAD_WRITE;
 import static io.trino.plugin.deltalake.DeltaLakeSessionProperties.getCompressionCodec;
 import static io.trino.plugin.deltalake.DeltaLakeSessionProperties.getParquetWriterBlockSize;
 import static io.trino.plugin.deltalake.DeltaLakeSessionProperties.getParquetWriterPageSize;
+import static io.trino.plugin.deltalake.DeltaLakeSessionProperties.getParquetWriterPageValueCount;
 import static io.trino.plugin.deltalake.DeltaLakeTypes.toParquetType;
 import static io.trino.plugin.hive.util.HiveUtil.escapePathName;
 import static java.lang.Math.min;
@@ -462,8 +463,10 @@ public abstract class AbstractDeltaLakePageSink
         ParquetWriterOptions parquetWriterOptions = ParquetWriterOptions.builder()
                 .setMaxBlockSize(getParquetWriterBlockSize(session))
                 .setMaxPageSize(getParquetWriterPageSize(session))
+                .setMaxPageValueCount(getParquetWriterPageValueCount(session))
                 .build();
-        CompressionCodec compressionCodec = getCompressionCodec(session).getParquetCompressionCodec();
+        CompressionCodec compressionCodec = getCompressionCodec(session).getParquetCompressionCodec()
+                .orElseThrow(); // validated on the session property level
 
         try {
             Closeable rollbackAction = () -> fileSystem.deleteFile(path);

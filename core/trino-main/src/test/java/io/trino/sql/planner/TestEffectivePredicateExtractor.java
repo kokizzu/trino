@@ -46,6 +46,7 @@ import io.trino.sql.planner.plan.Assignments;
 import io.trino.sql.planner.plan.DataOrganizationSpecification;
 import io.trino.sql.planner.plan.FilterNode;
 import io.trino.sql.planner.plan.JoinNode;
+import io.trino.sql.planner.plan.JoinType;
 import io.trino.sql.planner.plan.LimitNode;
 import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.PlanNodeId;
@@ -105,7 +106,6 @@ import static io.trino.sql.ExpressionUtils.combineConjuncts;
 import static io.trino.sql.ExpressionUtils.or;
 import static io.trino.sql.analyzer.TypeSignatureTranslator.toSqlType;
 import static io.trino.sql.planner.TestingPlannerContext.plannerContextBuilder;
-import static io.trino.sql.planner.TypeAnalyzer.createTestingTypeAnalyzer;
 import static io.trino.sql.planner.plan.AggregationNode.globalAggregation;
 import static io.trino.sql.planner.plan.AggregationNode.singleAggregation;
 import static io.trino.sql.planner.plan.AggregationNode.singleGroupingSet;
@@ -173,7 +173,7 @@ public class TestEffectivePredicateExtractor
     };
     private final PlannerContext plannerContext = plannerContextBuilder().withMetadata(metadata).build();
 
-    private final TypeAnalyzer typeAnalyzer = createTestingTypeAnalyzer(plannerContext);
+    private final IrTypeAnalyzer typeAnalyzer = new IrTypeAnalyzer(plannerContext);
     private final EffectivePredicateExtractor effectivePredicateExtractor = new EffectivePredicateExtractor(new DomainTranslator(plannerContext), plannerContext, true);
     private final EffectivePredicateExtractor effectivePredicateExtractorWithoutTableProperties = new EffectivePredicateExtractor(new DomainTranslator(plannerContext), plannerContext, false);
 
@@ -778,7 +778,7 @@ public class TestEffectivePredicateExtractor
 
         PlanNode node = new JoinNode(
                 newId(),
-                JoinNode.Type.INNER,
+                JoinType.INNER,
                 left,
                 right,
                 criteria,
@@ -820,7 +820,7 @@ public class TestEffectivePredicateExtractor
         // predicates on "a" column should be propagated to output symbols via join equi conditions
         PlanNode node = new JoinNode(
                 newId(),
-                JoinNode.Type.INNER,
+                JoinType.INNER,
                 left,
                 rightScan,
                 ImmutableList.of(new JoinNode.EquiJoinClause(A, D)),
@@ -851,7 +851,7 @@ public class TestEffectivePredicateExtractor
 
         PlanNode node = new JoinNode(
                 newId(),
-                JoinNode.Type.INNER,
+                JoinType.INNER,
                 leftScan,
                 rightScan,
                 ImmutableList.of(new JoinNode.EquiJoinClause(A, D)),
@@ -898,7 +898,7 @@ public class TestEffectivePredicateExtractor
                         lessThan(FE, bigintLiteral(100))));
         PlanNode node = new JoinNode(
                 newId(),
-                JoinNode.Type.LEFT,
+                JoinType.LEFT,
                 left,
                 right,
                 criteria,
@@ -945,7 +945,7 @@ public class TestEffectivePredicateExtractor
         FilterNode right = filter(rightScan, FALSE_LITERAL);
         PlanNode node = new JoinNode(
                 newId(),
-                JoinNode.Type.LEFT,
+                JoinType.LEFT,
                 left,
                 right,
                 criteria,
@@ -996,7 +996,7 @@ public class TestEffectivePredicateExtractor
                         lessThan(FE, bigintLiteral(100))));
         PlanNode node = new JoinNode(
                 newId(),
-                JoinNode.Type.RIGHT,
+                JoinType.RIGHT,
                 left,
                 right,
                 criteria,
@@ -1042,7 +1042,7 @@ public class TestEffectivePredicateExtractor
                         lessThan(FE, bigintLiteral(100))));
         PlanNode node = new JoinNode(
                 newId(),
-                JoinNode.Type.RIGHT,
+                JoinType.RIGHT,
                 left,
                 right,
                 criteria,

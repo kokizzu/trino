@@ -49,14 +49,16 @@ to saturate the underlying spilling device (for example, when using RAID).
 - **Type:** {ref}`prop-type-data-size`
 - **Default value:** `100GB`
 
-Max spill space to be used by all queries on a single node.
+Max spill space to use by all queries on a single node. This only needs to be
+configured on worker nodes.
 
 ## `query-max-spill-per-node`
 
 - **Type:** {ref}`prop-type-data-size`
 - **Default value:** `100GB`
 
-Max spill space to be used by a single query on a single node.
+Max spill space to use by a single query on a single node. This only needs to be
+configured on worker nodes.
 
 ## `aggregation-operator-unspill-memory-limit`
 

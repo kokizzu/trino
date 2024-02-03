@@ -121,7 +121,6 @@ import io.trino.sql.analyzer.PatternRecognitionAnalyzer.PatternRecognitionAnalys
 import io.trino.sql.analyzer.Scope.AsteriskedIdentifierChainBasis;
 import io.trino.sql.parser.ParsingException;
 import io.trino.sql.parser.SqlParser;
-import io.trino.sql.planner.ExpressionInterpreter;
 import io.trino.sql.planner.PartitioningHandle;
 import io.trino.sql.planner.ScopeAware;
 import io.trino.sql.planner.SymbolsExtractor;
@@ -389,6 +388,7 @@ import static io.trino.sql.analyzer.CanonicalizationAware.canonicalizationAwareK
 import static io.trino.sql.analyzer.ExpressionAnalyzer.analyzeJsonQueryExpression;
 import static io.trino.sql.analyzer.ExpressionAnalyzer.analyzeJsonValueExpression;
 import static io.trino.sql.analyzer.ExpressionAnalyzer.createConstantAnalyzer;
+import static io.trino.sql.analyzer.ExpressionInterpreter.evaluateConstantExpression;
 import static io.trino.sql.analyzer.ExpressionTreeUtils.asQualifiedName;
 import static io.trino.sql.analyzer.ExpressionTreeUtils.extractAggregateFunctions;
 import static io.trino.sql.analyzer.ExpressionTreeUtils.extractExpressions;
@@ -403,13 +403,13 @@ import static io.trino.sql.analyzer.TypeSignatureProvider.fromTypes;
 import static io.trino.sql.analyzer.TypeSignatureTranslator.toTypeSignature;
 import static io.trino.sql.planner.DeterminismEvaluator.containsCurrentTimeFunctions;
 import static io.trino.sql.planner.DeterminismEvaluator.isDeterministic;
-import static io.trino.sql.planner.ExpressionInterpreter.evaluateConstantExpression;
 import static io.trino.sql.tree.BooleanLiteral.TRUE_LITERAL;
 import static io.trino.sql.tree.DereferenceExpression.getQualifiedName;
 import static io.trino.sql.tree.Join.Type.FULL;
 import static io.trino.sql.tree.Join.Type.INNER;
 import static io.trino.sql.tree.Join.Type.LEFT;
 import static io.trino.sql.tree.Join.Type.RIGHT;
+import static io.trino.sql.tree.PatternRecognitionRelation.RowsPerMatch.ONE;
 import static io.trino.sql.tree.SaveMode.IGNORE;
 import static io.trino.sql.tree.SaveMode.REPLACE;
 import static io.trino.sql.util.AstUtils.preOrder;
@@ -2072,7 +2072,7 @@ class StatementAnalyzer
                 }
             }, expression);
             // currently, only constant arguments are supported
-            Object constantValue = ExpressionInterpreter.evaluateConstantExpression(inlined, type, plannerContext, session, accessControl, analysis.getParameters());
+            Object constantValue = evaluateConstantExpression(inlined, type, plannerContext, session, accessControl, analysis.getParameters());
             return new ArgumentAnalysis(
                     ScalarArgument.builder()
                             .type(type)
@@ -2756,7 +2756,10 @@ class StatementAnalyzer
             // ONE ROW PER MATCH: PARTITION BY columns, then MEASURES columns in order of declaration
             // ALL ROWS PER MATCH: PARTITION BY columns, ORDER BY columns, MEASURES columns, then any remaining input table columns in order of declaration
             // Note: row pattern input table name should not be exposed on output
-            boolean oneRowPerMatch = relation.getRowsPerMatch().isEmpty() || relation.getRowsPerMatch().get().isOneRow();
+            PatternRecognitionRelation.RowsPerMatch rowsPerMatch = relation.getRowsPerMatch().orElse(ONE);
+            boolean oneRowPerMatch = rowsPerMatch == PatternRecognitionRelation.RowsPerMatch.ONE ||
+                    rowsPerMatch == PatternRecognitionRelation.RowsPerMatch.WINDOW;
+
             ImmutableSet.Builder<Field> inputFieldsOnOutputBuilder = ImmutableSet.builder();
             ImmutableList.Builder<Field> outputFieldsBuilder = ImmutableList.builder();
 
@@ -3005,12 +3008,11 @@ class StatementAnalyzer
                 throw semanticException(TYPE_MISMATCH, samplePercentage, "Sample percentage should be a numeric expression");
             }
 
-            ExpressionInterpreter samplePercentageEval = new ExpressionInterpreter(samplePercentage, plannerContext, session, expressionTypes);
+            if (samplePercentageType == UNKNOWN) {
+                throw semanticException(INVALID_ARGUMENTS, samplePercentage, "Sample percentage cannot be NULL");
+            }
 
-            Object samplePercentageObject = samplePercentageEval.optimize(symbol -> {
-                throw semanticException(EXPRESSION_NOT_CONSTANT, samplePercentage, "Sample percentage cannot contain column references");
-            });
-
+            Object samplePercentageObject = evaluateConstantExpression(samplePercentage, samplePercentageType, plannerContext, session, accessControl, analysis.getParameters());
             if (samplePercentageObject == null) {
                 throw semanticException(INVALID_ARGUMENTS, samplePercentage, "Sample percentage cannot be NULL");
             }
@@ -4052,7 +4054,6 @@ class StatementAnalyzer
         {
             return new JsonPathAnalyzer(
                     plannerContext.getMetadata(),
-                    session,
                     createConstantAnalyzer(plannerContext, accessControl, session, analysis.getParameters(), WarningCollector.NOOP, analysis.isDescribe()))
                     .analyzeJsonPath(path, ImmutableMap.of());
         }
@@ -4061,7 +4062,6 @@ class StatementAnalyzer
         {
             return new JsonPathAnalyzer(
                     plannerContext.getMetadata(),
-                    session,
                     createConstantAnalyzer(plannerContext, accessControl, session, analysis.getParameters(), WarningCollector.NOOP, analysis.isDescribe()))
                     .analyzeImplicitJsonPath(path, columnLocation.orElseThrow(() -> new IllegalStateException("missing NodeLocation for JSON_TABLE column")));
         }
@@ -4306,7 +4306,7 @@ class StatementAnalyzer
         private List<FunctionCall> analyzeWindowFunctions(QuerySpecification node, List<Expression> expressions)
         {
             for (Expression expression : expressions) {
-                new WindowFunctionValidator(session, metadata).process(expression, analysis);
+                new WindowFunctionValidator().process(expression, analysis);
             }
 
             List<FunctionCall> windowFunctions = extractWindowFunctions(expressions);

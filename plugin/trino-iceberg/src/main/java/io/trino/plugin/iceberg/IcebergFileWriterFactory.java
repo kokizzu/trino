@@ -30,6 +30,7 @@ import io.trino.orc.OrcWriterStats;
 import io.trino.orc.OutputStreamOrcDataSink;
 import io.trino.parquet.writer.ParquetWriterOptions;
 import io.trino.plugin.hive.FileFormatDataSourceStats;
+import io.trino.plugin.hive.HiveCompressionCodec;
 import io.trino.plugin.hive.NodeVersion;
 import io.trino.plugin.hive.orc.OrcWriterConfig;
 import io.trino.plugin.iceberg.fileio.ForwardingOutputFile;
@@ -69,6 +70,7 @@ import static io.trino.plugin.iceberg.IcebergSessionProperties.getOrcWriterValid
 import static io.trino.plugin.iceberg.IcebergSessionProperties.getParquetWriterBatchSize;
 import static io.trino.plugin.iceberg.IcebergSessionProperties.getParquetWriterBlockSize;
 import static io.trino.plugin.iceberg.IcebergSessionProperties.getParquetWriterPageSize;
+import static io.trino.plugin.iceberg.IcebergSessionProperties.getParquetWriterPageValueCount;
 import static io.trino.plugin.iceberg.IcebergSessionProperties.isOrcWriterValidate;
 import static io.trino.plugin.iceberg.IcebergTableProperties.ORC_BLOOM_FILTER_FPP;
 import static io.trino.plugin.iceberg.TypeConverter.toTrinoType;
@@ -176,10 +178,12 @@ public class IcebergFileWriterFactory
 
             ParquetWriterOptions parquetWriterOptions = ParquetWriterOptions.builder()
                     .setMaxPageSize(getParquetWriterPageSize(session))
+                    .setMaxPageValueCount(getParquetWriterPageValueCount(session))
                     .setMaxBlockSize(getParquetWriterBlockSize(session))
                     .setBatchSize(getParquetWriterBatchSize(session))
                     .build();
 
+            HiveCompressionCodec hiveCompressionCodec = getCompressionCodec(session);
             return new IcebergParquetFileWriter(
                     metricsConfig,
                     outputFile,
@@ -190,7 +194,8 @@ public class IcebergFileWriterFactory
                     makeTypeMap(fileColumnTypes, fileColumnNames),
                     parquetWriterOptions,
                     IntStream.range(0, fileColumnNames.size()).toArray(),
-                    getCompressionCodec(session).getParquetCompressionCodec(),
+                    hiveCompressionCodec.getParquetCompressionCodec()
+                            .orElseThrow(() -> new TrinoException(NOT_SUPPORTED, "Compression codec %s not supported for Parquet".formatted(hiveCompressionCodec))),
                     nodeVersion.toString());
         }
         catch (IOException e) {
@@ -266,11 +271,10 @@ public class IcebergFileWriterFactory
     public static OrcWriterOptions withBloomFilterOptions(OrcWriterOptions orcWriterOptions, Map<String, String> storageProperties)
     {
         if (storageProperties.containsKey(ORC_BLOOM_FILTER_COLUMNS_KEY)) {
-            if (!storageProperties.containsKey(ORC_BLOOM_FILTER_FPP_KEY)) {
-                throw new TrinoException(ICEBERG_INVALID_METADATA, "FPP for Bloom filter is missing");
-            }
             try {
-                double fpp = parseDouble(storageProperties.get(ORC_BLOOM_FILTER_FPP_KEY));
+                double fpp = storageProperties.containsKey(ORC_BLOOM_FILTER_FPP_KEY)
+                        ? parseDouble(storageProperties.get(ORC_BLOOM_FILTER_FPP_KEY))
+                        : orcWriterOptions.getBloomFilterFpp();
                 return OrcWriterOptions.builderFrom(orcWriterOptions)
                         .setBloomFilterColumns(ImmutableSet.copyOf(COLUMN_NAMES_SPLITTER.splitToList(storageProperties.get(ORC_BLOOM_FILTER_COLUMNS_KEY))))
                         .setBloomFilterFpp(fpp)

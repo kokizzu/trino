@@ -26,6 +26,7 @@ import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.WriterScalingOptions;
 import io.trino.sql.PlannerContext;
+import io.trino.sql.planner.IrTypeAnalyzer;
 import io.trino.sql.planner.Partitioning;
 import io.trino.sql.planner.PartitioningHandle;
 import io.trino.sql.planner.PartitioningScheme;
@@ -37,7 +38,7 @@ import io.trino.sql.planner.iterative.rule.test.PlanBuilder;
 import io.trino.sql.planner.plan.ExchangeNode;
 import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.TableScanNode;
-import io.trino.testing.LocalQueryRunner;
+import io.trino.testing.PlanTester;
 import io.trino.testing.TestingTransactionHandle;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -52,7 +53,6 @@ import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.sql.planner.SystemPartitioningHandle.SCALED_WRITER_HASH_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.SCALED_WRITER_ROUND_ROBIN_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
-import static io.trino.sql.planner.TypeAnalyzer.createTestingTypeAnalyzer;
 import static io.trino.testing.TestingHandles.TEST_CATALOG_HANDLE;
 import static io.trino.testing.TestingHandles.createTestCatalogHandle;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -70,7 +70,7 @@ public class TestValidateScaledWritersUsage
             new ConnectorPartitioningHandle() { },
             true);
 
-    private LocalQueryRunner queryRunner;
+    private PlanTester planTester;
     private PlannerContext plannerContext;
     private PlanBuilder planBuilder;
     private Symbol symbol;
@@ -83,9 +83,9 @@ public class TestValidateScaledWritersUsage
     {
         schemaTableName = new SchemaTableName("any", "any");
         catalog = createTestCatalogHandle("catalog");
-        queryRunner = LocalQueryRunner.create(TEST_SESSION);
-        queryRunner.createCatalog(catalog.getCatalogName(), createConnectorFactory(catalog.getCatalogName()), ImmutableMap.of());
-        plannerContext = queryRunner.getPlannerContext();
+        planTester = PlanTester.create(TEST_SESSION);
+        planTester.createCatalog(catalog.getCatalogName(), createConnectorFactory(catalog.getCatalogName()), ImmutableMap.of());
+        plannerContext = planTester.getPlannerContext();
         planBuilder = new PlanBuilder(new PlanNodeIdAllocator(), plannerContext, TEST_SESSION);
         TableHandle nationTableHandle = new TableHandle(
                 catalog,
@@ -99,8 +99,8 @@ public class TestValidateScaledWritersUsage
     @AfterAll
     public void tearDown()
     {
-        queryRunner.close();
-        queryRunner = null;
+        planTester.close();
+        planTester = null;
         plannerContext = null;
         planBuilder = null;
         tableScanNode = null;
@@ -285,14 +285,14 @@ public class TestValidateScaledWritersUsage
 
     private void validatePlan(PlanNode root)
     {
-        queryRunner.inTransaction(session -> {
+        planTester.inTransaction(session -> {
             // metadata.getCatalogHandle() registers the catalog for the transaction
             plannerContext.getMetadata().getCatalogHandle(session, catalog.getCatalogName());
             new ValidateScaledWritersUsage().validate(
                     root,
                     session,
                     plannerContext,
-                    createTestingTypeAnalyzer(plannerContext),
+                    new IrTypeAnalyzer(plannerContext),
                     TypeProvider.empty(),
                     WarningCollector.NOOP);
             return null;
