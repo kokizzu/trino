@@ -24,10 +24,12 @@ import io.trino.plugin.hive.PartitionStatistics;
 import io.trino.plugin.hive.acid.AcidOperation;
 import io.trino.plugin.hive.acid.AcidTransaction;
 import io.trino.plugin.hive.metastore.AcidTransactionOwner;
+import io.trino.plugin.hive.metastore.HiveColumnStatistics;
 import io.trino.plugin.hive.metastore.HivePrincipal;
 import io.trino.plugin.hive.metastore.HivePrivilegeInfo;
 import io.trino.plugin.hive.metastore.HivePrivilegeInfo.HivePrivilege;
 import io.trino.plugin.hive.metastore.PartitionWithStatistics;
+import io.trino.plugin.hive.metastore.StatisticsUpdateMode;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.TableNotFoundException;
@@ -41,7 +43,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
-import java.util.function.Function;
 
 import static io.trino.plugin.hive.HiveErrorCode.HIVE_INVALID_METADATA;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
@@ -93,13 +94,15 @@ public sealed interface ThriftMetastore
 
     Set<HiveColumnStatisticType> getSupportedColumnStatistics(Type type);
 
-    PartitionStatistics getTableStatistics(Table table);
+    Map<String, HiveColumnStatistics> getTableColumnStatistics(String databaseName, String tableName, Set<String> columnNames, OptionalLong rowCount);
 
-    Map<String, PartitionStatistics> getPartitionStatistics(Table table, List<Partition> partitions);
+    Map<String, Map<String, HiveColumnStatistics>> getPartitionColumnStatistics(String databaseName, String tableName, Map<String, OptionalLong> partitionNamesWithRowCount, Set<String> columnNames);
 
-    void updateTableStatistics(String databaseName, String tableName, AcidTransaction transaction, Function<PartitionStatistics, PartitionStatistics> update);
+    boolean useSparkTableStatistics();
 
-    void updatePartitionStatistics(Table table, String partitionName, Function<PartitionStatistics, PartitionStatistics> update);
+    void updateTableStatistics(String databaseName, String tableName, AcidTransaction transaction, StatisticsUpdateMode mode, PartitionStatistics statisticsUpdate);
+
+    void updatePartitionStatistics(Table table, String partitionName, StatisticsUpdateMode mode, PartitionStatistics statisticsUpdate);
 
     void createRole(String role, String grantor);
 

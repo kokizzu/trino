@@ -24,12 +24,14 @@ import io.trino.plugin.hive.acid.AcidOperation;
 import io.trino.plugin.hive.acid.AcidTransaction;
 import io.trino.plugin.hive.metastore.AcidTransactionOwner;
 import io.trino.plugin.hive.metastore.Database;
+import io.trino.plugin.hive.metastore.HiveColumnStatistics;
 import io.trino.plugin.hive.metastore.HiveMetastore;
 import io.trino.plugin.hive.metastore.HivePrincipal;
 import io.trino.plugin.hive.metastore.HivePrivilegeInfo;
 import io.trino.plugin.hive.metastore.Partition;
 import io.trino.plugin.hive.metastore.PartitionWithStatistics;
 import io.trino.plugin.hive.metastore.PrincipalPrivileges;
+import io.trino.plugin.hive.metastore.StatisticsUpdateMode;
 import io.trino.plugin.hive.metastore.Table;
 import io.trino.spi.connector.RelationType;
 import io.trino.spi.connector.SchemaTableName;
@@ -44,7 +46,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
-import java.util.function.Function;
 
 import static io.trino.plugin.hive.metastore.tracing.MetastoreAttributes.ACID_TRANSACTION;
 import static io.trino.plugin.hive.metastore.tracing.MetastoreAttributes.FUNCTION;
@@ -110,32 +111,38 @@ public class TracingHiveMetastore
     }
 
     @Override
-    public PartitionStatistics getTableStatistics(Table table)
+    public Map<String, HiveColumnStatistics> getTableColumnStatistics(String databaseName, String tableName, Set<String> columnNames, OptionalLong rowCount)
     {
-        Span span = tracer.spanBuilder("HiveMetastore.getTableStatistics")
-                .setAttribute(SCHEMA, table.getDatabaseName())
-                .setAttribute(TABLE, table.getTableName())
+        Span span = tracer.spanBuilder("HiveMetastore.getTableColumnStatistics")
+                .setAttribute(SCHEMA, databaseName)
+                .setAttribute(TABLE, tableName)
                 .startSpan();
-        return withTracing(span, () -> delegate.getTableStatistics(table));
+        return withTracing(span, () -> delegate.getTableColumnStatistics(databaseName, tableName, columnNames, rowCount));
     }
 
     @Override
-    public Map<String, PartitionStatistics> getPartitionStatistics(Table table, List<Partition> partitions)
+    public Map<String, Map<String, HiveColumnStatistics>> getPartitionColumnStatistics(String databaseName, String tableName, Map<String, OptionalLong> partitionNamesWithRowCount, Set<String> columnNames)
     {
-        Span span = tracer.spanBuilder("HiveMetastore.getPartitionStatistics")
-                .setAttribute(SCHEMA, table.getDatabaseName())
-                .setAttribute(TABLE, table.getTableName())
-                .setAttribute(PARTITION_REQUEST_COUNT, (long) partitions.size())
+        Span span = tracer.spanBuilder("HiveMetastore.getPartitionColumnStatistics")
+                .setAttribute(SCHEMA, databaseName)
+                .setAttribute(TABLE, tableName)
+                .setAttribute(PARTITION_REQUEST_COUNT, (long) partitionNamesWithRowCount.size())
                 .startSpan();
         return withTracing(span, () -> {
-            Map<String, PartitionStatistics> partitionStatistics = delegate.getPartitionStatistics(table, partitions);
-            span.setAttribute(PARTITION_RESPONSE_COUNT, partitionStatistics.size());
-            return partitionStatistics;
+            var partitionColumnStatistics = delegate.getPartitionColumnStatistics(databaseName, tableName, partitionNamesWithRowCount, columnNames);
+            span.setAttribute(PARTITION_RESPONSE_COUNT, partitionColumnStatistics.size());
+            return partitionColumnStatistics;
         });
     }
 
     @Override
-    public void updateTableStatistics(String databaseName, String tableName, AcidTransaction transaction, Function<PartitionStatistics, PartitionStatistics> update)
+    public boolean useSparkTableStatistics()
+    {
+        return delegate.useSparkTableStatistics();
+    }
+
+    @Override
+    public void updateTableStatistics(String databaseName, String tableName, AcidTransaction transaction, StatisticsUpdateMode mode, PartitionStatistics statisticsUpdate)
     {
         Span span = tracer.spanBuilder("HiveMetastore.updateTableStatistics")
                 .setAttribute(SCHEMA, databaseName)
@@ -145,17 +152,17 @@ public class TracingHiveMetastore
             span.setAttribute(ACID_TRANSACTION, String.valueOf(transaction.getAcidTransactionId()));
         }
 
-        withTracing(span, () -> delegate.updateTableStatistics(databaseName, tableName, transaction, update));
+        withTracing(span, () -> delegate.updateTableStatistics(databaseName, tableName, transaction, mode, statisticsUpdate));
     }
 
     @Override
-    public void updatePartitionStatistics(Table table, Map<String, Function<PartitionStatistics, PartitionStatistics>> updates)
+    public void updatePartitionStatistics(Table table, StatisticsUpdateMode mode, Map<String, PartitionStatistics> partitionUpdates)
     {
         Span span = tracer.spanBuilder("HiveMetastore.updatePartitionStatistics")
                 .setAttribute(SCHEMA, table.getDatabaseName())
                 .setAttribute(TABLE, table.getTableName())
                 .startSpan();
-        withTracing(span, () -> delegate.updatePartitionStatistics(table, updates));
+        withTracing(span, () -> delegate.updatePartitionStatistics(table, mode, partitionUpdates));
     }
 
     @Override

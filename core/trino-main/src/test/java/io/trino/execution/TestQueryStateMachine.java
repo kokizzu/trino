@@ -16,6 +16,7 @@ package io.trino.execution;
 import com.google.common.base.Ticker;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import io.airlift.testing.TestingTicker;
 import io.airlift.units.Duration;
 import io.opentelemetry.api.OpenTelemetry;
@@ -28,6 +29,7 @@ import io.trino.plugin.base.security.AllowAllSystemAccessControl;
 import io.trino.plugin.base.security.DefaultSystemAccessControl;
 import io.trino.security.AccessControlConfig;
 import io.trino.security.AccessControlManager;
+import io.trino.server.BasicQueryInfo;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.CatalogHandle.CatalogVersion;
 import io.trino.spi.resourcegroups.QueryType;
@@ -36,6 +38,7 @@ import io.trino.spi.type.Type;
 import io.trino.sql.analyzer.Output;
 import io.trino.sql.planner.plan.PlanFragmentId;
 import io.trino.sql.planner.plan.PlanNodeId;
+import io.trino.tracing.TracingMetadata;
 import io.trino.transaction.TransactionManager;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -49,11 +52,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.function.Consumer;
 
+import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.util.concurrent.Uninterruptibles.awaitUninterruptibly;
 import static io.airlift.concurrent.MoreFutures.tryGetFutureValue;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
+import static io.airlift.tracing.Tracing.noopTracer;
 import static io.trino.SessionTestUtils.TEST_SESSION;
 import static io.trino.execution.QueryState.DISPATCHING;
 import static io.trino.execution.QueryState.FAILED;
@@ -67,6 +75,7 @@ import static io.trino.execution.QueryState.WAITING_FOR_RESOURCES;
 import static io.trino.execution.querystats.PlanOptimizersStatsCollector.createPlanOptimizersStatsCollector;
 import static io.trino.metadata.MetadataManager.createTestMetadataManager;
 import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
+import static io.trino.spi.StandardErrorCode.TYPE_MISMATCH;
 import static io.trino.spi.StandardErrorCode.USER_CANCELED;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.testing.TestingEventListenerManager.emptyEventListenerManager;
@@ -189,7 +198,7 @@ public class TestQueryStateMachine
     private void assertAllTimeSpentInQueueing(QueryState expectedState, Consumer<QueryStateMachine> stateTransition)
     {
         TestingTicker ticker = new TestingTicker();
-        QueryStateMachine stateMachine = createQueryStateMachineWithTicker(ticker);
+        QueryStateMachine stateMachine = queryStateMachine().withTicker(ticker).build();
         ticker.increment(7, MILLISECONDS);
 
         stateTransition.accept(stateMachine);
@@ -331,7 +340,7 @@ public class TestQueryStateMachine
     public void testPlanningTimeDuration()
     {
         TestingTicker mockTicker = new TestingTicker();
-        QueryStateMachine stateMachine = createQueryStateMachineWithTicker(mockTicker);
+        QueryStateMachine stateMachine = queryStateMachine().withTicker(mockTicker).build();
         assertState(stateMachine, QUEUED);
 
         mockTicker.increment(25, MILLISECONDS);
@@ -408,6 +417,78 @@ public class TestQueryStateMachine
         assertThat(stateMachine.getPeakTaskUserMemory()).isEqualTo(5);
         assertThat(stateMachine.getPeakTaskTotalMemory()).isEqualTo(5);
         assertThat(stateMachine.getPeakTaskRevocableMemory()).isEqualTo(10);
+    }
+
+    @Test
+    public void testPreserveFirstFailure()
+            throws Exception
+    {
+        CountDownLatch cleanup = new CountDownLatch(1);
+        QueryStateMachine queryStateMachine = queryStateMachine()
+                .withMetadata(new TracingMetadata(noopTracer(), createTestMetadataManager())
+                {
+                    @Override
+                    public void cleanupQuery(Session session)
+                    {
+                        cleanup.countDown();
+                        super.cleanupQuery(session);
+                    }
+                })
+                .build();
+
+        Future<?> anotherThread = executor.submit(() -> {
+            checkState(awaitUninterruptibly(cleanup, 10, SECONDS), "Timed out waiting for cleanup latch");
+            queryStateMachine.transitionToFailed(new IllegalStateException("Second exception"));
+        });
+        Future<?> failingThread = executor.submit(() -> {
+            queryStateMachine.transitionToFailed(new TrinoException(TYPE_MISMATCH, "First exception"));
+        });
+
+        failingThread.get(10, SECONDS);
+        anotherThread.get(10, SECONDS);
+
+        ExecutionFailureInfo failureInfo = queryStateMachine.getFinalQueryInfo().orElseThrow().getFailureInfo();
+        assertThat(failureInfo).isNotNull();
+        assertThat(failureInfo.getErrorCode()).isEqualTo(TYPE_MISMATCH.toErrorCode());
+        assertThat(failureInfo.getMessage()).isEqualTo("First exception");
+
+        BasicQueryInfo basicQueryInfo = queryStateMachine.getBasicQueryInfo(Optional.empty());
+        assertThat(basicQueryInfo.getErrorCode()).isEqualTo(TYPE_MISMATCH.toErrorCode());
+    }
+
+    @Test
+    public void testPreserveCancellation()
+            throws Exception
+    {
+        CountDownLatch cleanup = new CountDownLatch(1);
+        QueryStateMachine queryStateMachine = queryStateMachine()
+                .withMetadata(new TracingMetadata(noopTracer(), createTestMetadataManager())
+                {
+                    @Override
+                    public void cleanupQuery(Session session)
+                    {
+                        cleanup.countDown();
+                        super.cleanupQuery(session);
+                    }
+                })
+                .build();
+
+        Future<?> anotherThread = executor.submit(() -> {
+            checkState(awaitUninterruptibly(cleanup, 10, SECONDS), "Timed out waiting for cleanup latch");
+            queryStateMachine.transitionToFailed(new IllegalStateException("Second exception"));
+        });
+        Future<?> cancellingThread = executor.submit(queryStateMachine::transitionToCanceled);
+
+        cancellingThread.get(10, SECONDS);
+        anotherThread.get(10, SECONDS);
+
+        ExecutionFailureInfo failureInfo = queryStateMachine.getFinalQueryInfo().orElseThrow().getFailureInfo();
+        assertThat(failureInfo).isNotNull();
+        assertThat(failureInfo.getErrorCode()).isEqualTo(USER_CANCELED.toErrorCode());
+        assertThat(failureInfo.getMessage()).isEqualTo("Query was canceled");
+
+        BasicQueryInfo basicQueryInfo = queryStateMachine.getBasicQueryInfo(Optional.empty());
+        assertThat(basicQueryInfo.getErrorCode()).isEqualTo(USER_CANCELED.toErrorCode());
     }
 
     private static void assertFinalState(QueryStateMachine stateMachine, QueryState expectedState)
@@ -514,48 +595,75 @@ public class TestQueryStateMachine
 
     private QueryStateMachine createQueryStateMachine()
     {
-        return createQueryStateMachineWithTicker(Ticker.systemTicker());
+        return queryStateMachine().build();
     }
 
-    private QueryStateMachine createQueryStateMachineWithTicker(Ticker ticker)
+    private QueryStateMachineBuilder queryStateMachine()
     {
-        Metadata metadata = createTestMetadataManager();
-        TransactionManager transactionManager = createTestTransactionManager();
-        AccessControlManager accessControl = new AccessControlManager(
-                NodeVersion.UNKNOWN,
-                transactionManager,
-                emptyEventListenerManager(),
-                new AccessControlConfig(),
-                OpenTelemetry.noop(),
-                DefaultSystemAccessControl.NAME);
-        accessControl.setSystemAccessControls(List.of(AllowAllSystemAccessControl.INSTANCE));
-        QueryStateMachine stateMachine = QueryStateMachine.beginWithTicker(
-                Optional.empty(),
-                QUERY,
-                Optional.empty(),
-                TEST_SESSION,
-                LOCATION,
-                new ResourceGroupId("test"),
-                false,
-                transactionManager,
-                accessControl,
-                executor,
-                ticker,
-                metadata,
-                WarningCollector.NOOP,
-                createPlanOptimizersStatsCollector(),
-                QUERY_TYPE,
-                true,
-                new NodeVersion("test"));
-        stateMachine.setInputs(INPUTS);
-        stateMachine.setOutput(OUTPUT);
-        stateMachine.setColumns(OUTPUT_FIELD_NAMES, OUTPUT_FIELD_TYPES);
-        stateMachine.setUpdateType(UPDATE_TYPE);
-        for (Entry<String, String> entry : SET_SESSION_PROPERTIES.entrySet()) {
-            stateMachine.addSetSessionProperties(entry.getKey(), entry.getValue());
+        return new QueryStateMachineBuilder();
+    }
+
+    private class QueryStateMachineBuilder
+    {
+        private Ticker ticker = Ticker.systemTicker();
+        private Metadata metadata;
+
+        @CanIgnoreReturnValue
+        public QueryStateMachineBuilder withTicker(Ticker ticker)
+        {
+            this.ticker = ticker;
+            return this;
         }
-        RESET_SESSION_PROPERTIES.forEach(stateMachine::addResetSessionProperties);
-        return stateMachine;
+
+        @CanIgnoreReturnValue
+        public QueryStateMachineBuilder withMetadata(Metadata metadata)
+        {
+            this.metadata = metadata;
+            return this;
+        }
+
+        public QueryStateMachine build()
+        {
+            if (metadata == null) {
+                metadata = createTestMetadataManager();
+            }
+            TransactionManager transactionManager = createTestTransactionManager();
+            AccessControlManager accessControl = new AccessControlManager(
+                    NodeVersion.UNKNOWN,
+                    transactionManager,
+                    emptyEventListenerManager(),
+                    new AccessControlConfig(),
+                    OpenTelemetry.noop(),
+                    DefaultSystemAccessControl.NAME);
+            accessControl.setSystemAccessControls(List.of(AllowAllSystemAccessControl.INSTANCE));
+            QueryStateMachine stateMachine = QueryStateMachine.beginWithTicker(
+                    Optional.empty(),
+                    QUERY,
+                    Optional.empty(),
+                    TEST_SESSION,
+                    LOCATION,
+                    new ResourceGroupId("test"),
+                    false,
+                    transactionManager,
+                    accessControl,
+                    executor,
+                    ticker,
+                    metadata,
+                    WarningCollector.NOOP,
+                    createPlanOptimizersStatsCollector(),
+                    QUERY_TYPE,
+                    true,
+                    new NodeVersion("test"));
+            stateMachine.setInputs(INPUTS);
+            stateMachine.setOutput(OUTPUT);
+            stateMachine.setColumns(OUTPUT_FIELD_NAMES, OUTPUT_FIELD_TYPES);
+            stateMachine.setUpdateType(UPDATE_TYPE);
+            for (Entry<String, String> entry : SET_SESSION_PROPERTIES.entrySet()) {
+                stateMachine.addSetSessionProperties(entry.getKey(), entry.getValue());
+            }
+            RESET_SESSION_PROPERTIES.forEach(stateMachine::addResetSessionProperties);
+            return stateMachine;
+        }
     }
 
     private static void assertEqualSessionsWithoutTransactionId(Session actual, Session expected)

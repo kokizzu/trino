@@ -26,6 +26,7 @@ import io.trino.plugin.hive.acid.AcidOperation;
 import io.trino.plugin.hive.acid.AcidTransaction;
 import io.trino.plugin.hive.metastore.AcidTransactionOwner;
 import io.trino.plugin.hive.metastore.Database;
+import io.trino.plugin.hive.metastore.HiveColumnStatistics;
 import io.trino.plugin.hive.metastore.HiveMetastore;
 import io.trino.plugin.hive.metastore.HivePrincipal;
 import io.trino.plugin.hive.metastore.HivePrivilegeInfo;
@@ -33,6 +34,7 @@ import io.trino.plugin.hive.metastore.HivePrivilegeInfo.HivePrivilege;
 import io.trino.plugin.hive.metastore.Partition;
 import io.trino.plugin.hive.metastore.PartitionWithStatistics;
 import io.trino.plugin.hive.metastore.PrincipalPrivileges;
+import io.trino.plugin.hive.metastore.StatisticsUpdateMode;
 import io.trino.plugin.hive.metastore.Table;
 import io.trino.plugin.hive.util.HiveUtil;
 import io.trino.spi.TrinoException;
@@ -51,9 +53,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.plugin.hive.HiveMetadata.TABLE_COMMENT;
 import static io.trino.plugin.hive.HiveMetadata.TRINO_QUERY_ID_NAME;
@@ -116,32 +118,36 @@ public class BridgingHiveMetastore
     }
 
     @Override
-    public PartitionStatistics getTableStatistics(Table table)
+    public Map<String, HiveColumnStatistics> getTableColumnStatistics(String databaseName, String tableName, Set<String> columnNames, OptionalLong rowCount)
     {
-        return delegate.getTableStatistics(toMetastoreApiTable(table));
+        checkArgument(!columnNames.isEmpty(), "columnNames is empty");
+        return delegate.getTableColumnStatistics(databaseName, tableName, columnNames, rowCount);
     }
 
     @Override
-    public Map<String, PartitionStatistics> getPartitionStatistics(Table table, List<Partition> partitions)
+    public Map<String, Map<String, HiveColumnStatistics>> getPartitionColumnStatistics(String databaseName, String tableName, Map<String, OptionalLong> partitionNamesWithRowCount, Set<String> columnNames)
     {
-        return delegate.getPartitionStatistics(
-                toMetastoreApiTable(table),
-                partitions.stream()
-                        .map(ThriftMetastoreUtil::toMetastoreApiPartition)
-                        .collect(toImmutableList()));
+        checkArgument(!columnNames.isEmpty(), "columnNames is empty");
+        return delegate.getPartitionColumnStatistics(databaseName, tableName, partitionNamesWithRowCount, columnNames);
     }
 
     @Override
-    public void updateTableStatistics(String databaseName, String tableName, AcidTransaction transaction, Function<PartitionStatistics, PartitionStatistics> update)
+    public boolean useSparkTableStatistics()
     {
-        delegate.updateTableStatistics(databaseName, tableName, transaction, update);
+        return delegate.useSparkTableStatistics();
     }
 
     @Override
-    public void updatePartitionStatistics(Table table, Map<String, Function<PartitionStatistics, PartitionStatistics>> updates)
+    public void updateTableStatistics(String databaseName, String tableName, AcidTransaction transaction, StatisticsUpdateMode mode, PartitionStatistics statisticsUpdate)
+    {
+        delegate.updateTableStatistics(databaseName, tableName, transaction, mode, statisticsUpdate);
+    }
+
+    @Override
+    public void updatePartitionStatistics(Table table, StatisticsUpdateMode mode, Map<String, PartitionStatistics> partitionUpdates)
     {
         io.trino.hive.thrift.metastore.Table metastoreTable = toMetastoreApiTable(table);
-        updates.forEach((partitionName, update) -> delegate.updatePartitionStatistics(metastoreTable, partitionName, update));
+        partitionUpdates.forEach((partitionName, update) -> delegate.updatePartitionStatistics(metastoreTable, partitionName, mode, update));
     }
 
     @Override

@@ -23,6 +23,8 @@ import io.trino.spi.TrinoException;
 import io.trino.spi.connector.CatalogSchemaName;
 import io.trino.spi.connector.CatalogSchemaRoutineName;
 import io.trino.spi.connector.CatalogSchemaTableName;
+import io.trino.spi.connector.EntityKindAndName;
+import io.trino.spi.connector.EntityPrivilege;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.eventlistener.EventListener;
 import io.trino.spi.function.SchemaFunctionName;
@@ -81,11 +83,13 @@ import static io.trino.spi.security.AccessDeniedException.denyDropSchema;
 import static io.trino.spi.security.AccessDeniedException.denyDropTable;
 import static io.trino.spi.security.AccessDeniedException.denyDropView;
 import static io.trino.spi.security.AccessDeniedException.denyExecuteProcedure;
+import static io.trino.spi.security.AccessDeniedException.denyExecuteQuery;
 import static io.trino.spi.security.AccessDeniedException.denyGrantRoles;
 import static io.trino.spi.security.AccessDeniedException.denyGrantSchemaPrivilege;
 import static io.trino.spi.security.AccessDeniedException.denyGrantTablePrivilege;
 import static io.trino.spi.security.AccessDeniedException.denyImpersonateUser;
 import static io.trino.spi.security.AccessDeniedException.denyInsertTable;
+import static io.trino.spi.security.AccessDeniedException.denyKillQuery;
 import static io.trino.spi.security.AccessDeniedException.denyReadSystemInformationAccess;
 import static io.trino.spi.security.AccessDeniedException.denyRefreshMaterializedView;
 import static io.trino.spi.security.AccessDeniedException.denyRenameColumn;
@@ -294,7 +298,7 @@ public class FileBasedSystemAccessControl
     public void checkCanExecuteQuery(Identity identity)
     {
         if (!canAccessQuery(identity, Optional.empty(), QueryAccessRule.AccessMode.EXECUTE)) {
-            denyViewQuery();
+            denyExecuteQuery();
         }
     }
 
@@ -321,7 +325,7 @@ public class FileBasedSystemAccessControl
     public void checkCanKillQueryOwnedBy(Identity identity, Identity queryOwner)
     {
         if (!canAccessQuery(identity, Optional.of(queryOwner.getUser()), QueryAccessRule.AccessMode.KILL)) {
-            denyViewQuery();
+            denyKillQuery();
         }
     }
 
@@ -870,6 +874,24 @@ public class FileBasedSystemAccessControl
         if (!checkTablePermission(context, table, OWNERSHIP)) {
             denyRevokeTablePrivilege(privilege.name(), table.toString());
         }
+    }
+
+    @Override
+    public void checkCanGrantEntityPrivilege(SystemSecurityContext context, EntityPrivilege privilege, EntityKindAndName entity, TrinoPrincipal grantee, boolean grantOption)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void checkCanDenyEntityPrivilege(SystemSecurityContext context, EntityPrivilege privilege, EntityKindAndName entity, TrinoPrincipal grantee)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void checkCanRevokeEntityPrivilege(SystemSecurityContext context, EntityPrivilege privilege, EntityKindAndName entity, TrinoPrincipal revokee, boolean grantOption)
+    {
+        throw new UnsupportedOperationException();
     }
 
     @Override

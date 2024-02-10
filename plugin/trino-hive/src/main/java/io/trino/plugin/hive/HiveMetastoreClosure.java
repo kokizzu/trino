@@ -13,13 +13,12 @@
  */
 package io.trino.plugin.hive;
 
-import com.google.common.collect.ImmutableList;
 import io.trino.hive.thrift.metastore.DataOperationType;
 import io.trino.plugin.hive.acid.AcidOperation;
 import io.trino.plugin.hive.acid.AcidTransaction;
 import io.trino.plugin.hive.metastore.AcidTransactionOwner;
-import io.trino.plugin.hive.metastore.Column;
 import io.trino.plugin.hive.metastore.Database;
+import io.trino.plugin.hive.metastore.HiveColumnStatistics;
 import io.trino.plugin.hive.metastore.HiveMetastore;
 import io.trino.plugin.hive.metastore.HivePrincipal;
 import io.trino.plugin.hive.metastore.HivePrivilegeInfo;
@@ -27,6 +26,7 @@ import io.trino.plugin.hive.metastore.HivePrivilegeInfo.HivePrivilege;
 import io.trino.plugin.hive.metastore.Partition;
 import io.trino.plugin.hive.metastore.PartitionWithStatistics;
 import io.trino.plugin.hive.metastore.PrincipalPrivileges;
+import io.trino.plugin.hive.metastore.StatisticsUpdateMode;
 import io.trino.plugin.hive.metastore.Table;
 import io.trino.plugin.hive.projection.PartitionProjection;
 import io.trino.spi.TrinoException;
@@ -46,7 +46,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
-import java.util.function.Function;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
@@ -99,51 +98,34 @@ public class HiveMetastoreClosure
         return delegate.getSupportedColumnStatistics(type);
     }
 
-    public PartitionStatistics getTableStatistics(String databaseName, String tableName, Optional<Set<String>> columns)
+    public Map<String, HiveColumnStatistics> getTableColumnStatistics(String databaseName, String tableName, Set<String> columnNames, OptionalLong rowCount)
     {
-        Table table = getExistingTable(databaseName, tableName);
-        if (columns.isPresent()) {
-            Set<String> requestedColumnNames = columns.get();
-            List<Column> requestedColumns = table.getDataColumns().stream()
-                    .filter(column -> requestedColumnNames.contains(column.getName()))
-                    .collect(toImmutableList());
-            table = Table.builder(table).setDataColumns(requestedColumns).build();
-        }
-        return delegate.getTableStatistics(table);
+        return delegate.getTableColumnStatistics(databaseName, tableName, columnNames, rowCount);
     }
 
-    public Map<String, PartitionStatistics> getPartitionStatistics(String databaseName, String tableName, Set<String> partitionNames)
-    {
-        return getPartitionStatistics(databaseName, tableName, partitionNames, Optional.empty());
-    }
-
-    public Map<String, PartitionStatistics> getPartitionStatistics(String databaseName, String tableName, Set<String> partitionNames, Optional<Set<String>> columns)
-    {
-        Table table = getExistingTable(databaseName, tableName);
-        List<Partition> partitions = getExistingPartitionsByNames(table, ImmutableList.copyOf(partitionNames));
-        if (columns.isPresent()) {
-            Set<String> requestedColumnNames = columns.get();
-            List<Column> requestedColumns = table.getDataColumns().stream()
-                    .filter(column -> requestedColumnNames.contains(column.getName()))
-                    .collect(toImmutableList());
-            table = Table.builder(table).setDataColumns(requestedColumns).build();
-            partitions = partitions.stream().map(partition -> Partition.builder(partition).setColumns(requestedColumns).build()).collect(toImmutableList());
-        }
-        return delegate.getPartitionStatistics(table, partitions);
-    }
-
-    public void updateTableStatistics(String databaseName,
+    public Map<String, Map<String, HiveColumnStatistics>> getPartitionColumnStatistics(
+            String databaseName,
             String tableName,
-            AcidTransaction transaction,
-            Function<PartitionStatistics, PartitionStatistics> update)
+            Map<String, OptionalLong> partitionNamesWithRowCount,
+            Set<String> columnNames)
     {
-        delegate.updateTableStatistics(databaseName, tableName, transaction, update);
+        return delegate.getPartitionColumnStatistics(databaseName, tableName, partitionNamesWithRowCount, columnNames);
     }
 
-    public void updatePartitionStatistics(String databaseName, String tableName, Map<String, Function<PartitionStatistics, PartitionStatistics>> updates)
+    public boolean useSparkTableStatistics()
+    {
+        return delegate.useSparkTableStatistics();
+    }
+
+    public void updateTableStatistics(String databaseName, String tableName, AcidTransaction transaction, StatisticsUpdateMode mode, PartitionStatistics statisticsUpdate)
+    {
+        delegate.updateTableStatistics(databaseName, tableName, transaction, mode, statisticsUpdate);
+    }
+
+    public void updatePartitionStatistics(String databaseName, String tableName, StatisticsUpdateMode mode, Map<String, PartitionStatistics> partitionUpdates)
     {
         Table table = getExistingTable(databaseName, tableName);
-        delegate.updatePartitionStatistics(table, updates);
+        delegate.updatePartitionStatistics(table, mode, partitionUpdates);
     }
 
     public List<String> getTables(String databaseName)
@@ -270,7 +252,7 @@ public class HiveMetastoreClosure
         return delegate.getPartitionNamesByFilter(databaseName, tableName, columnNames, partitionKeysFilter);
     }
 
-    private List<Partition> getExistingPartitionsByNames(Table table, List<String> partitionNames)
+    public List<Partition> getExistingPartitionsByNames(Table table, List<String> partitionNames)
     {
         Map<String, Partition> partitions = getPartitionsByNames(table, partitionNames).entrySet().stream()
                 .map(entry -> immutableEntry(entry.getKey(), entry.getValue().orElseThrow(() ->

@@ -16,7 +16,6 @@ package io.trino.sql.parser;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import io.trino.grammar.sql.SqlBaseBaseVisitor;
 import io.trino.grammar.sql.SqlBaseLexer;
 import io.trino.grammar.sql.SqlBaseParser;
@@ -42,7 +41,6 @@ import io.trino.sql.tree.CallArgument;
 import io.trino.sql.tree.CaseStatement;
 import io.trino.sql.tree.CaseStatementWhenClause;
 import io.trino.sql.tree.Cast;
-import io.trino.sql.tree.CharLiteral;
 import io.trino.sql.tree.CoalesceExpression;
 import io.trino.sql.tree.ColumnDefinition;
 import io.trino.sql.tree.Comment;
@@ -113,7 +111,7 @@ import io.trino.sql.tree.FunctionSpecification;
 import io.trino.sql.tree.GenericDataType;
 import io.trino.sql.tree.GenericLiteral;
 import io.trino.sql.tree.Grant;
-import io.trino.sql.tree.GrantOnType;
+import io.trino.sql.tree.GrantObject;
 import io.trino.sql.tree.GrantRoles;
 import io.trino.sql.tree.GrantorSpecification;
 import io.trino.sql.tree.GroupBy;
@@ -276,8 +274,6 @@ import io.trino.sql.tree.TableFunctionArgument;
 import io.trino.sql.tree.TableFunctionInvocation;
 import io.trino.sql.tree.TableFunctionTableArgument;
 import io.trino.sql.tree.TableSubquery;
-import io.trino.sql.tree.TimeLiteral;
-import io.trino.sql.tree.TimestampLiteral;
 import io.trino.sql.tree.TransactionAccessMode;
 import io.trino.sql.tree.TransactionMode;
 import io.trino.sql.tree.Trim;
@@ -316,10 +312,12 @@ import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static io.trino.grammar.sql.SqlBaseParser.TIME;
 import static io.trino.grammar.sql.SqlBaseParser.TIMESTAMP;
@@ -1566,11 +1564,29 @@ class AstBuilder
     }
 
     @Override
+    public Node visitGrantPrivileges(SqlBaseParser.GrantPrivilegesContext context)
+    {
+        List<String> privileges;
+        if (context.ALL() != null) {
+            privileges = null;
+        }
+        else {
+            privileges = extractPrivileges(context.privilegeOrRole());
+        }
+        return new Grant(
+                getLocation(context),
+                privileges == null ? Optional.empty() : Optional.of(privileges),
+                createGrantObject(getLocation(context), context.grantObject()),
+                getPrincipalSpecification(context.principal()),
+                context.OPTION() != null);
+    }
+
+    @Override
     public Node visitGrantRoles(SqlBaseParser.GrantRolesContext context)
     {
         return new GrantRoles(
                 getLocation(context),
-                ImmutableSet.copyOf(getIdentifiers(context.roles().identifier())),
+                extractRoles(context.privilegeOrRole()),
                 ImmutableSet.copyOf(getPrincipalSpecifications(context.principal())),
                 context.OPTION() != null,
                 getGrantorSpecificationIfPresent(context.grantor()),
@@ -1578,15 +1594,61 @@ class AstBuilder
     }
 
     @Override
+    public Node visitRevokePrivileges(SqlBaseParser.RevokePrivilegesContext context)
+    {
+        List<String> privileges;
+        if (context.ALL() != null) {
+            privileges = null;
+        }
+        else {
+            privileges = extractPrivileges(context.privilegeOrRole());
+        }
+        return new Revoke(
+                getLocation(context),
+                context.OPTION() != null,
+                privileges == null ? Optional.empty() : Optional.of(privileges),
+                createGrantObject(getLocation(context), context.grantObject()),
+                getPrincipalSpecification(context.principal()));
+    }
+
+    @Override
     public Node visitRevokeRoles(SqlBaseParser.RevokeRolesContext context)
     {
         return new RevokeRoles(
                 getLocation(context),
-                ImmutableSet.copyOf(getIdentifiers(context.roles().identifier())),
+                ImmutableSet.copyOf(extractRoles(context.privilegeOrRole())),
                 ImmutableSet.copyOf(getPrincipalSpecifications(context.principal())),
                 context.OPTION() != null,
                 getGrantorSpecificationIfPresent(context.grantor()),
                 visitIfPresent(context.catalog, Identifier.class));
+    }
+
+    private List<String> extractPrivileges(List<SqlBaseParser.PrivilegeOrRoleContext> privilegesOrRoles)
+    {
+        return privilegesOrRoles.stream().map(SqlBaseParser.PrivilegeOrRoleContext::getText).collect(toImmutableList());
+    }
+
+    private Set<Identifier> extractRoles(List<SqlBaseParser.PrivilegeOrRoleContext> privilegesOrRoles)
+    {
+        privilegesOrRoles.forEach(context -> {
+            if (isPrivilegeKeywordContext(context)) {
+                throw parseError("May not use a privilege name as a role name", context);
+            }
+        });
+        return privilegesOrRoles.stream().map(context -> (Identifier) visit(context.identifier())).collect(toImmutableSet());
+    }
+
+    private boolean isPrivilegeKeywordContext(SqlBaseParser.PrivilegeOrRoleContext context)
+    {
+        return context.CREATE() != null || context.SELECT() != null || context.INSERT() != null || context.UPDATE() != null || context.DELETE() != null;
+    }
+
+    private GrantObject createGrantObject(NodeLocation location, SqlBaseParser.GrantObjectContext context)
+    {
+        return new GrantObject(
+                location,
+                context.entityKind() == null ? Optional.empty() : Optional.of(context.entityKind().getText()),
+                getQualifiedName(context.qualifiedName()));
     }
 
     @Override
@@ -1607,39 +1669,6 @@ class AstBuilder
     }
 
     @Override
-    public Node visitGrant(SqlBaseParser.GrantContext context)
-    {
-        Optional<List<String>> privileges;
-        if (context.ALL() != null) {
-            privileges = Optional.empty();
-        }
-        else {
-            privileges = Optional.of(context.privilege().stream()
-                    .map(SqlBaseParser.PrivilegeContext::getText)
-                    .collect(toList()));
-        }
-
-        Optional<GrantOnType> type;
-        if (context.SCHEMA() != null) {
-            type = Optional.of(GrantOnType.SCHEMA);
-        }
-        else if (context.TABLE() != null) {
-            type = Optional.of(GrantOnType.TABLE);
-        }
-        else {
-            type = Optional.empty();
-        }
-
-        return new Grant(
-                getLocation(context),
-                privileges,
-                type,
-                getQualifiedName(context.qualifiedName()),
-                getPrincipalSpecification(context.grantee),
-                context.OPTION() != null);
-    }
-
-    @Override
     public Node visitDeny(SqlBaseParser.DenyContext context)
     {
         Optional<List<String>> privileges;
@@ -1651,72 +1680,20 @@ class AstBuilder
                     .map(SqlBaseParser.PrivilegeContext::getText)
                     .collect(toList()));
         }
-
-        Optional<GrantOnType> type;
-        if (context.SCHEMA() != null) {
-            type = Optional.of(GrantOnType.SCHEMA);
-        }
-        else if (context.TABLE() != null) {
-            type = Optional.of(GrantOnType.TABLE);
-        }
-        else {
-            type = Optional.empty();
-        }
-
         return new Deny(
                 getLocation(context),
                 privileges,
-                type,
-                getQualifiedName(context.qualifiedName()),
-                getPrincipalSpecification(context.grantee));
-    }
-
-    @Override
-    public Node visitRevoke(SqlBaseParser.RevokeContext context)
-    {
-        Optional<List<String>> privileges;
-        if (context.ALL() != null) {
-            privileges = Optional.empty();
-        }
-        else {
-            privileges = Optional.of(context.privilege().stream()
-                    .map(SqlBaseParser.PrivilegeContext::getText)
-                    .collect(toList()));
-        }
-
-        Optional<GrantOnType> type;
-        if (context.SCHEMA() != null) {
-            type = Optional.of(GrantOnType.SCHEMA);
-        }
-        else if (context.TABLE() != null) {
-            type = Optional.of(GrantOnType.TABLE);
-        }
-        else {
-            type = Optional.empty();
-        }
-
-        return new Revoke(
-                getLocation(context),
-                context.OPTION() != null,
-                privileges,
-                type,
-                getQualifiedName(context.qualifiedName()),
+                createGrantObject(getLocation(context), context.grantObject()),
                 getPrincipalSpecification(context.grantee));
     }
 
     @Override
     public Node visitShowGrants(SqlBaseParser.ShowGrantsContext context)
     {
-        Optional<QualifiedName> tableName = Optional.empty();
-
-        if (context.qualifiedName() != null) {
-            tableName = Optional.of(getQualifiedName(context.qualifiedName()));
-        }
-
         return new ShowGrants(
                 getLocation(context),
-                context.TABLE() != null,
-                tableName);
+                context.grantObject() == null ||
+                        context.grantObject().isEmpty() ? Optional.empty() : Optional.of(createGrantObject(getLocation(context), context.grantObject())));
     }
 
     @Override
@@ -2779,7 +2756,7 @@ class AstBuilder
     @Override
     public Node visitPosition(SqlBaseParser.PositionContext context)
     {
-        List<Expression> arguments = Lists.reverse(visit(context.valueExpression(), Expression.class));
+        List<Expression> arguments = visit(context.valueExpression(), Expression.class).reversed();
         return new FunctionCall(getLocation(context), QualifiedName.of("strpos"), arguments);
     }
 
@@ -3285,17 +3262,8 @@ class AstBuilder
         }
 
         String type = context.identifier().getText();
-        if (type.equalsIgnoreCase("time")) {
-            return new TimeLiteral(getLocation(context), value);
-        }
-        if (type.equalsIgnoreCase("timestamp")) {
-            return new TimestampLiteral(getLocation(context), value);
-        }
         if (type.equalsIgnoreCase("decimal")) {
             return new DecimalLiteral(getLocation(context), value);
-        }
-        if (type.equalsIgnoreCase("char")) {
-            return new CharLiteral(getLocation(context), value);
         }
 
         return new GenericLiteral(getLocation(context), type, value);
@@ -4235,9 +4203,9 @@ class AstBuilder
         };
     }
 
-    private List<Identifier> getIdentifiers(List<SqlBaseParser.IdentifierContext> identifiers)
+    private List<Identifier> getIdentifiers(SqlBaseParser.PrivilegeOrRoleContext identifiers)
     {
-        return identifiers.stream().map(context -> (Identifier) visit(context)).collect(toList());
+        return identifiers.children.stream().map(context -> (Identifier) visit(context)).collect(toList());
     }
 
     private List<PrincipalSpecification> getPrincipalSpecifications(List<SqlBaseParser.PrincipalContext> principals)

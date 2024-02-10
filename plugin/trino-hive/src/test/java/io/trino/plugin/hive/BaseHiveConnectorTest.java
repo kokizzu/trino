@@ -4140,7 +4140,7 @@ public abstract class BaseHiveConnectorTest
             // data before ScaledWriterScheduler is able to scale it to multiple machines.
             // Skewed table that will scale writers to multiple machines.
             String selectSql = "SELECT t1.* FROM (SELECT *, case when orderkey >= 0 then 1 else orderkey end as join_key FROM tpch.sf1.orders) t1 " +
-                               "INNER JOIN (SELECT orderkey FROM tpch.sf1.orders) t2 " +
+                               "INNER JOIN (SELECT orderkey FROM tpch.tiny.orders) t2 " +
                                "ON t1.join_key = t2.orderkey";
             @Language("SQL") String createTableSql = "CREATE TABLE scale_writers_skewed WITH (format = 'PARQUET') AS " + selectSql;
             assertUpdate(
@@ -4148,7 +4148,7 @@ public abstract class BaseHiveConnectorTest
                             .setSystemProperty("task_min_writer_count", "1")
                             .setSystemProperty("scale_writers", "true")
                             .setSystemProperty("task_scale_writers_enabled", "false")
-                            .setSystemProperty("writer_scaling_min_data_processed", "0.5MB")
+                            .setSystemProperty("writer_scaling_min_data_processed", "0.1MB")
                             .setSystemProperty("join_distribution_type", "PARTITIONED")
                             .build(),
                     createTableSql,
@@ -4168,41 +4168,25 @@ public abstract class BaseHiveConnectorTest
     @Test
     public void testMultipleWritersWhenTaskScaleWritersIsEnabled()
     {
-        long workers = (long) computeScalar("SELECT count(*) FROM system.runtime.nodes");
-        int taskMaxScaleWriterCount = 4;
-        testTaskScaleWriters(getSession(), DataSize.of(200, KILOBYTE), taskMaxScaleWriterCount, false, DataSize.of(64, GIGABYTE))
-                .isBetween(workers + 1, workers * taskMaxScaleWriterCount);
+        long taskMaxScaleWriterCount = 4;
+        testTaskScaleWriters(getSession(), DataSize.of(200, KILOBYTE), (int) taskMaxScaleWriterCount, DataSize.of(64, GIGABYTE))
+                .isBetween(2L, taskMaxScaleWriterCount);
     }
 
     @Test
     public void testTaskWritersDoesNotScaleWithLargeMinWriterSize()
     {
-        long workers = (long) computeScalar("SELECT count(*) FROM system.runtime.nodes");
         // In the case of streaming, the number of writers is equal to the number of workers
-        testTaskScaleWriters(getSession(), DataSize.of(2, GIGABYTE), 4, false, DataSize.of(64, GIGABYTE))
-                .isEqualTo(workers);
-    }
-
-    @Test
-    public void testWritersAcrossMultipleWorkersWhenScaleWritersIsEnabled()
-    {
-        long workers = (long) computeScalar("SELECT count(*) FROM system.runtime.nodes");
-        int taskMaxScaleWriterCount = 2;
-        // It is only applicable for pipeline execution mode, since we are testing
-        // when both "scaleWriters" and "taskScaleWriters" are enabled, the writers are
-        // scaling upto multiple worker nodes.
-        testTaskScaleWriters(getSession(), DataSize.of(200, KILOBYTE), taskMaxScaleWriterCount, true, DataSize.of(64, GIGABYTE))
-                .isBetween((long) taskMaxScaleWriterCount + workers, workers * taskMaxScaleWriterCount);
+        testTaskScaleWriters(getSession(), DataSize.of(2, GIGABYTE), 4, DataSize.of(64, GIGABYTE))
+                .isEqualTo(1);
     }
 
     @Test
     public void testMultipleWritersWhenTaskScaleWritersIsEnabledWithMemoryLimit()
     {
-        long workers = (long) computeScalar("SELECT count(*) FROM system.runtime.nodes");
-        int taskMaxScaleWriterCount = 4;
-        testTaskScaleWriters(getSession(), DataSize.of(200, KILOBYTE), taskMaxScaleWriterCount, false, DataSize.of(256, MEGABYTE))
+        testTaskScaleWriters(getSession(), DataSize.of(200, KILOBYTE), 4, DataSize.of(256, MEGABYTE))
                 // There shouldn't be no scaling as the memory limit is too low
-                .isBetween(0L, workers);
+                .isEqualTo(1L);
     }
 
     @Test
@@ -4257,21 +4241,21 @@ public abstract class BaseHiveConnectorTest
             Session session,
             DataSize writerScalingMinDataProcessed,
             int taskMaxScaleWriterCount,
-            boolean scaleWriters,
             DataSize queryMaxMemory)
     {
         String tableName = "task_scale_writers_" + randomNameSuffix();
         try {
             @Language("SQL") String createTableSql = format(
-                    "CREATE TABLE %s WITH (format = 'ORC') AS SELECT * FROM tpch.sf2.orders",
+                    "CREATE TABLE %s WITH (format = 'ORC') AS SELECT * FROM tpch.sf1.orders",
                     tableName);
             assertUpdate(
                     Session.builder(session)
-                            .setSystemProperty(SCALE_WRITERS, String.valueOf(scaleWriters))
+                            .setSystemProperty(SCALE_WRITERS, "false")
                             .setSystemProperty(TASK_SCALE_WRITERS_ENABLED, "true")
                             .setSystemProperty(WRITER_SCALING_MIN_DATA_PROCESSED, writerScalingMinDataProcessed.toString())
                             .setSystemProperty(TASK_MAX_WRITER_COUNT, String.valueOf(taskMaxScaleWriterCount))
                             .setSystemProperty(QUERY_MAX_MEMORY_PER_NODE, queryMaxMemory.toString())
+                            .setSystemProperty(MAX_WRITER_TASK_COUNT, Integer.toString(1))
                             // Set the value higher than sf1 input data size such that fault-tolerant scheduler
                             // shouldn't add new task and scaling only happens through the local scaling exchange.
                             .setSystemProperty(FAULT_TOLERANT_EXECUTION_ARBITRARY_DISTRIBUTION_COMPUTE_TASK_TARGET_SIZE_MIN, "2GB")
@@ -4282,7 +4266,7 @@ public abstract class BaseHiveConnectorTest
                             .setSystemProperty(FAULT_TOLERANT_EXECUTION_HASH_DISTRIBUTION_WRITE_TASK_TARGET_SIZE, "2GB")
                             .build(),
                     createTableSql,
-                    3000000);
+                    1500000);
 
             long files = (long) computeScalar("SELECT count(DISTINCT \"$path\") FROM " + tableName);
             return assertThat(files);
@@ -6799,173 +6783,202 @@ public abstract class BaseHiveConnectorTest
 
         // No column stats before ANALYZE
         assertQuery("SHOW STATS FOR " + tableName,
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, null, null, null, null, null), " +
-                        "('c_double', null, null, null, null, null, null), " +
-                        "('c_timestamp', null, null, null, null, null, null), " +
-                        "('c_varchar', null, null, null, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', 24.0, 3.0, 0.25, null, null, null), " +
-                        "('p_bigint', null, 2.0, 0.25, null, '7', '8'), " +
-                        "(null, null, null, null, 16.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', 24.0, 3.0, 0.25, null, null, null),
+                    ('p_bigint', null, 2.0, 0.25, null, '7', '8'),
+                    (null, null, null, null, 16.0, null, null)
+                """);
 
         // No column stats after running an empty analyze
         assertUpdate(format("ANALYZE %s WITH (partitions = ARRAY[])", tableName), 0);
         assertQuery("SHOW STATS FOR " + tableName,
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, null, null, null, null, null), " +
-                        "('c_double', null, null, null, null, null, null), " +
-                        "('c_timestamp', null, null, null, null, null, null), " +
-                        "('c_varchar', null, null, null, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', 24.0, 3.0, 0.25, null, null, null), " +
-                        "('p_bigint', null, 2.0, 0.25, null, '7', '8'), " +
-                        "(null, null, null, null, 16.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', 24.0, 3.0, 0.25, null, null, null),
+                    ('p_bigint', null, 2.0, 0.25, null, '7', '8'),
+                    (null, null, null, null, 16.0, null, null)
+                """);
 
         // Run analyze on 3 partitions including a null partition and a duplicate partition
         assertUpdate(format("ANALYZE %s WITH (partitions = ARRAY[ARRAY['p1', '7'], ARRAY['p2', '7'], ARRAY['p2', '7'], ARRAY[NULL, NULL]])", tableName), 12);
 
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p1' AND p_bigint = 7)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, 2.0, 0.5, null, null, null), " +
-                        "('c_bigint', null, 2.0, 0.5, null, '0', '1'), " +
-                        "('c_double', null, 2.0, 0.5, null, '1.2', '2.2'), " +
-                        "('c_timestamp', null, 2.0, 0.5, null, null, null), " +
-                        "('c_varchar', 8.0, 2.0, 0.5, null, null, null), " +
-                        "('c_varbinary', 4.0, null, 0.5, null, null, null), " +
-                        "('p_varchar', 8.0, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '7', '7'), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, 2.0, 0.5, null, null, null),
+                    ('c_bigint', null, 2.0, 0.5, null, '0', '1'),
+                    ('c_double', null, 2.0, 0.5, null, '1.2', '2.2'),
+                    ('c_timestamp', null, 2.0, 0.5, null, null, null),
+                    ('c_varchar', 8.0, 2.0, 0.5, null, null, null),
+                    ('c_varbinary', 4.0, null, 0.5, null, null, null),
+                    ('p_varchar', 8.0, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '7', '7'),
+                    (null, null, null, null, 4.0, null, null)
+                """);
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p2' AND p_bigint = 7)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, 2.0, 0.5, null, null, null), " +
-                        "('c_bigint', null, 2.0, 0.5, null, '1', '2'), " +
-                        "('c_double', null, 2.0, 0.5, null, '2.3', '3.3'), " +
-                        "('c_timestamp', null, 2.0, 0.5, null, null, null), " +
-                        "('c_varchar', 8.0, 2.0, 0.5, null, null, null), " +
-                        "('c_varbinary', 4.0, null, 0.5, null, null, null), " +
-                        "('p_varchar', 8.0, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '7', '7'), " +
-                        "(null, null, null, null, 4.0, null, null)");
-        assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar IS NULL AND p_bigint IS NULL)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, 1.0, 0.0, null, null, null), " +
-                        "('c_bigint', null, 4.0, 0.0, null, '4', '7'), " +
-                        "('c_double', null, 4.0, 0.0, null, '4.7', '7.7'), " +
-                        "('c_timestamp', null, 4.0, 0.0, null, null, null), " +
-                        "('c_varchar', 16.0, 4.0, 0.0, null, null, null), " +
-                        "('c_varbinary', 8.0, null, 0.0, null, null, null), " +
-                        "('p_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, 2.0, 0.5, null, null, null),
+                    ('c_bigint', null, 2.0, 0.5, null, '1', '2'),
+                    ('c_double', null, 2.0, 0.5, null, '2.3', '3.3'),
+                    ('c_timestamp', null, 2.0, 0.5, null, null, null),
+                    ('c_varchar', 8.0, 2.0, 0.5, null, null, null),
+                    ('c_varbinary', 4.0, null, 0.5, null, null, null),
+                    ('p_varchar', 8.0, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '7', '7'),
+                    (null, null, null, null, 4.0, null, null)
+                """);
+        assertQuery(
+                format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar IS NULL AND p_bigint IS NULL)", tableName),
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, 1.0, 0.0, null, null, null),
+                    ('c_bigint', null, 4.0, 0.0, null, '4', '7'),
+                    ('c_double', null, 4.0, 0.0, null, '4.7', '7.7'),
+                    ('c_timestamp', null, 4.0, 0.0, null, null, null),
+                    ('c_varchar', 16.0, 4.0, 0.0, null, null, null),
+                    ('c_varbinary', 8.0, null, 0.0, null, null, null),
+                    ('p_varchar', 0.0, 0.0, 1.0, null, null, null),
+                    ('p_bigint', 0.0, 0.0, 1.0, null, null, null),
+                    (null, null, null, null, 4.0, null, null)
+                """);
 
         // Partition [p3, 8], [e1, 9], [e2, 9] have no column stats
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p3' AND p_bigint = 8)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, null, null, null, null, null), " +
-                        "('c_double', null, null, null, null, null, null), " +
-                        "('c_timestamp', null, null, null, null, null, null), " +
-                        "('c_varchar', null, null, null, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', 8.0, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '8', '8'), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', 8.0, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '8', '8'),
+                    (null, null, null, null, 4.0, null, null)
+                """);
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'e1' AND p_bigint = 9)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_double', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_timestamp', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varbinary', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "(null, null, null, null, 0.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, 9, 9),
+                    (null, null, null, null, null, null, null)
+                """);
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'e2' AND p_bigint = 9)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_double', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_timestamp', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varbinary', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "(null, null, null, null, 0.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, 9, 9),
+                    (null, null, null, null, null, null, null)
+                """);
 
         // Run analyze on the whole table
-        assertUpdate("ANALYZE " + tableName, 16);
+        assertUpdate("ANALYZE\n" + tableName, 16);
 
         // All partitions except empty partitions have column stats
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p1' AND p_bigint = 7)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, 2.0, 0.5, null, null, null), " +
-                        "('c_bigint', null, 2.0, 0.5, null, '0', '1'), " +
-                        "('c_double', null, 2.0, 0.5, null, '1.2', '2.2'), " +
-                        "('c_timestamp', null, 2.0, 0.5, null, null, null), " +
-                        "('c_varchar', 8.0, 2.0, 0.5, null, null, null), " +
-                        "('c_varbinary', 4.0, null, 0.5, null, null, null), " +
-                        "('p_varchar', 8.0, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '7', '7'), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, 2.0, 0.5, null, null, null),
+                    ('c_bigint', null, 2.0, 0.5, null, '0', '1'),
+                    ('c_double', null, 2.0, 0.5, null, '1.2', '2.2'),
+                    ('c_timestamp', null, 2.0, 0.5, null, null, null),
+                    ('c_varchar', 8.0, 2.0, 0.5, null, null, null),
+                    ('c_varbinary', 4.0, null, 0.5, null, null, null),
+                    ('p_varchar', 8.0, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '7', '7'),
+                    (null, null, null, null, 4.0, null, null)
+                """);
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p2' AND p_bigint = 7)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, 2.0, 0.5, null, null, null), " +
-                        "('c_bigint', null, 2.0, 0.5, null, '1', '2'), " +
-                        "('c_double', null, 2.0, 0.5, null, '2.3', '3.3'), " +
-                        "('c_timestamp', null, 2.0, 0.5, null, null, null), " +
-                        "('c_varchar', 8.0, 2.0, 0.5, null, null, null), " +
-                        "('c_varbinary', 4.0, null, 0.5, null, null, null), " +
-                        "('p_varchar', 8.0, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '7', '7'), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, 2.0, 0.5, null, null, null),
+                    ('c_bigint', null, 2.0, 0.5, null, '1', '2'),
+                    ('c_double', null, 2.0, 0.5, null, '2.3', '3.3'),
+                    ('c_timestamp', null, 2.0, 0.5, null, null, null),
+                    ('c_varchar', 8.0, 2.0, 0.5, null, null, null),
+                    ('c_varbinary', 4.0, null, 0.5, null, null, null),
+                    ('p_varchar', 8.0, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '7', '7'),
+                    (null, null, null, null, 4.0, null, null)
+                """);
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar IS NULL AND p_bigint IS NULL)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, 1.0, 0.0, null, null, null), " +
-                        "('c_bigint', null, 4.0, 0.0, null, '4', '7'), " +
-                        "('c_double', null, 4.0, 0.0, null, '4.7', '7.7'), " +
-                        "('c_timestamp', null, 4.0, 0.0, null, null, null), " +
-                        "('c_varchar', 16.0, 4.0, 0.0, null, null, null), " +
-                        "('c_varbinary', 8.0, null, 0.0, null, null, null), " +
-                        "('p_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, 1.0, 0.0, null, null, null),
+                    ('c_bigint', null, 4.0, 0.0, null, '4', '7'),
+                    ('c_double', null, 4.0, 0.0, null, '4.7', '7.7'),
+                    ('c_timestamp', null, 4.0, 0.0, null, null, null),
+                    ('c_varchar', 16.0, 4.0, 0.0, null, null, null),
+                    ('c_varbinary', 8.0, null, 0.0, null, null, null),
+                    ('p_varchar', 0.0, 0.0, 1.0, null, null, null),
+                    ('p_bigint', 0.0, 0.0, 1.0, null, null, null),
+                    (null, null, null, null, 4.0, null, null)
+                """);
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p3' AND p_bigint = 8)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, 2.0, 0.5, null, null, null), " +
-                        "('c_bigint', null, 2.0, 0.5, null, '2', '3'), " +
-                        "('c_double', null, 2.0, 0.5, null, '3.4', '4.4'), " +
-                        "('c_timestamp', null, 2.0, 0.5, null, null, null), " +
-                        "('c_varchar', 8.0, 2.0, 0.5, null, null, null), " +
-                        "('c_varbinary', 4.0, null, 0.5, null, null, null), " +
-                        "('p_varchar', 8.0, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '8', '8'), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, 2.0, 0.5, null, null, null),
+                    ('c_bigint', null, 2.0, 0.5, null, '2', '3'),
+                    ('c_double', null, 2.0, 0.5, null, '3.4', '4.4'),
+                    ('c_timestamp', null, 2.0, 0.5, null, null, null),
+                    ('c_varchar', 8.0, 2.0, 0.5, null, null, null),
+                    ('c_varbinary', 4.0, null, 0.5, null, null, null),
+                    ('p_varchar', 8.0, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '8', '8'),
+                    (null, null, null, null, 4.0, null, null)
+                """);
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'e1' AND p_bigint = 9)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_double', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_timestamp', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varbinary', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "(null, null, null, null, 0.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, 9, 9),
+                    (null, null, null, null, null, null, null)
+                """);
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'e2' AND p_bigint = 9)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_double', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_timestamp', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varbinary', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "(null, null, null, null, 0.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, 9, 9),
+                    (null, null, null, null, null, null, null)
+                """);
 
         // Drop the partitioned test table
         assertUpdate("DROP TABLE " + tableName);
@@ -6979,98 +6992,112 @@ public abstract class BaseHiveConnectorTest
 
         // No column stats before ANALYZE
         assertQuery(
-                "SHOW STATS FOR " + tableName,
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, null, null, null, null, null), " +
-                        "('c_double', null, null, null, null, null, null), " +
-                        "('c_timestamp', null, null, null, null, null, null), " +
-                        "('c_varchar', null, null, null, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', 24.0, 3.0, 0.25, null, null, null), " +
-                        "('p_bigint', null, 2.0, 0.25, null, '7', '8'), " +
-                        "(null, null, null, null, 16.0, null, null)");
+                "SHOW STATS FOR\n" + tableName,
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', 24.0, 3.0, 0.25, null, null, null),
+                    ('p_bigint', null, 2.0, 0.25, null, '7', '8'),
+                    (null, null, null, null, 16.0, null, null)
+                """);
 
         // Run analyze on 3 partitions including a null partition and a duplicate partition,
         // restricting to just 2 columns (one duplicate)
         assertUpdate(
-                format("ANALYZE %s WITH (partitions = ARRAY[ARRAY['p1', '7'], ARRAY['p2', '7'], ARRAY['p2', '7'], ARRAY[NULL, NULL]], " +
+                format("ANALYZE %s WITH (partitions = ARRAY[ARRAY['p1', '7'], ARRAY['p2', '7'], ARRAY['p2', '7'], ARRAY[NULL, NULL]],\n" +
                         "columns = ARRAY['c_timestamp', 'c_varchar', 'c_timestamp'])", tableName), 12);
 
         assertQuery(
                 format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p1' AND p_bigint = 7)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, null, null, null, null, null), " +
-                        "('c_double', null, null, null, null, null, null), " +
-                        "('c_timestamp', null, 2.0, 0.5, null, null, null), " +
-                        "('c_varchar', 8.0, 2.0, 0.5, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', 8.0, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '7', '7'), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, 2.0, 0.5, null, null, null),
+                    ('c_varchar', 8.0, 2.0, 0.5, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', 8.0, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '7', '7'),
+                    (null, null, null, null, 4.0, null, null)
+                """);
         assertQuery(
                 format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p2' AND p_bigint = 7)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, null, null, null, null, null), " +
-                        "('c_double', null, null, null, null, null, null), " +
-                        "('c_timestamp', null, 2.0, 0.5, null, null, null), " +
-                        "('c_varchar', 8.0, 2.0, 0.5, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', 8.0, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '7', '7'), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, 2.0, 0.5, null, null, null),
+                    ('c_varchar', 8.0, 2.0, 0.5, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', 8.0, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '7', '7'),
+                    (null, null, null, null, 4.0, null, null)
+                """);
         assertQuery(
                 format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar IS NULL AND p_bigint IS NULL)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, null, null, null, null, null), " +
-                        "('c_double', null, null, null, null, null, null), " +
-                        "('c_timestamp', null, 4.0, 0.0, null, null, null), " +
-                        "('c_varchar', 16.0, 4.0, 0.0, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, 4.0, 0.0, null, null, null),
+                    ('c_varchar', 16.0, 4.0, 0.0, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', 0.0, 0.0, 1.0, null, null, null),
+                    ('p_bigint', 0.0, 0.0, 1.0, null, null, null),
+                    (null, null, null, null, 4.0, null, null)
+                """);
 
         // Partition [p3, 8], [e1, 9], [e2, 9] have no column stats
         assertQuery(
                 format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p3' AND p_bigint = 8)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, null, null, null, null, null), " +
-                        "('c_double', null, null, null, null, null, null), " +
-                        "('c_timestamp', null, null, null, null, null, null), " +
-                        "('c_varchar', null, null, null, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', 8.0, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '8', '8'), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', 8.0, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '8', '8'),
+                    (null, null, null, null, 4.0, null, null)
+                """);
         assertQuery(
                 format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'e1' AND p_bigint = 9)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_double', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_timestamp', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varbinary', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "(null, null, null, null, 0.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, 9, 9),
+                    (null, null, null, null, null, null, null)
+                """);
         assertQuery(
                 format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'e2' AND p_bigint = 9)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_double', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_timestamp', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varbinary', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "(null, null, null, null, 0.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, 9, 9),
+                    (null, null, null, null, null, null, null)
+                """);
 
         // Run analyze again, this time on 2 new columns (for all partitions); the previously computed stats
         // should be preserved
@@ -7079,76 +7106,88 @@ public abstract class BaseHiveConnectorTest
 
         assertQuery(
                 format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p1' AND p_bigint = 7)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, 2.0, 0.5, null, '0', '1'), " +
-                        "('c_double', null, 2.0, 0.5, null, '1.2', '2.2'), " +
-                        "('c_timestamp', null, 2.0, 0.5, null, null, null), " +
-                        "('c_varchar', 8.0, 2.0, 0.5, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', 8.0, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '7', '7'), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, 2.0, 0.5, null, '0', '1'),
+                    ('c_double', null, 2.0, 0.5, null, '1.2', '2.2'),
+                    ('c_timestamp', null, 2.0, 0.5, null, null, null),
+                    ('c_varchar', 8.0, 2.0, 0.5, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', 8.0, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '7', '7'),
+                    (null, null, null, null, 4.0, null, null)
+                """);
         assertQuery(
                 format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p2' AND p_bigint = 7)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, 2.0, 0.5, null, '1', '2'), " +
-                        "('c_double', null, 2.0, 0.5, null, '2.3', '3.3'), " +
-                        "('c_timestamp', null, 2.0, 0.5, null, null, null), " +
-                        "('c_varchar', 8.0, 2.0, 0.5, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', 8.0, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '7', '7'), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, 2.0, 0.5, null, '1', '2'),
+                    ('c_double', null, 2.0, 0.5, null, '2.3', '3.3'),
+                    ('c_timestamp', null, 2.0, 0.5, null, null, null),
+                    ('c_varchar', 8.0, 2.0, 0.5, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', 8.0, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '7', '7'),
+                    (null, null, null, null, 4.0, null, null)
+                """);
         assertQuery(
                 format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar IS NULL AND p_bigint IS NULL)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, 4.0, 0.0, null, '4', '7'), " +
-                        "('c_double', null, 4.0, 0.0, null, '4.7', '7.7'), " +
-                        "('c_timestamp', null, 4.0, 0.0, null, null, null), " +
-                        "('c_varchar', 16.0, 4.0, 0.0, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, 4.0, 0.0, null, '4', '7'),
+                    ('c_double', null, 4.0, 0.0, null, '4.7', '7.7'),
+                    ('c_timestamp', null, 4.0, 0.0, null, null, null),
+                    ('c_varchar', 16.0, 4.0, 0.0, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', 0.0, 0.0, 1.0, null, null, null),
+                    ('p_bigint', 0.0, 0.0, 1.0, null, null, null),
+                    (null, null, null, null, 4.0, null, null)
+                """);
         assertQuery(
                 format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p3' AND p_bigint = 8)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, 2.0, 0.5, null, '2', '3'), " +
-                        "('c_double', null, 2.0, 0.5, null, '3.4', '4.4'), " +
-                        "('c_timestamp', null, null, null, null, null, null), " +
-                        "('c_varchar', null, null, null, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', 8.0, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '8', '8'), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, 2.0, 0.5, null, '2', '3'),
+                    ('c_double', null, 2.0, 0.5, null, '3.4', '4.4'),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', 8.0, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '8', '8'),
+                    (null, null, null, null, 4.0, null, null)
+                """);
         assertQuery(
                 format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'e1' AND p_bigint = 9)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_double', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_timestamp', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varbinary', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "(null, null, null, null, 0.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, 9, 9),
+                    (null, null, null, null, null, null, null)
+                """);
         assertQuery(
                 format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'e2' AND p_bigint = 9)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_double', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_timestamp', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varbinary', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "(null, null, null, null, 0.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, 9, 9),
+                    (null, null, null, null, null, null, null)
+                """);
 
         assertUpdate("DROP TABLE " + tableName);
     }
@@ -7161,31 +7200,35 @@ public abstract class BaseHiveConnectorTest
 
         // No column stats before ANALYZE
         assertQuery("SHOW STATS FOR " + tableName,
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, null, null, null, null, null), " +
-                        "('c_double', null, null, null, null, null, null), " +
-                        "('c_timestamp', null, null, null, null, null, null), " +
-                        "('c_varchar', null, null, null, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', null, null, null, null, null, null), " +
-                        "('p_bigint', null, null, null, null, null, null), " +
-                        "(null, null, null, null, 16.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, null, null, null, null, null),
+                    ('p_bigint', null, null, null, null, null, null),
+                    (null, null, null, null, 16.0, null, null)
+                """);
 
         // Run analyze on the whole table
         assertUpdate("ANALYZE " + tableName, 16);
 
         assertQuery("SHOW STATS FOR " + tableName,
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, 2.0, 0.375, null, null, null), " +
-                        "('c_bigint', null, 8.0, 0.375, null, '0', '7'), " +
-                        "('c_double', null, 10.0, 0.375, null, '1.2', '7.7'), " +
-                        "('c_timestamp', null, 10.0, 0.375, null, null, null), " +
-                        "('c_varchar', 40.0, 10.0, 0.375, null, null, null), " +
-                        "('c_varbinary', 20.0, null, 0.375, null, null, null), " +
-                        "('p_varchar', 24.0, 3.0, 0.25, null, null, null), " +
-                        "('p_bigint', null, 2.0, 0.25, null, '7', '8'), " +
-                        "(null, null, null, null, 16.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, 2.0, 0.375, null, null, null),
+                    ('c_bigint', null, 8.0, 0.375, null, '0', '7'),
+                    ('c_double', null, 10.0, 0.375, null, '1.2', '7.7'),
+                    ('c_timestamp', null, 10.0, 0.375, null, null, null),
+                    ('c_varchar', 40.0, 10.0, 0.375, null, null, null),
+                    ('c_varbinary', 20.0, null, 0.375, null, null, null),
+                    ('p_varchar', 24.0, 3.0, 0.25, null, null, null),
+                    ('p_bigint', null, 2.0, 0.25, null, '7', '8'),
+                    (null, null, null, null, 16.0, null, null)
+                """);
 
         // Drop the unpartitioned test table
         assertUpdate("DROP TABLE " + tableName);
@@ -7369,71 +7412,83 @@ public abstract class BaseHiveConnectorTest
 
         // All partitions except empty partitions have column stats
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p1' AND p_bigint = 7)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, 2.0, 0.5, null, null, null), " +
-                        "('c_bigint', null, 2.0, 0.5, null, '0', '1'), " +
-                        "('c_double', null, 2.0, 0.5, null, '1.2', '2.2'), " +
-                        "('c_timestamp', null, 2.0, 0.5, null, null, null), " +
-                        "('c_varchar', 8.0, 2.0, 0.5, null, null, null), " +
-                        "('c_varbinary', 4.0, null, 0.5, null, null, null), " +
-                        "('p_varchar', 8.0, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '7', '7'), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, 2.0, 0.5, null, null, null),
+                    ('c_bigint', null, 2.0, 0.5, null, '0', '1'),
+                    ('c_double', null, 2.0, 0.5, null, '1.2', '2.2'),
+                    ('c_timestamp', null, 2.0, 0.5, null, null, null),
+                    ('c_varchar', 8.0, 2.0, 0.5, null, null, null),
+                    ('c_varbinary', 4.0, null, 0.5, null, null, null),
+                    ('p_varchar', 8.0, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '7', '7'),
+                    (null, null, null, null, 4.0, null, null)
+                """);
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p2' AND p_bigint = 7)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, 2.0, 0.5, null, null, null), " +
-                        "('c_bigint', null, 2.0, 0.5, null, '1', '2'), " +
-                        "('c_double', null, 2.0, 0.5, null, '2.3', '3.3'), " +
-                        "('c_timestamp', null, 2.0, 0.5, null, null, null), " +
-                        "('c_varchar', 8.0, 2.0, 0.5, null, null, null), " +
-                        "('c_varbinary', 4.0, null, 0.5, null, null, null), " +
-                        "('p_varchar', 8.0, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '7', '7'), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, 2.0, 0.5, null, null, null),
+                    ('c_bigint', null, 2.0, 0.5, null, '1', '2'),
+                    ('c_double', null, 2.0, 0.5, null, '2.3', '3.3'),
+                    ('c_timestamp', null, 2.0, 0.5, null, null, null),
+                    ('c_varchar', 8.0, 2.0, 0.5, null, null, null),
+                    ('c_varbinary', 4.0, null, 0.5, null, null, null),
+                    ('p_varchar', 8.0, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '7', '7'),
+                    (null, null, null, null, 4.0, null, null)
+                """);
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar IS NULL AND p_bigint IS NULL)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, 1.0, 0.0, null, null, null), " +
-                        "('c_bigint', null, 4.0, 0.0, null, '4', '7'), " +
-                        "('c_double', null, 4.0, 0.0, null, '4.7', '7.7'), " +
-                        "('c_timestamp', null, 4.0, 0.0, null, null, null), " +
-                        "('c_varchar', 16.0, 4.0, 0.0, null, null, null), " +
-                        "('c_varbinary', 8.0, null, 0.0, null, null, null), " +
-                        "('p_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, 1.0, 0.0, null, null, null),
+                    ('c_bigint', null, 4.0, 0.0, null, '4', '7'),
+                    ('c_double', null, 4.0, 0.0, null, '4.7', '7.7'),
+                    ('c_timestamp', null, 4.0, 0.0, null, null, null),
+                    ('c_varchar', 16.0, 4.0, 0.0, null, null, null),
+                    ('c_varbinary', 8.0, null, 0.0, null, null, null),
+                    ('p_varchar', 0.0, 0.0, 1.0, null, null, null),
+                    ('p_bigint', 0.0, 0.0, 1.0, null, null, null),
+                    (null, null, null, null, 4.0, null, null)
+                """);
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p3' AND p_bigint = 8)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, 2.0, 0.5, null, null, null), " +
-                        "('c_bigint', null, 2.0, 0.5, null, '2', '3'), " +
-                        "('c_double', null, 2.0, 0.5, null, '3.4', '4.4'), " +
-                        "('c_timestamp', null, 2.0, 0.5, null, null, null), " +
-                        "('c_varchar', 8.0, 2.0, 0.5, null, null, null), " +
-                        "('c_varbinary', 4.0, null, 0.5, null, null, null), " +
-                        "('p_varchar', 8.0, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '8', '8'), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, 2.0, 0.5, null, null, null),
+                    ('c_bigint', null, 2.0, 0.5, null, '2', '3'),
+                    ('c_double', null, 2.0, 0.5, null, '3.4', '4.4'),
+                    ('c_timestamp', null, 2.0, 0.5, null, null, null),
+                    ('c_varchar', 8.0, 2.0, 0.5, null, null, null),
+                    ('c_varbinary', 4.0, null, 0.5, null, null, null),
+                    ('p_varchar', 8.0, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '8', '8'),
+                    (null, null, null, null, 4.0, null, null)
+                """);
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'e1' AND p_bigint = 9)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_double', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_timestamp', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varbinary', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "(null, null, null, null, 0.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, 9, 9),
+                    (null, null, null, null, null, null, null)
+                """);
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'e2' AND p_bigint = 9)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_double', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_timestamp', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varbinary', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "(null, null, null, null, 0.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, 9, 9),
+                    (null, null, null, null, null, null, null)
+                """);
 
         // Drop stats for 2 partitions
         assertUpdate(format("CALL system.drop_stats('%s', '%s', ARRAY[ARRAY['p2', '7'], ARRAY['p3', '8']])", TPCH_SCHEMA, tableName));
@@ -7445,160 +7500,186 @@ public abstract class BaseHiveConnectorTest
         // Only stats for the specified partitions should be removed
         // no change
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p1' AND p_bigint = 7)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, 2.0, 0.5, null, null, null), " +
-                        "('c_bigint', null, 2.0, 0.5, null, '0', '1'), " +
-                        "('c_double', null, 2.0, 0.5, null, '1.2', '2.2'), " +
-                        "('c_timestamp', null, 2.0, 0.5, null, null, null), " +
-                        "('c_varchar', 8.0, 2.0, 0.5, null, null, null), " +
-                        "('c_varbinary', 4.0, null, 0.5, null, null, null), " +
-                        "('p_varchar', 8.0, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '7', '7'), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, 2.0, 0.5, null, null, null),
+                    ('c_bigint', null, 2.0, 0.5, null, '0', '1'),
+                    ('c_double', null, 2.0, 0.5, null, '1.2', '2.2'),
+                    ('c_timestamp', null, 2.0, 0.5, null, null, null),
+                    ('c_varchar', 8.0, 2.0, 0.5, null, null, null),
+                    ('c_varbinary', 4.0, null, 0.5, null, null, null),
+                    ('p_varchar', 8.0, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '7', '7'),
+                    (null, null, null, null, 4.0, null, null)
+                """);
         // [p2, 7] had stats dropped
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p2' AND p_bigint = 7)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, null, null, null, null, null), " +
-                        "('c_double', null, null, null, null, null, null), " +
-                        "('c_timestamp', null, null, null, null, null, null), " +
-                        "('c_varchar', null, null, null, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', null, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '7', '7'), " +
-                        "(null, null, null, null, null, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '7', '7'),
+                    (null, null, null, null, null, null, null)
+                """);
         // no change
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar IS NULL AND p_bigint IS NULL)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, 1.0, 0.0, null, null, null), " +
-                        "('c_bigint', null, 4.0, 0.0, null, '4', '7'), " +
-                        "('c_double', null, 4.0, 0.0, null, '4.7', '7.7'), " +
-                        "('c_timestamp', null, 4.0, 0.0, null, null, null), " +
-                        "('c_varchar', 16.0, 4.0, 0.0, null, null, null), " +
-                        "('c_varbinary', 8.0, null, 0.0, null, null, null), " +
-                        "('p_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "(null, null, null, null, 4.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, 1.0, 0.0, null, null, null),
+                    ('c_bigint', null, 4.0, 0.0, null, '4', '7'),
+                    ('c_double', null, 4.0, 0.0, null, '4.7', '7.7'),
+                    ('c_timestamp', null, 4.0, 0.0, null, null, null),
+                    ('c_varchar', 16.0, 4.0, 0.0, null, null, null),
+                    ('c_varbinary', 8.0, null, 0.0, null, null, null),
+                    ('p_varchar', 0.0, 0.0, 1.0, null, null, null),
+                    ('p_bigint', 0.0, 0.0, 1.0, null, null, null),
+                    (null, null, null, null, 4.0, null, null)
+                """);
         // [p3, 8] had stats dropped
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p3' AND p_bigint = 8)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, null, null, null, null, null), " +
-                        "('c_double', null, null, null, null, null, null), " +
-                        "('c_timestamp', null, null, null, null, null, null), " +
-                        "('c_varchar', null, null, null, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', null, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '8', '8'), " +
-                        "(null, null, null, null, null, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '8', '8'),
+                    (null, null, null, null, null, null, null)
+                """);
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'e1' AND p_bigint = 9)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_double', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_timestamp', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varbinary', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "(null, null, null, null, 0.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, 9, 9),
+                    (null, null, null, null, null, null, null)
+                """);
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'e2' AND p_bigint = 9)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_double', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_timestamp', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('c_varbinary', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_varchar', 0.0, 0.0, 1.0, null, null, null), " +
-                        "('p_bigint', 0.0, 0.0, 1.0, null, null, null), " +
-                        "(null, null, null, null, 0.0, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, 9, 9),
+                    (null, null, null, null, null, null, null)
+                """);
 
         // Drop stats for the entire table
         assertUpdate(format("CALL system.drop_stats('%s', '%s')", TPCH_SCHEMA, tableName));
 
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p1' AND p_bigint = 7)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, null, null, null, null, null), " +
-                        "('c_double', null, null, null, null, null, null), " +
-                        "('c_timestamp', null, null, null, null, null, null), " +
-                        "('c_varchar', null, null, null, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', null, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '7', '7'), " +
-                        "(null, null, null, null, null, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '7', '7'),
+                    (null, null, null, null, null, null, null)
+                """);
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p2' AND p_bigint = 7)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, null, null, null, null, null), " +
-                        "('c_double', null, null, null, null, null, null), " +
-                        "('c_timestamp', null, null, null, null, null, null), " +
-                        "('c_varchar', null, null, null, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', null, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '7', '7'), " +
-                        "(null, null, null, null, null, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '7', '7'),
+                    (null, null, null, null, null, null, null)
+                """);
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar IS NULL AND p_bigint IS NULL)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, null, null, null, null, null), " +
-                        "('c_double', null, null, null, null, null, null), " +
-                        "('c_timestamp', null, null, null, null, null, null), " +
-                        "('c_varchar', null, null, null, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', null, 0.0, 1.0, null, null, null), " +
-                        "('p_bigint', null, 0.0, 1.0, null, null, null), " +
-                        "(null, null, null, null, null, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 0.0, 1.0, null, null, null),
+                    ('p_bigint', null, 0.0, 1.0, null, null, null),
+                    (null, null, null, null, null, null, null)
+                """);
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'p3' AND p_bigint = 8)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, null, null, null, null, null), " +
-                        "('c_double', null, null, null, null, null, null), " +
-                        "('c_timestamp', null, null, null, null, null, null), " +
-                        "('c_varchar', null, null, null, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', null, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '8', '8'), " +
-                        "(null, null, null, null, null, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '8', '8'),
+                    (null, null, null, null, null, null, null)
+                """);
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'e1' AND p_bigint = 9)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, null, null, null, null, null), " +
-                        "('c_double', null, null, null, null, null, null), " +
-                        "('c_timestamp', null, null, null, null, null, null), " +
-                        "('c_varchar', null, null, null, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', null, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '9', '9'), " +
-                        "(null, null, null, null, null, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '9', '9'),
+                    (null, null, null, null, null, null, null)
+                """);
         assertQuery(format("SHOW STATS FOR (SELECT * FROM %s WHERE p_varchar = 'e2' AND p_bigint = 9)", tableName),
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, null, null, null, null, null), " +
-                        "('c_double', null, null, null, null, null, null), " +
-                        "('c_timestamp', null, null, null, null, null, null), " +
-                        "('c_varchar', null, null, null, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', null, 1.0, 0.0, null, null, null), " +
-                        "('p_bigint', null, 1.0, 0.0, null, '9', '9'), " +
-                        "(null, null, null, null, null, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 1.0, 0.0, null, null, null),
+                    ('p_bigint', null, 1.0, 0.0, null, '9', '9'),
+                    (null, null, null, null, null, null, null)
+                """);
 
         // All table stats are gone
         assertQuery(
                 "SHOW STATS FOR " + tableName,
-                "SELECT * FROM VALUES " +
-                        "('c_boolean', null, null, null, null, null, null), " +
-                        "('c_bigint', null, null, null, null, null, null), " +
-                        "('c_double', null, null, null, null, null, null), " +
-                        "('c_timestamp', null, null, null, null, null, null), " +
-                        "('c_varchar', null, null, null, null, null, null), " +
-                        "('c_varbinary', null, null, null, null, null, null), " +
-                        "('p_varchar', null, 5.0, 0.16666666666666666, null, null, null), " +
-                        "('p_bigint', null, 3.0, 0.16666666666666666, null, '7', '9'), " +
-                        "(null, null, null, null, null, null, null)");
+                """
+                SELECT * FROM VALUES
+                    ('c_boolean', null, null, null, null, null, null),
+                    ('c_bigint', null, null, null, null, null, null),
+                    ('c_double', null, null, null, null, null, null),
+                    ('c_timestamp', null, null, null, null, null, null),
+                    ('c_varchar', null, null, null, null, null, null),
+                    ('c_varbinary', null, null, null, null, null, null),
+                    ('p_varchar', null, 5.0, 0.16666666666666666, null, null, null),
+                    ('p_bigint', null, 3.0, 0.16666666666666666, null, '7', '9'),
+                    (null, null, null, null, null, null, null)
+                """);
 
-        assertUpdate("DROP TABLE " + tableName);
+        assertUpdate("DROP TABLE\n" + tableName);
     }
 
     @Test

@@ -11,13 +11,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.filesystem.alluxio;
+package io.trino.spi.eventlistener;
 
-import io.trino.filesystem.Location;
+/**
+ * This class is JSON serializable for convenience and serialization compatibility is not guaranteed across versions.
+ */
+public sealed interface FilterMaskReferenceInfo
+        extends TableReferenceInfo
+        permits RowFilterReferenceInfo, ColumnMaskReferenceInfo
 
-public interface CacheStats
 {
-    void recordCacheRead(Location location, int length);
+    String expression();
 
-    void recordExternalRead(Location location, int length);
+    String targetCatalogName();
+
+    String targetSchemaName();
+
+    String targetTableName();
 }

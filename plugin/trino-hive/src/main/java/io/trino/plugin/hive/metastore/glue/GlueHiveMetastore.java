@@ -77,6 +77,7 @@ import io.airlift.log.Logger;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
+import io.trino.plugin.hive.HiveBasicStatistics;
 import io.trino.plugin.hive.HiveColumnStatisticType;
 import io.trino.plugin.hive.HiveType;
 import io.trino.plugin.hive.PartitionNotFoundException;
@@ -94,6 +95,7 @@ import io.trino.plugin.hive.metastore.HivePrivilegeInfo.HivePrivilege;
 import io.trino.plugin.hive.metastore.Partition;
 import io.trino.plugin.hive.metastore.PartitionWithStatistics;
 import io.trino.plugin.hive.metastore.PrincipalPrivileges;
+import io.trino.plugin.hive.metastore.StatisticsUpdateMode;
 import io.trino.plugin.hive.metastore.Table;
 import io.trino.plugin.hive.metastore.glue.converter.GlueInputConverter;
 import io.trino.plugin.hive.metastore.glue.converter.GlueToTrinoConverter;
@@ -116,7 +118,6 @@ import org.weakref.jmx.Managed;
 
 import java.io.IOException;
 import java.time.Duration;
-import java.util.AbstractMap.SimpleEntry;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -131,11 +132,11 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.Future;
-import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.Comparators.lexicographical;
@@ -149,7 +150,6 @@ import static io.trino.plugin.hive.HiveMetadata.TABLE_COMMENT;
 import static io.trino.plugin.hive.HiveMetadata.TRINO_QUERY_ID_NAME;
 import static io.trino.plugin.hive.TableType.MANAGED_TABLE;
 import static io.trino.plugin.hive.TableType.VIRTUAL_VIEW;
-import static io.trino.plugin.hive.metastore.MetastoreUtil.makePartitionName;
 import static io.trino.plugin.hive.metastore.MetastoreUtil.toPartitionName;
 import static io.trino.plugin.hive.metastore.MetastoreUtil.verifyCanDropColumn;
 import static io.trino.plugin.hive.metastore.glue.AwsSdkUtil.getPaginatedResults;
@@ -303,51 +303,46 @@ public class GlueHiveMetastore
     }
 
     @Override
-    public PartitionStatistics getTableStatistics(Table table)
+    public Map<String, HiveColumnStatistics> getTableColumnStatistics(String databaseName, String tableName, Set<String> columnNames, OptionalLong rowCount)
     {
-        return new PartitionStatistics(getHiveBasicStatistics(table.getParameters()), columnStatisticsProvider.getTableColumnStatistics(table));
+        checkArgument(!columnNames.isEmpty(), "columnNames is empty");
+        return columnStatisticsProvider.getTableColumnStatistics(databaseName, tableName, columnNames, rowCount);
     }
 
     @Override
-    public Map<String, PartitionStatistics> getPartitionStatistics(Table table, List<Partition> partitions)
+    public Map<String, Map<String, HiveColumnStatistics>> getPartitionColumnStatistics(
+            String databaseName,
+            String tableName,
+            Map<String, OptionalLong> partitionNamesWithRowCount,
+            Set<String> columnNames)
     {
-        Map<String, PartitionStatistics> partitionBasicStatistics = columnStatisticsProvider.getPartitionColumnStatistics(partitions).entrySet().stream()
-                .collect(toImmutableMap(
-                        entry -> makePartitionName(table, entry.getKey()),
-                        entry -> new PartitionStatistics(getHiveBasicStatistics(entry.getKey().getParameters()), entry.getValue())));
-
-        long tableRowCount = partitionBasicStatistics.values().stream()
-                .mapToLong(partitionStatistics -> partitionStatistics.getBasicStatistics().getRowCount().orElse(0))
-                .sum();
-        if (!partitionBasicStatistics.isEmpty() && tableRowCount == 0) {
-            // When the table has partitions, but row count statistics are set to zero, we treat this case as empty
-            // statistics to avoid underestimation in the CBO. This scenario may be caused when other engines are
-            // used to ingest data into partitioned hive tables.
-            partitionBasicStatistics = partitionBasicStatistics.entrySet().stream()
-                    .map(entry -> new SimpleEntry<>(
-                                entry.getKey(),
-                                entry.getValue().withBasicStatistics(entry.getValue().getBasicStatistics().withEmptyRowCount())))
-                    .collect(toImmutableMap(SimpleEntry::getKey, SimpleEntry::getValue));
-        }
-
-        return partitionBasicStatistics;
+        checkArgument(!columnNames.isEmpty(), "columnNames is empty");
+        return columnStatisticsProvider.getPartitionColumnStatistics(databaseName, tableName, partitionNamesWithRowCount, columnNames);
     }
 
     @Override
-    public void updateTableStatistics(String databaseName, String tableName, AcidTransaction transaction, Function<PartitionStatistics, PartitionStatistics> update)
+    public void updateTableStatistics(String databaseName, String tableName, AcidTransaction transaction, StatisticsUpdateMode mode, PartitionStatistics statisticsUpdate)
     {
         Failsafe.with(CONCURRENT_MODIFICATION_EXCEPTION_RETRY_POLICY)
-                .run(() -> updateTableStatisticsInternal(databaseName, tableName, transaction, update));
+                .run(() -> updateTableStatisticsInternal(databaseName, tableName, transaction, mode, statisticsUpdate));
     }
 
-    private void updateTableStatisticsInternal(String databaseName, String tableName, AcidTransaction transaction, Function<PartitionStatistics, PartitionStatistics> update)
+    private void updateTableStatisticsInternal(String databaseName, String tableName, AcidTransaction transaction, StatisticsUpdateMode mode, PartitionStatistics statisticsUpdate)
     {
         Table table = getExistingTable(databaseName, tableName);
         if (transaction.isAcidTransactionRunning()) {
             table = Table.builder(table).setWriteId(OptionalLong.of(transaction.getWriteId())).build();
         }
-        PartitionStatistics currentStatistics = getTableStatistics(table);
-        PartitionStatistics updatedStatistics = update.apply(currentStatistics);
+        // load current statistics
+        HiveBasicStatistics currentBasicStatistics = getHiveBasicStatistics(table.getParameters());
+        Map<String, HiveColumnStatistics> currentColumnStatistics = getTableColumnStatistics(
+                databaseName,
+                tableName,
+                Stream.concat(table.getDataColumns().stream(), table.getPartitionColumns().stream()).map(Column::getName).collect(toImmutableSet()),
+                currentBasicStatistics.getRowCount());
+        PartitionStatistics currentStatistics = new PartitionStatistics(currentBasicStatistics, currentColumnStatistics);
+
+        PartitionStatistics updatedStatistics = mode.updatePartitionStatistics(currentStatistics, statisticsUpdate);
 
         try {
             TableInput tableInput = GlueInputConverter.convertTable(table);
@@ -368,28 +363,34 @@ public class GlueHiveMetastore
     }
 
     @Override
-    public void updatePartitionStatistics(Table table, Map<String, Function<PartitionStatistics, PartitionStatistics>> updates)
+    public void updatePartitionStatistics(Table table, StatisticsUpdateMode mode, Map<String, PartitionStatistics> partitionUpdates)
     {
-        Iterables.partition(updates.entrySet(), BATCH_CREATE_PARTITION_MAX_PAGE_SIZE).forEach(partitionUpdates ->
-                updatePartitionStatisticsBatch(table, partitionUpdates.stream().collect(toImmutableMap(Entry::getKey, Entry::getValue))));
+        Iterables.partition(partitionUpdates.entrySet(), BATCH_CREATE_PARTITION_MAX_PAGE_SIZE)
+                .forEach(batch -> updatePartitionStatisticsBatch(table, mode, batch.stream().collect(toImmutableMap(Entry::getKey, Entry::getValue))));
     }
 
-    private void updatePartitionStatisticsBatch(Table table, Map<String, Function<PartitionStatistics, PartitionStatistics>> updates)
+    private void updatePartitionStatisticsBatch(Table table, StatisticsUpdateMode mode, Map<String, PartitionStatistics> partitionUpdates)
     {
+        // Missing partitions are ignored
+        Map<String, Partition> partitions = getPartitionsByNamesInternal(table, partitionUpdates.keySet()).entrySet().stream()
+                .filter(entry -> entry.getValue().isPresent())
+                .collect(toImmutableMap(Entry::getKey, entry -> entry.getValue().orElseThrow()));
+        Map<String, HiveBasicStatistics> currentBasicStats = partitions.entrySet().stream()
+                .collect(toImmutableMap(Entry::getKey, entry -> getHiveBasicStatistics(entry.getValue().getParameters())));
+        Map<String, Map<String, HiveColumnStatistics>> currentColumnStats = columnStatisticsProvider.getPartitionColumnStatistics(
+                table.getDatabaseName(),
+                table.getTableName(),
+                currentBasicStats.entrySet().stream()
+                        .collect(toImmutableMap(Entry::getKey, entry -> entry.getValue().getRowCount())),
+                table.getDataColumns().stream().map(Column::getName).collect(toImmutableSet()));
+
         ImmutableList.Builder<BatchUpdatePartitionRequestEntry> partitionUpdateRequests = ImmutableList.builder();
         ImmutableSet.Builder<GlueColumnStatisticsProvider.PartitionStatisticsUpdate> columnStatisticsUpdates = ImmutableSet.builder();
+        partitions.forEach((partitionName, partition) -> {
+            PartitionStatistics update = partitionUpdates.get(partitionName);
 
-        Map<List<String>, String> partitionValuesToName = updates.keySet().stream()
-                .collect(toImmutableMap(HiveUtil::toPartitionValues, identity()));
-
-        List<Partition> partitions = batchGetPartition(table, ImmutableList.copyOf(updates.keySet()));
-        Map<String, PartitionStatistics> partitionsStatistics = getPartitionStatistics(table, partitions);
-
-        partitions.forEach(partition -> {
-            Function<PartitionStatistics, PartitionStatistics> update = updates.get(partitionValuesToName.get(partition.getValues()));
-
-            PartitionStatistics currentStatistics = partitionsStatistics.get(makePartitionName(table, partition));
-            PartitionStatistics updatedStatistics = update.apply(currentStatistics);
+            PartitionStatistics currentStatistics = new PartitionStatistics(currentBasicStats.get(partitionName), currentColumnStats.get(partitionName));
+            PartitionStatistics updatedStatistics = mode.updatePartitionStatistics(currentStatistics, update);
 
             Map<String, String> updatedStatisticsParameters = updateStatisticsParameters(partition.getParameters(), updatedStatistics.getBasicStatistics());
 
@@ -1010,7 +1011,7 @@ public class GlueHiveMetastore
         return stats.getGetPartitionByName().call(() -> getPartitionsByNamesInternal(table, partitionNames));
     }
 
-    private Map<String, Optional<Partition>> getPartitionsByNamesInternal(Table table, List<String> partitionNames)
+    private Map<String, Optional<Partition>> getPartitionsByNamesInternal(Table table, Collection<String> partitionNames)
     {
         requireNonNull(partitionNames, "partitionNames is null");
         if (partitionNames.isEmpty()) {
@@ -1032,7 +1033,7 @@ public class GlueHiveMetastore
         return resultBuilder.buildOrThrow();
     }
 
-    private List<Partition> batchGetPartition(Table table, List<String> partitionNames)
+    private List<Partition> batchGetPartition(Table table, Collection<String> partitionNames)
     {
         List<Future<BatchGetPartitionResult>> batchGetPartitionFutures = new ArrayList<>();
         try {

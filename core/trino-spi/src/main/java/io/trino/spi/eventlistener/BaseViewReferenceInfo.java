@@ -11,17 +11,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.iceberg;
+package io.trino.spi.eventlistener;
 
-import com.google.inject.BindingAnnotation;
+/**
+ * This class is JSON serializable for convenience and serialization compatibility is not guaranteed across versions.
+ */
+public sealed interface BaseViewReferenceInfo
+        extends TableReferenceInfo
+        permits ViewReferenceInfo, MaterializedViewReferenceInfo
+{
+    String catalogName();
 
-import java.lang.annotation.Retention;
-import java.lang.annotation.Target;
+    String schemaName();
 
-import static java.lang.annotation.ElementType.PARAMETER;
-import static java.lang.annotation.RetentionPolicy.RUNTIME;
-
-@Retention(RUNTIME)
-@Target(PARAMETER)
-@BindingAnnotation
-public @interface AsyncIcebergSplitProducer {}
+    String viewName();
+}

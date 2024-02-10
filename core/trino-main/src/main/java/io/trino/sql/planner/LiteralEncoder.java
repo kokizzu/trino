@@ -24,6 +24,7 @@ import io.trino.metadata.ResolvedFunction;
 import io.trino.operator.scalar.VarbinaryFunctions;
 import io.trino.operator.scalar.timestamp.TimestampToVarcharCast;
 import io.trino.operator.scalar.timestamptz.TimestampWithTimeZoneToVarcharCast;
+import io.trino.spi.TrinoException;
 import io.trino.spi.block.Block;
 import io.trino.spi.type.CharType;
 import io.trino.spi.type.DecimalType;
@@ -47,7 +48,6 @@ import io.trino.sql.tree.GenericLiteral;
 import io.trino.sql.tree.LongLiteral;
 import io.trino.sql.tree.NullLiteral;
 import io.trino.sql.tree.StringLiteral;
-import io.trino.sql.tree.TimestampLiteral;
 import jakarta.annotation.Nullable;
 
 import java.util.List;
@@ -56,6 +56,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static io.trino.metadata.GlobalFunctionCatalog.builtinFunctionName;
 import static io.trino.metadata.LiteralFunction.LITERAL_FUNCTION_NAME;
 import static io.trino.metadata.LiteralFunction.typeForMagicLiteral;
+import static io.trino.spi.StandardErrorCode.INVALID_CAST_ARGUMENT;
 import static io.trino.spi.predicate.Utils.nativeValueToBlock;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
@@ -206,7 +207,7 @@ public final class LiteralEncoder
             if (boundedLength > valueLength) {
                 return new Cast(stringLiteral, toSqlType(type), false, true);
             }
-            throw new IllegalArgumentException(format("Value [%s] does not fit in type %s", value.toStringUtf8(), varcharType));
+            throw new TrinoException(INVALID_CAST_ARGUMENT, format("Value [%s] does not fit in type %s", value.toStringUtf8(), varcharType));
         }
 
         if (type instanceof CharType) {
@@ -230,7 +231,7 @@ public final class LiteralEncoder
             else {
                 representation = TimestampToVarcharCast.cast(timestampType.getPrecision(), (LongTimestamp) object).toStringUtf8();
             }
-            return new TimestampLiteral(representation);
+            return new GenericLiteral("TIMESTAMP", representation);
         }
 
         if (type instanceof TimestampWithTimeZoneType timestampWithTimeZoneType) {
@@ -248,7 +249,7 @@ public final class LiteralEncoder
                 // TODO (https://github.com/trinodb/trino/issues/5781) consider treating such values as illegal
             }
             else {
-                return new TimestampLiteral(representation);
+                return new GenericLiteral("TIMESTAMP", representation);
             }
         }
 

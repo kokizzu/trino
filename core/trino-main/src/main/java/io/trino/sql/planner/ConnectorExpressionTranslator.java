@@ -15,7 +15,6 @@ package io.trino.sql.planner;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
 import io.trino.Session;
@@ -50,7 +49,6 @@ import io.trino.sql.tree.InListExpression;
 import io.trino.sql.tree.InPredicate;
 import io.trino.sql.tree.IsNotNullPredicate;
 import io.trino.sql.tree.IsNullPredicate;
-import io.trino.sql.tree.LikePredicate;
 import io.trino.sql.tree.Literal;
 import io.trino.sql.tree.LogicalExpression;
 import io.trino.sql.tree.LongLiteral;
@@ -731,13 +729,7 @@ public final class ConnectorExpressionTranslator
             Expression patternArgument = node.getArguments().get(1);
             if (isEffectivelyLiteral(plannerContext, session, patternArgument)) {
                 // the pattern argument has been constant folded, so extract the underlying pattern and escape
-                LikePattern matcher = (LikePattern) evaluateConstantExpression(
-                        patternArgument,
-                        typeOf(patternArgument),
-                        plannerContext,
-                        session,
-                        new AllowAllAccessControl(),
-                        ImmutableMap.of());
+                LikePattern matcher = (LikePattern) evaluateConstantExpression(patternArgument, plannerContext, session);
 
                 arguments.add(new Constant(Slices.utf8Slice(matcher.getPattern()), createVarcharType(matcher.getPattern().length())));
                 if (matcher.getEscape().isPresent()) {
@@ -801,13 +793,7 @@ public final class ConnectorExpressionTranslator
         private ConnectorExpression constantFor(Expression node)
         {
             Type type = typeOf(node);
-            Object value = evaluateConstantExpression(
-                    node,
-                    type,
-                    plannerContext,
-                    session,
-                    new AllowAllAccessControl(),
-                    ImmutableMap.of());
+            Object value = evaluateConstantExpression(node, plannerContext, session);
 
             if (type == JONI_REGEXP) {
                 Slice pattern = ((JoniRegexp) value).pattern();
@@ -822,24 +808,6 @@ public final class ConnectorExpressionTranslator
                 return new Constant(pattern, createVarcharType(countCodePoints(pattern)));
             }
             return new Constant(value, type);
-        }
-
-        @Override
-        protected Optional<ConnectorExpression> visitLikePredicate(LikePredicate node, Void context)
-        {
-            Optional<ConnectorExpression> value = process(node.getValue());
-            Optional<ConnectorExpression> pattern = process(node.getPattern());
-            if (value.isPresent() && pattern.isPresent()) {
-                if (node.getEscape().isEmpty()) {
-                    return Optional.of(new Call(typeOf(node), StandardFunctions.LIKE_FUNCTION_NAME, List.of(value.get(), pattern.get())));
-                }
-
-                Optional<ConnectorExpression> escape = process(node.getEscape().get());
-                if (escape.isPresent()) {
-                    return Optional.of(new Call(typeOf(node), StandardFunctions.LIKE_FUNCTION_NAME, List.of(value.get(), pattern.get(), escape.get())));
-                }
-            }
-            return Optional.empty();
         }
 
         @Override

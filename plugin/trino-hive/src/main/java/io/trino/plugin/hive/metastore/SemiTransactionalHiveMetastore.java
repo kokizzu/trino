@@ -65,6 +65,7 @@ import io.trino.spi.type.Type;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -72,6 +73,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Queue;
@@ -87,6 +89,7 @@ import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -102,6 +105,7 @@ import static io.trino.plugin.hive.HiveErrorCode.HIVE_METASTORE_ERROR;
 import static io.trino.plugin.hive.HiveErrorCode.HIVE_PATH_ALREADY_EXISTS;
 import static io.trino.plugin.hive.HiveErrorCode.HIVE_TABLE_DROPPED_DURING_QUERY;
 import static io.trino.plugin.hive.HiveMetadata.TRINO_QUERY_ID_NAME;
+import static io.trino.plugin.hive.HivePartitionManager.extractPartitionValues;
 import static io.trino.plugin.hive.LocationHandle.WriteMode.DIRECT_TO_TARGET_NEW_DIRECTORY;
 import static io.trino.plugin.hive.TableType.MANAGED_TABLE;
 import static io.trino.plugin.hive.ViewReaderUtil.isTrinoMaterializedView;
@@ -110,13 +114,17 @@ import static io.trino.plugin.hive.acid.AcidTransaction.NO_ACID_TRANSACTION;
 import static io.trino.plugin.hive.metastore.HivePrivilegeInfo.HivePrivilege.OWNERSHIP;
 import static io.trino.plugin.hive.metastore.MetastoreUtil.buildInitialPrivilegeSet;
 import static io.trino.plugin.hive.metastore.PrincipalPrivileges.NO_PRIVILEGES;
+import static io.trino.plugin.hive.metastore.SparkMetastoreUtil.getSparkTableStatistics;
+import static io.trino.plugin.hive.metastore.StatisticsUpdateMode.MERGE_INCREMENTAL;
+import static io.trino.plugin.hive.metastore.StatisticsUpdateMode.OVERWRITE_ALL;
+import static io.trino.plugin.hive.metastore.StatisticsUpdateMode.OVERWRITE_SOME_COLUMNS;
+import static io.trino.plugin.hive.metastore.StatisticsUpdateMode.UNDO_MERGE_INCREMENTAL;
+import static io.trino.plugin.hive.metastore.thrift.ThriftMetastoreUtil.getBasicStatisticsWithSparkFallback;
+import static io.trino.plugin.hive.metastore.thrift.ThriftMetastoreUtil.getHiveBasicStatistics;
 import static io.trino.plugin.hive.util.AcidTables.isTransactionalTable;
 import static io.trino.plugin.hive.util.HiveUtil.makePartName;
 import static io.trino.plugin.hive.util.HiveUtil.toPartitionValues;
 import static io.trino.plugin.hive.util.HiveWriteUtils.isFileCreatedByQuery;
-import static io.trino.plugin.hive.util.Statistics.ReduceOperator.SUBTRACT;
-import static io.trino.plugin.hive.util.Statistics.merge;
-import static io.trino.plugin.hive.util.Statistics.reduce;
 import static io.trino.spi.StandardErrorCode.ALREADY_EXISTS;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.StandardErrorCode.TRANSACTION_CONFLICT;
@@ -323,7 +331,26 @@ public class SemiTransactionalHiveMetastore
         checkReadable();
         Action<TableAndMore> tableAction = tableActions.get(new SchemaTableName(databaseName, tableName));
         if (tableAction == null) {
-            return delegate.getTableStatistics(databaseName, tableName, columns);
+            Table table = getExistingTable(databaseName, tableName);
+            Set<String> columnNames = columns.orElseGet(() -> Stream.concat(table.getDataColumns().stream(), table.getPartitionColumns().stream())
+                    .map(Column::getName)
+                    .collect(toImmutableSet()));
+
+            if (delegate.useSparkTableStatistics()) {
+                Optional<PartitionStatistics> sparkTableStatistics = getSparkTableStatistics(table.getParameters(), columnNames.stream()
+                        .map(table::getColumn)
+                        .flatMap(Optional::stream)
+                        .collect(toImmutableMap(Column::getName, Column::getType)));
+                if (sparkTableStatistics.isPresent()) {
+                    return sparkTableStatistics.get();
+                }
+            }
+
+            HiveBasicStatistics basicStatistics = getHiveBasicStatistics(table.getParameters());
+            if (columnNames.isEmpty()) {
+                return new PartitionStatistics(basicStatistics, ImmutableMap.of());
+            }
+            return new PartitionStatistics(basicStatistics, delegate.getTableColumnStatistics(databaseName, tableName, columnNames, basicStatistics.getRowCount()));
         }
         switch (tableAction.getType()) {
             case ADD:
@@ -371,14 +398,71 @@ public class SemiTransactionalHiveMetastore
             }
         }
 
-        Map<String, PartitionStatistics> delegateResult = delegate.getPartitionStatistics(databaseName, tableName, partitionNamesToQuery.build(), Optional.of(columns));
-        if (!delegateResult.isEmpty()) {
-            resultBuilder.putAll(delegateResult);
+        Set<String> missingPartitions = partitionNamesToQuery.build();
+        if (missingPartitions.isEmpty()) {
+            return resultBuilder.buildOrThrow();
         }
-        else {
-            partitionNamesToQuery.build().forEach(partitionName -> resultBuilder.put(partitionName, PartitionStatistics.empty()));
+
+        Map<String, Partition> existingPartitions = getExistingPartitions(databaseName, tableName, partitionNames);
+        if (delegate.useSparkTableStatistics()) {
+            Map<String, Partition> unprocessedPartitions = new HashMap<>();
+            existingPartitions.forEach((partitionName, partition) -> {
+                Optional<PartitionStatistics> sparkPartitionStatistics = getSparkTableStatistics(partition.getParameters(), columns.stream()
+                        .map(table.get()::getColumn)
+                        .flatMap(Optional::stream)
+                        .collect(toImmutableMap(Column::getName, Column::getType)));
+                sparkPartitionStatistics.ifPresentOrElse(
+                        statistics -> resultBuilder.put(partitionName, statistics),
+                        () -> unprocessedPartitions.put(partitionName, partition));
+            });
+            existingPartitions = unprocessedPartitions;
         }
-        return resultBuilder.buildOrThrow();
+
+        if (!existingPartitions.isEmpty()) {
+            Map<String, HiveBasicStatistics> basicStats = existingPartitions.entrySet().stream()
+                    .collect(toImmutableMap(Entry::getKey, entry -> {
+                        if (delegate.useSparkTableStatistics()) {
+                            return getBasicStatisticsWithSparkFallback(entry.getValue().getParameters());
+                        }
+                        return getHiveBasicStatistics(entry.getValue().getParameters());
+                    }));
+
+            if (columns.isEmpty()) {
+                basicStats.forEach((partitionName, basicStatistics) -> resultBuilder.put(partitionName, new PartitionStatistics(basicStatistics, ImmutableMap.of())));
+            }
+            else {
+                Map<String, Map<String, HiveColumnStatistics>> columnStats = delegate.getPartitionColumnStatistics(
+                        databaseName,
+                        tableName,
+                        basicStats.entrySet().stream().collect(toImmutableMap(Entry::getKey, entry -> entry.getValue().getRowCount())),
+                        columns);
+
+                basicStats.entrySet().forEach(entry -> resultBuilder.put(entry.getKey(), new PartitionStatistics(entry.getValue(), columnStats.getOrDefault(entry.getKey(), ImmutableMap.of()))));
+            }
+        }
+        return clearRowCountWhenAllPartitionsHaveNoRows(resultBuilder.buildOrThrow());
+    }
+
+    private static Map<String, PartitionStatistics> clearRowCountWhenAllPartitionsHaveNoRows(Map<String, PartitionStatistics> partitionStatistics)
+    {
+        if (partitionStatistics.isEmpty()) {
+            return partitionStatistics;
+        }
+
+        // When the table has partitions, but row count statistics are set to zero, we treat this case as empty
+        // statistics to avoid underestimation in the CBO. This scenario may be caused when other engines are
+        // used to ingest data into partitioned hive tables.
+        long tableRowCount = partitionStatistics.values().stream()
+                .mapToLong(statistics -> statistics.getBasicStatistics().getRowCount().orElse(0))
+                .sum();
+        if (tableRowCount != 0) {
+            return partitionStatistics;
+        }
+        return partitionStatistics.entrySet().stream()
+                .map(entry -> new AbstractMap.SimpleEntry<>(
+                        entry.getKey(),
+                        entry.getValue().withBasicStatistics(entry.getValue().getBasicStatistics().withEmptyRowCount())))
+                .collect(toImmutableMap(AbstractMap.SimpleEntry::getKey, AbstractMap.SimpleEntry::getValue));
     }
 
     /**
@@ -424,7 +508,7 @@ public class SemiTransactionalHiveMetastore
         }
         else {
             ImmutableMap.Builder<List<String>, Optional<Partition>> modifiedPartitionMapBuilder = ImmutableMap.builder();
-            for (Map.Entry<List<String>, Action<PartitionAndMore>> entry : partitionActionMap.entrySet()) {
+            for (Entry<List<String>, Action<PartitionAndMore>> entry : partitionActionMap.entrySet()) {
                 modifiedPartitionMapBuilder.put(entry.getKey(), getPartitionFromPartitionAction(entry.getValue()));
             }
             modifiedPartitionMap = modifiedPartitionMapBuilder.buildOrThrow();
@@ -511,50 +595,22 @@ public class SemiTransactionalHiveMetastore
     public synchronized void setTableStatistics(Table table, PartitionStatistics tableStatistics)
     {
         AcidTransaction transaction = currentHiveTransaction.isPresent() ? currentHiveTransaction.get().getTransaction() : NO_ACID_TRANSACTION;
-        setExclusive(delegate ->
-                delegate.updateTableStatistics(table.getDatabaseName(), table.getTableName(), transaction, statistics -> updatePartitionStatistics(statistics, tableStatistics)));
+        setExclusive(delegate -> delegate.updateTableStatistics(table.getDatabaseName(), table.getTableName(), transaction, OVERWRITE_SOME_COLUMNS, tableStatistics));
     }
 
     // TODO: Allow updating statistics for 2 tables in the same transaction
     public synchronized void setPartitionStatistics(Table table, Map<List<String>, PartitionStatistics> partitionStatisticsMap)
     {
-        Map<String, Function<PartitionStatistics, PartitionStatistics>> updates = partitionStatisticsMap.entrySet().stream().collect(
+        Map<String, PartitionStatistics> updates = partitionStatisticsMap.entrySet().stream().collect(
                 toImmutableMap(
                         entry -> getPartitionName(table, entry.getKey()),
-                        entry -> oldPartitionStats -> updatePartitionStatistics(oldPartitionStats, entry.getValue())));
+                        entry -> entry.getValue()));
         setExclusive(delegate ->
                 delegate.updatePartitionStatistics(
                         table.getDatabaseName(),
                         table.getTableName(),
+                        OVERWRITE_SOME_COLUMNS,
                         updates));
-    }
-
-    // For HiveBasicStatistics, we only overwrite the original statistics if the new one is not empty.
-    // For HiveColumnStatistics, only overwrite the original statistics for columns present in the new ones and preserve the others.
-    private static PartitionStatistics updatePartitionStatistics(PartitionStatistics oldPartitionStats, PartitionStatistics newPartitionStats)
-    {
-        HiveBasicStatistics oldBasicStatistics = oldPartitionStats.getBasicStatistics();
-        HiveBasicStatistics newBasicStatistics = newPartitionStats.getBasicStatistics();
-        HiveBasicStatistics updatedBasicStatistics = new HiveBasicStatistics(
-                firstPresent(newBasicStatistics.getFileCount(), oldBasicStatistics.getFileCount()),
-                firstPresent(newBasicStatistics.getRowCount(), oldBasicStatistics.getRowCount()),
-                firstPresent(newBasicStatistics.getInMemoryDataSizeInBytes(), oldBasicStatistics.getInMemoryDataSizeInBytes()),
-                firstPresent(newBasicStatistics.getOnDiskDataSizeInBytes(), oldBasicStatistics.getOnDiskDataSizeInBytes()));
-        Map<String, HiveColumnStatistics> updatedColumnStatistics =
-                updateColumnStatistics(oldPartitionStats.getColumnStatistics(), newPartitionStats.getColumnStatistics());
-        return new PartitionStatistics(updatedBasicStatistics, updatedColumnStatistics);
-    }
-
-    private static Map<String, HiveColumnStatistics> updateColumnStatistics(Map<String, HiveColumnStatistics> oldColumnStats, Map<String, HiveColumnStatistics> newColumnStats)
-    {
-        Map<String, HiveColumnStatistics> result = new HashMap<>(oldColumnStats);
-        result.putAll(newColumnStats);
-        return ImmutableMap.copyOf(result);
-    }
-
-    private static OptionalLong firstPresent(OptionalLong first, OptionalLong second)
-    {
-        return first.isPresent() ? first : second;
     }
 
     /**
@@ -706,7 +762,7 @@ public class SemiTransactionalHiveMetastore
                                     Optional.of(currentLocation),
                                     Optional.of(fileNames),
                                     false,
-                                    merge(currentStatistics, statisticsUpdate),
+                                    MERGE_INCREMENTAL.updatePartitionStatistics(currentStatistics, statisticsUpdate),
                                     statisticsUpdate,
                                     cleanExtraOutputFilesOnCommit),
                             session.getIdentity(),
@@ -1035,58 +1091,56 @@ public class SemiTransactionalHiveMetastore
             boolean cleanExtraOutputFilesOnCommit)
     {
         setShared();
-        SchemaTableName schemaTableName = new SchemaTableName(databaseName, tableName);
-        Map<List<String>, Action<PartitionAndMore>> partitionActionsOfTable = partitionActions.computeIfAbsent(schemaTableName, k -> new HashMap<>());
+        Table table = getExistingTable(databaseName, tableName);
+        Map<List<String>, Action<PartitionAndMore>> partitionActionsOfTable = partitionActions.computeIfAbsent(table.getSchemaTableName(), k -> new HashMap<>());
 
         for (PartitionUpdateInfo partitionInfo : partitionUpdateInfos) {
             Action<PartitionAndMore> oldPartitionAction = partitionActionsOfTable.get(partitionInfo.partitionValues);
             if (oldPartitionAction != null) {
                 switch (oldPartitionAction.getType()) {
-                    case DROP, DROP_PRESERVE_DATA -> throw new PartitionNotFoundException(schemaTableName, partitionInfo.partitionValues);
+                    case DROP, DROP_PRESERVE_DATA -> throw new PartitionNotFoundException(table.getSchemaTableName(), partitionInfo.partitionValues);
                     case ADD, ALTER, INSERT_EXISTING, MERGE -> throw new UnsupportedOperationException("Inserting into a partition that were added, altered, or inserted into in the same transaction is not supported");
                     default -> throw new IllegalStateException("Unknown action type: " + oldPartitionAction.getType());
                 }
             }
         }
 
+        // new data will on include current table columns
+        // partition column stats do not include the partition keys
+        Set<String> columnNames = table.getDataColumns().stream()
+                .map(Column::getName)
+                .collect(toImmutableSet());
         for (List<PartitionUpdateInfo> partitionInfoBatch : Iterables.partition(partitionUpdateInfos, 100)) {
             List<String> partitionNames = partitionInfoBatch.stream()
                     .map(PartitionUpdateInfo::partitionValues)
                     .map(partitionValues -> getPartitionName(databaseName, tableName, partitionValues))
                     .collect(toImmutableList());
 
-            Map<String, Optional<Partition>> partitionsByNames = delegate.getPartitionsByNames(
-                    schemaTableName.getSchemaName(),
-                    schemaTableName.getTableName(),
-                    partitionNames);
-            Map<String, PartitionStatistics> partitionStatistics = delegate.getPartitionStatistics(
-                    schemaTableName.getSchemaName(),
-                    schemaTableName.getTableName(),
-                    ImmutableSet.copyOf(partitionNames));
+            Map<String, Partition> partitionsByNames = getExistingPartitions(databaseName, tableName, partitionNames);
+            Map<String, HiveBasicStatistics> basicStats = partitionsByNames.entrySet().stream()
+                    .collect(toImmutableMap(Entry::getKey, entry -> getHiveBasicStatistics(entry.getValue().getParameters())));
+            Map<String, Map<String, HiveColumnStatistics>> columnStats = delegate.getPartitionColumnStatistics(
+                    databaseName,
+                    tableName,
+                    basicStats.entrySet().stream().collect(toImmutableMap(Entry::getKey, entry -> entry.getValue().getRowCount())),
+                    columnNames);
 
             for (int i = 0; i < partitionInfoBatch.size(); i++) {
                 PartitionUpdateInfo partitionInfo = partitionInfoBatch.get(i);
                 String partitionName = partitionNames.get(i);
 
-                Optional<Partition> partition = partitionsByNames.get(partitionName);
-                if (partition.isEmpty()) {
-                    throw new PartitionNotFoundException(schemaTableName, partitionInfo.partitionValues);
-                }
-
-                PartitionStatistics currentStatistics = partitionStatistics.get(partitionName);
-                if (currentStatistics == null) {
-                    throw new TrinoException(HIVE_METASTORE_ERROR, "currentStatistics is null");
-                }
+                Partition partition = partitionsByNames.get(partitionName);
+                PartitionStatistics currentStatistics = new PartitionStatistics(basicStats.get(partitionName), columnStats.get(partitionName));
 
                 partitionActionsOfTable.put(
                         partitionInfo.partitionValues,
                         new Action<>(
                                 ActionType.INSERT_EXISTING,
                                 new PartitionAndMore(
-                                        partition.get(),
+                                        partition,
                                         partitionInfo.currentLocation,
                                         Optional.of(partitionInfo.fileNames),
-                                        merge(currentStatistics, partitionInfo.statisticsUpdate),
+                                        MERGE_INCREMENTAL.updatePartitionStatistics(currentStatistics, partitionInfo.statisticsUpdate),
                                         partitionInfo.statisticsUpdate,
                                         cleanExtraOutputFilesOnCommit),
                                 session.getIdentity(),
@@ -1213,6 +1267,13 @@ public class SemiTransactionalHiveMetastore
     {
         return delegate.getTable(databaseName, tableName)
                 .orElseThrow(() -> new TableNotFoundException(new SchemaTableName(databaseName, tableName)));
+    }
+
+    private Map<String, Partition> getExistingPartitions(String databaseName, String tableName, Collection<String> partitionNames)
+    {
+        return delegate.getPartitionsByNames(databaseName, tableName, ImmutableList.copyOf(partitionNames)).entrySet().stream()
+                .collect(toImmutableMap(Entry::getKey, entry -> entry.getValue()
+                        .orElseThrow(() -> new PartitionNotFoundException(new SchemaTableName(databaseName, tableName), extractPartitionValues(entry.getKey())))));
     }
 
     @Override
@@ -1537,7 +1598,7 @@ public class SemiTransactionalHiveMetastore
 
         Committer committer = new Committer(transaction);
         try {
-            for (Map.Entry<SchemaTableName, Action<TableAndMore>> entry : tableActions.entrySet()) {
+            for (Entry<SchemaTableName, Action<TableAndMore>> entry : tableActions.entrySet()) {
                 SchemaTableName schemaTableName = entry.getKey();
                 Action<TableAndMore> action = entry.getValue();
                 switch (action.getType()) {
@@ -1560,9 +1621,9 @@ public class SemiTransactionalHiveMetastore
                         throw new IllegalStateException("Unknown action type: " + action.getType());
                 }
             }
-            for (Map.Entry<SchemaTableName, Map<List<String>, Action<PartitionAndMore>>> tableEntry : partitionActions.entrySet()) {
+            for (Entry<SchemaTableName, Map<List<String>, Action<PartitionAndMore>>> tableEntry : partitionActions.entrySet()) {
                 SchemaTableName schemaTableName = tableEntry.getKey();
-                for (Map.Entry<List<String>, Action<PartitionAndMore>> partitionEntry : tableEntry.getValue().entrySet()) {
+                for (Entry<List<String>, Action<PartitionAndMore>> partitionEntry : tableEntry.getValue().entrySet()) {
                     List<String> partitionValues = partitionEntry.getKey();
                     Action<PartitionAndMore> action = partitionEntry.getValue();
                     switch (action.getType()) {
@@ -1976,14 +2037,19 @@ public class SemiTransactionalHiveMetastore
         private PartitionStatistics getExistingPartitionStatistics(Partition partition, String partitionName)
         {
             try {
-                PartitionStatistics statistics = delegate.getPartitionStatistics(partition.getDatabaseName(), partition.getTableName(), ImmutableSet.of(partitionName))
+                HiveBasicStatistics basicStatistics = getHiveBasicStatistics(partition.getParameters());
+                Map<String, HiveColumnStatistics> columnStatistics = delegate.getPartitionColumnStatistics(
+                                partition.getDatabaseName(),
+                                partition.getTableName(),
+                                ImmutableMap.of(partitionName, basicStatistics.getRowCount()),
+                                partition.getColumns().stream().map(Column::getName).collect(toImmutableSet()))
                         .get(partitionName);
-                if (statistics == null) {
+                if (columnStatistics == null) {
                     throw new TrinoException(
                             TRANSACTION_CONFLICT,
                             format("The partition that this transaction modified was deleted in another transaction. %s %s", partition.getTableName(), partition.getValues()));
                 }
-                return statistics;
+                return new PartitionStatistics(basicStatistics, columnStatistics);
             }
             catch (TrinoException e) {
                 if (e.getErrorCode().equals(HIVE_CORRUPTED_COLUMN_STATISTICS.toErrorCode())) {
@@ -3224,7 +3290,7 @@ public class SemiTransactionalHiveMetastore
             tableCreated = true;
 
             if (created && !isTrinoView(newTable) && !isTrinoMaterializedView(newTable)) {
-                metastore.updateTableStatistics(newTable.getDatabaseName(), newTable.getTableName(), transaction, ignored -> statistics);
+                metastore.updateTableStatistics(newTable.getDatabaseName(), newTable.getTableName(), transaction, OVERWRITE_ALL, statistics);
             }
         }
 
@@ -3364,11 +3430,12 @@ public class SemiTransactionalHiveMetastore
 
         public void run(HiveMetastoreClosure metastore, AcidTransaction transaction)
         {
+            StatisticsUpdateMode mode = merge ? MERGE_INCREMENTAL : OVERWRITE_ALL;
             if (partitionName.isPresent()) {
-                metastore.updatePartitionStatistics(tableName.getSchemaName(), tableName.getTableName(), ImmutableMap.of(partitionName.get(), this::updateStatistics));
+                metastore.updatePartitionStatistics(tableName.getSchemaName(), tableName.getTableName(), mode, ImmutableMap.of(partitionName.get(), statistics));
             }
             else {
-                metastore.updateTableStatistics(tableName.getSchemaName(), tableName.getTableName(), transaction, this::updateStatistics);
+                metastore.updateTableStatistics(tableName.getSchemaName(), tableName.getTableName(), transaction, mode, statistics);
             }
             done = true;
         }
@@ -3379,10 +3446,10 @@ public class SemiTransactionalHiveMetastore
                 return;
             }
             if (partitionName.isPresent()) {
-                metastore.updatePartitionStatistics(tableName.getSchemaName(), tableName.getTableName(), ImmutableMap.of(partitionName.get(), this::resetStatistics));
+                metastore.updatePartitionStatistics(tableName.getSchemaName(), tableName.getTableName(), UNDO_MERGE_INCREMENTAL, ImmutableMap.of(partitionName.get(), statistics));
             }
             else {
-                metastore.updateTableStatistics(tableName.getSchemaName(), tableName.getTableName(), transaction, this::resetStatistics);
+                metastore.updateTableStatistics(tableName.getSchemaName(), tableName.getTableName(), transaction, UNDO_MERGE_INCREMENTAL, statistics);
             }
         }
 
@@ -3392,16 +3459,6 @@ public class SemiTransactionalHiveMetastore
                 return format("replace partition parameters %s %s", tableName, partitionName.get());
             }
             return format("replace table parameters %s", tableName);
-        }
-
-        private PartitionStatistics updateStatistics(PartitionStatistics currentStatistics)
-        {
-            return merge ? merge(currentStatistics, statistics) : statistics;
-        }
-
-        private PartitionStatistics resetStatistics(PartitionStatistics currentStatistics)
-        {
-            return new PartitionStatistics(reduce(currentStatistics.getBasicStatistics(), statistics.getBasicStatistics(), SUBTRACT), ImmutableMap.of());
         }
     }
 

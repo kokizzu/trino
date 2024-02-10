@@ -43,6 +43,7 @@ import io.trino.sql.PlannerContext;
 import io.trino.sql.analyzer.TypeSignatureProvider;
 import io.trino.sql.parser.SqlParser;
 import io.trino.sql.planner.OrderingScheme;
+import io.trino.sql.planner.OrderingTranslator;
 import io.trino.sql.planner.Partitioning;
 import io.trino.sql.planner.PartitioningScheme;
 import io.trino.sql.planner.PlanNodeIdAllocator;
@@ -451,7 +452,7 @@ public class PlanBuilder
                     aggregation.getArguments(),
                     aggregation.isDistinct(),
                     aggregation.getFilter().map(Symbol::from),
-                    aggregation.getOrderBy().map(OrderingScheme::fromOrderBy),
+                    aggregation.getOrderBy().map(OrderingTranslator::fromOrderBy),
                     mask));
         }
 
@@ -526,7 +527,7 @@ public class PlanBuilder
         }
     }
 
-    public ApplyNode apply(Assignments subqueryAssignments, List<Symbol> correlation, PlanNode input, PlanNode subquery)
+    public ApplyNode apply(Map<Symbol, ApplyNode.SetExpression> subqueryAssignments, List<Symbol> correlation, PlanNode input, PlanNode subquery)
     {
         NullLiteral originSubquery = new NullLiteral(); // does not matter for tests
         return new ApplyNode(idAllocator.getNextId(), input, subquery, subqueryAssignments, correlation, originSubquery);
@@ -1300,7 +1301,7 @@ public class PlanBuilder
                 aggregation.getArguments(),
                 aggregation.isDistinct(),
                 aggregation.getFilter().map(Symbol::from),
-                aggregation.getOrderBy().map(OrderingScheme::fromOrderBy),
+                aggregation.getOrderBy().map(OrderingTranslator::fromOrderBy),
                 Optional.empty());
     }
 
