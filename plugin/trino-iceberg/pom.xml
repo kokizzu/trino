@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>439-SNAPSHOT</version>
+        <version>440-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -14,7 +14,6 @@
     <description>Trino - Iceberg Connector</description>
 
     <properties>
-        <air.main.basedir>${project.parent.basedir}</air.main.basedir>
         <!-- Nessie version (matching to Iceberg release) must be bumped along with Iceberg version bump to avoid compatibility issues -->
         <dep.nessie.version>0.71.0</dep.nessie.version>
     </properties>
@@ -231,11 +230,6 @@
         </dependency>
 
         <dependency>
-            <groupId>org.apache.parquet</groupId>
-            <artifactId>parquet-hadoop</artifactId>
-        </dependency>
-
-        <dependency>
             <groupId>org.jdbi</groupId>
             <artifactId>jdbi3-core</artifactId>
         </dependency>
@@ -342,7 +336,19 @@
 
         <dependency>
             <groupId>io.trino</groupId>
+            <artifactId>trino-filesystem-cache-alluxio</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.trino</groupId>
             <artifactId>trino-filesystem-s3</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.alluxio</groupId>
+            <artifactId>alluxio-core-common</artifactId>
             <scope>runtime</scope>
         </dependency>
 
@@ -483,6 +489,13 @@
 
         <dependency>
             <groupId>io.trino</groupId>
+            <artifactId>trino-filesystem-cache-alluxio</artifactId>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.trino</groupId>
             <artifactId>trino-hdfs</artifactId>
             <scope>test</scope>
         </dependency>
@@ -566,6 +579,12 @@
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-core</artifactId>
             <classifier>tests</classifier>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-hadoop</artifactId>
             <scope>test</scope>
         </dependency>
 

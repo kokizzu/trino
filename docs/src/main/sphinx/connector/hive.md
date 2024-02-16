@@ -14,8 +14,6 @@ Amazon S3 <hive-s3>
 Azure Storage <hive-azure>
 Google Cloud Storage <hive-gcs-tutorial>
 IBM Cloud Object Storage <hive-cos>
-Storage Caching <hive-caching>
-Alluxio <hive-alluxio>
 Object storage file formats <object-storage-file-formats>
 ```
 
@@ -342,16 +340,20 @@ Hive connector documentation.
   - `false`
 :::
 
-## Storage
+(hive-file-system-configuration)=
+### File system access configuration
 
-The Hive connector supports the following storage options:
+The connector supports native, high-performance file system access to object
+storage systems:
 
-- {doc}`Amazon S3 <hive-s3>`
-- {doc}`Azure Storage <hive-azure>`
-- {doc}`Google Cloud Storage <hive-gcs-tutorial>`
-- {doc}`IBM Cloud Object Storage <hive-cos>`
+* [](/object-storage)
+* [](/object-storage/file-system-azure)
+* [](/object-storage/file-system-gcs)
+* [](/object-storage/file-system-s3)
 
-The Hive connector also supports {doc}`storage caching <hive-caching>`.
+You must enable and configure the specific native file system access. If none is
+activated, the [legacy support](file-system-legacy) is used and must be
+configured.
 
 ## Security
 
@@ -639,7 +641,7 @@ type conversions.
 * - `BOOLEAN`
   - `VARCHAR`
 * - `VARCHAR`
-  - `TINYINT`, `SMALLINT`, `INTEGER`, `BIGINT`, `DOUBLE`, `TIMESTAMP`, `DATE`, as well as
+  - `TINYINT`, `SMALLINT`, `INTEGER`, `BIGINT`, `REAL`, `DOUBLE`, `TIMESTAMP`, `DATE`, as well as
     narrowing conversions for `VARCHAR`
 * - `CHAR`
   - narrowing conversions for `CHAR`
@@ -1282,6 +1284,11 @@ and Delta Lake tables with the following catalog configuration properties:
 
 - `hive.iceberg-catalog-name` for redirecting the query to {doc}`/connector/iceberg`
 - `hive.delta-lake-catalog-name` for redirecting the query to {doc}`/connector/delta-lake`
+
+### Filesystem cache
+
+The connector supports configuring and using [filesystem
+caching](/object-storage/file-system-cache).
 
 (hive-performance-tuning-configuration)=
 

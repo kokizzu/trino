@@ -32,7 +32,9 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
+import static com.google.common.base.Throwables.getCausalChain;
 import static io.airlift.testing.Closeables.closeAllSuppress;
 import static io.trino.plugin.jdbc.JdbcMetadataSessionProperties.AGGREGATION_PUSHDOWN_ENABLED;
 import static io.trino.plugin.tpch.TpchMetadata.TINY_SCHEMA_NAME;
@@ -102,6 +104,78 @@ public class TestQueryAssertions
     }
 
     @Test
+    public void testQueryFails()
+    {
+        // Accept failure
+        assertQueryFails("SELECT CAST('123a' AS integer)", "Cannot cast '123a' to INT");
+
+        // Report wrong message
+        assertThatThrownBy(() -> assertQueryFails("SELECT CAST('123a' AS integer)", "Different expected message"))
+                .isInstanceOf(AssertionError.class)
+                .hasMessageStartingWith("""
+
+                        Expecting message:
+                          "Cannot cast '123a' to INT"
+                        to match regex:
+                          "Different expected message"
+                        but did not.
+
+                        Throwable that failed the check:""");
+
+        // Match message with regular expression
+        assertQueryFails("SELECT CAST('123a' AS integer)", "Cannot cast '\\w+' (to)? INT");
+        assertQueryFails("SELECT fail('Some (message|with).pattern-likes++')", Pattern.quote("Some (message|with).pattern-likes++"));
+
+        // Verify message full match
+        assertQueryFails("SELECT CAST('123a' AS integer)", "^Cannot cast '123a' to INT$");
+        assertThatThrownBy(() -> assertQueryFails("SELECT CAST('123a' AS integer)", "Cannot cast"))
+                .isInstanceOf(AssertionError.class)
+                .hasMessageStartingWith("""
+
+                        Expecting message:
+                          "Cannot cast '123a' to INT"
+                        to match regex:
+                          "Cannot cast"
+                        but did not.
+
+                        Throwable that failed the check:""");
+
+        // Report query success
+        assertThatThrownBy(() -> assertQueryFails("SELECT 1", "Foo bar"))
+                .isInstanceOf(AssertionError.class)
+                .hasMessageMatching("Expected query to fail: SELECT 1 \\[QueryId: \\w+]");
+    }
+
+    @Test
+    // assertQueryFails should verify top level exception message, since this is what gets reported to the user by default.
+    public void testQueryFailsVerifiesEndUserVisibleMessage()
+    {
+        String sql = "SELECT CAST('abc' AS date)";
+        String lastMessage;
+        try {
+            // Any query that results in a TrinoException with message A and cause with message B != A.
+            computeActual(sql);
+            throw new IllegalStateException("Expected query failure");
+        }
+        catch (Exception expected) {
+            lastMessage = getCausalChain(expected).getLast().getMessage();
+            assertThat(lastMessage).isEqualTo("Invalid format: \"abc\"");
+        }
+
+        assertThatThrownBy(() -> assertQueryFails(sql, Pattern.quote(lastMessage)))
+                .isInstanceOf(AssertionError.class)
+                .hasMessageStartingWith("""
+
+                        Expecting message:
+                          "Value cannot be cast to date: abc"
+                        to match regex:
+                          "\\QInvalid format: "abc"\\E"
+                        but did not.
+
+                        Throwable that failed the check:""");
+    }
+
+    @Test
     public void testWrongType()
     {
         QueryAssert queryAssert = assertThat(query("SELECT X'001234'"));
@@ -148,16 +222,16 @@ public class TestQueryAssertions
         assertThatThrownBy(() -> queryAssert.matches("VALUES X'001299'"))
                 .hasMessageMatching(
                         "(?s).*" +
-                        "\\Q" +
-                        "Expecting actual:\n" +
-                        "  ([0, 18, 52])\n" +
-                        "to contain exactly in any order:\n" +
-                        "  [([0, 18, -103])]\n" +
-                        "elements not found:\n" +
-                        "  ([0, 18, -103])\n" +
-                        "and elements not expected:\n" +
-                        "  ([0, 18, 52])" +
-                        "\\E.*");
+                                "\\Q" +
+                                "Expecting actual:\n" +
+                                "  ([0, 18, 52])\n" +
+                                "to contain exactly in any order:\n" +
+                                "  [([0, 18, -103])]\n" +
+                                "elements not found:\n" +
+                                "  ([0, 18, -103])\n" +
+                                "and elements not expected:\n" +
+                                "  ([0, 18, 52])" +
+                                "\\E.*");
     }
 
     @Test
@@ -170,16 +244,16 @@ public class TestQueryAssertions
         assertThatThrownBy(() -> queryAssert.matches("SELECT CAST(ROW(X'001299') AS ROW(foo varbinary))"))
                 .hasMessageMatching(
                         "(?s).*" +
-                        "\\Q" +
-                        "Expecting actual:\n" +
-                        "  ([X'00 12 34'])\n" +
-                        "to contain exactly in any order:\n" +
-                        "  [([X'00 12 99'])]\n" +
-                        "elements not found:\n" +
-                        "  ([X'00 12 99'])\n" +
-                        "and elements not expected:\n" +
-                        "  ([X'00 12 34'])" +
-                        "\\E.*");
+                                "\\Q" +
+                                "Expecting actual:\n" +
+                                "  ([X'00 12 34'])\n" +
+                                "to contain exactly in any order:\n" +
+                                "  [([X'00 12 99'])]\n" +
+                                "elements not found:\n" +
+                                "  ([X'00 12 99'])\n" +
+                                "and elements not expected:\n" +
+                                "  ([X'00 12 34'])" +
+                                "\\E.*");
     }
 
     /**

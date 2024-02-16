@@ -62,7 +62,7 @@ public class TestLocalExecutionPlanner
 
         assertTrinoExceptionThrownBy(() -> runner.execute("SELECT " + outer + " FROM (VALUES rand()) t(x)"))
                 .hasErrorCode(COMPILER_ERROR)
-                .hasCauseMessageContaining("Query exceeded maximum columns");
+                .hasMessage("Query exceeded maximum columns. Please reduce the number of columns referenced and re-run the query.");
     }
 
     @Test
@@ -76,7 +76,7 @@ public class TestLocalExecutionPlanner
 
         assertTrinoExceptionThrownBy(() -> runner.execute("SELECT * " + filterQueryInner + filterQueryWhere))
                 .hasErrorCode(COMPILER_ERROR)
-                .hasCauseMessageContaining("Query exceeded maximum filters");
+                .hasMessage("Query exceeded maximum filters. Please reduce the number of filters referenced and re-run the query.");
     }
 
     @Test

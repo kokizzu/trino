@@ -6,16 +6,12 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>439-SNAPSHOT</version>
+        <version>440-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
     <artifactId>trino-phoenix5-patched</artifactId>
     <description>Trino - patched Phoenix5 client to work with JDK17</description>
-
-    <properties>
-        <air.main.basedir>${project.parent.basedir}</air.main.basedir>
-    </properties>
 
     <dependencies>
         <dependency>

@@ -15,14 +15,14 @@ package io.trino.tests.product.deltalake;
 
 import io.airlift.units.Duration;
 import io.trino.tempto.ProductTest;
-import io.trino.tests.product.deltalake.util.CachingTestUtils.CacheStats;
+import io.trino.tests.product.utils.CachingTestUtils.CacheStats;
 import org.testng.annotations.Test;
 
 import static io.airlift.testing.Assertions.assertGreaterThan;
 import static io.airlift.testing.Assertions.assertGreaterThanOrEqual;
 import static io.trino.tests.product.TestGroups.DELTA_LAKE_ALLUXIO_CACHING;
 import static io.trino.tests.product.TestGroups.PROFILE_SPECIFIC_TESTS;
-import static io.trino.tests.product.deltalake.util.CachingTestUtils.getCacheStats;
+import static io.trino.tests.product.utils.CachingTestUtils.getCacheStats;
 import static io.trino.tests.product.utils.QueryAssertions.assertEventually;
 import static io.trino.tests.product.utils.QueryExecutors.onTrino;
 import static java.util.concurrent.TimeUnit.SECONDS;

@@ -4,17 +4,13 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>439-SNAPSHOT</version>
+        <version>440-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
     <artifactId>trino-prometheus</artifactId>
     <packaging>trino-plugin</packaging>
     <description>Trino - Prometheus Connector</description>
-
-    <properties>
-        <air.main.basedir>${project.parent.basedir}</air.main.basedir>
-    </properties>
 
     <dependencies>
         <dependency>
@@ -218,13 +214,6 @@
             <groupId>org.apache.httpcomponents</groupId>
             <artifactId>httpcore</artifactId>
             <version>4.4.16</version>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.aspectj</groupId>
-            <artifactId>aspectjweaver</artifactId>
-            <version>1.9.20.1</version>
             <scope>test</scope>
         </dependency>
 

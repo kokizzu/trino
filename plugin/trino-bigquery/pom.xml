@@ -5,17 +5,13 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>439-SNAPSHOT</version>
+        <version>440-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
     <artifactId>trino-bigquery</artifactId>
     <packaging>trino-plugin</packaging>
     <description>Trino - BigQuery Connector</description>
-
-    <properties>
-        <air.main.basedir>${project.parent.basedir}</air.main.basedir>
-    </properties>
 
     <dependencyManagement>
         <dependencies>
@@ -484,13 +480,6 @@
             <artifactId>junit-jupiter-engine</artifactId>
             <scope>test</scope>
         </dependency>
-
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-core</artifactId>
-            <version>5.6.0</version>
-            <scope>test</scope>
-        </dependency>
     </dependencies>
 
     <build>
@@ -592,7 +581,7 @@
                 <activeByDefault>false</activeByDefault>
             </activation>
             <properties>
-                <air.test.jvm.additional-arguments>--add-opens=java.base/java.nio=ALL-UNNAMED</air.test.jvm.additional-arguments>
+                <air.test.jvm.additional-arguments>${air.test.jvm.additional-arguments.default} --add-opens=java.base/java.nio=ALL-UNNAMED</air.test.jvm.additional-arguments>
             </properties>
             <build>
                 <plugins>

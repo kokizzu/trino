@@ -33,11 +33,13 @@ import io.trino.spi.VersionEmbedder;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
+import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -45,6 +47,8 @@ import java.util.function.DoubleSupplier;
 import java.util.function.Predicate;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.lang.Math.max;
+import static java.lang.Math.min;
 import static java.util.Objects.requireNonNull;
 
 @ThreadSafe
@@ -54,6 +58,9 @@ public class ThreadPerDriverTaskExecutor
     private final FairScheduler scheduler;
     private final Tracer tracer;
     private final VersionEmbedder versionEmbedder;
+    private final int targetGlobalLeafDrivers;
+    private final int minDriversPerTask;
+    private final int maxDriversPerTask;
     private final ScheduledThreadPoolExecutor backgroundTasks = new ScheduledThreadPoolExecutor(2);
 
     @GuardedBy("this")
@@ -62,18 +69,30 @@ public class ThreadPerDriverTaskExecutor
     @GuardedBy("this")
     private boolean closed;
 
+    @GuardedBy("this")
+    private int runningLeafDrivers;
+
     @Inject
     public ThreadPerDriverTaskExecutor(TaskManagerConfig config, Tracer tracer, VersionEmbedder versionEmbedder)
     {
-        this(tracer, versionEmbedder, new FairScheduler(config.getMaxWorkerThreads(), "SplitRunner-%d", Ticker.systemTicker()));
+        this(
+                tracer,
+                versionEmbedder,
+                new FairScheduler(config.getMaxWorkerThreads(), "SplitRunner-%d", Ticker.systemTicker()),
+                config.getMinDriversPerTask(),
+                config.getMaxDriversPerTask(),
+                config.getMinDrivers());
     }
 
     @VisibleForTesting
-    public ThreadPerDriverTaskExecutor(Tracer tracer, VersionEmbedder versionEmbedder, FairScheduler scheduler)
+    public ThreadPerDriverTaskExecutor(Tracer tracer, VersionEmbedder versionEmbedder, FairScheduler scheduler, int minDriversPerTask, int maxDriversPerTask, int targetGlobalLeafDrivers)
     {
         this.scheduler = scheduler;
         this.tracer = requireNonNull(tracer, "tracer is null");
         this.versionEmbedder = requireNonNull(versionEmbedder, "versionEmbedder is null");
+        this.minDriversPerTask = minDriversPerTask;
+        this.maxDriversPerTask = maxDriversPerTask;
+        this.targetGlobalLeafDrivers = targetGlobalLeafDrivers;
     }
 
     @PostConstruct
@@ -104,7 +123,13 @@ public class ThreadPerDriverTaskExecutor
             OptionalInt maxDriversPerTask)
     {
         checkArgument(!closed, "Executor is already closed");
-        TaskEntry task = new TaskEntry(taskId, scheduler, versionEmbedder, tracer, initialSplitConcurrency, utilizationSupplier);
+        TaskEntry task = new TaskEntry(
+                taskId,
+                scheduler,
+                versionEmbedder,
+                tracer,
+                initialSplitConcurrency,
+                utilizationSupplier);
         tasks.put(taskId, task);
         return task;
     }
@@ -128,16 +153,57 @@ public class ThreadPerDriverTaskExecutor
 
         List<ListenableFuture<Void>> futures = new ArrayList<>();
         for (SplitRunner split : splits) {
-            futures.add(entry.addSplit(split, intermediate));
+            if (intermediate) {
+                futures.add(entry.runSplit(split));
+            }
+            else {
+                futures.add(entry.enqueueLeafSplit(split));
+            }
         }
 
+        scheduleMoreLeafSplits();
         return futures;
+    }
+
+    private boolean scheduleLeafSplit(TaskEntry task)
+    {
+        boolean scheduled = task.dequeueAndRunLeafSplit(this::leafSplitDone);
+        if (scheduled) {
+            runningLeafDrivers++;
+        }
+
+        return scheduled;
+    }
+
+    private synchronized void leafSplitDone()
+    {
+        runningLeafDrivers--;
+        scheduleMoreLeafSplits();
     }
 
     private synchronized void scheduleMoreLeafSplits()
     {
+        // schedule minimum guaranteed leaf drivers for each task
         for (TaskEntry task : tasks.values()) {
-            task.scheduleMoreLeafSplits();
+            int target = max(0, minDriversPerTask - task.runningLeafSplits());
+            for (int i = 0; i < target; i++) {
+                if (!scheduleLeafSplit(task)) {
+                    break;
+                }
+            }
+        }
+
+        // schedule additional drivers up to the target global leaf drivers
+        Queue<TaskEntry> queue = new ArrayDeque<>(tasks.values());
+        int target = targetGlobalLeafDrivers - runningLeafDrivers;
+        for (int i = 0; i < target && !queue.isEmpty(); i++) {
+            TaskEntry task = queue.poll();
+            if (task.runningLeafSplits() < min(task.targetConcurrency(), maxDriversPerTask)) {
+                scheduleLeafSplit(task);
+                if (task.hasPendingLeafSplits()) {
+                    queue.add(task);
+                }
+            }
         }
     }
 

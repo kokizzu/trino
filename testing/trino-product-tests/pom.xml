@@ -5,14 +5,13 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>439-SNAPSHOT</version>
+        <version>440-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
     <artifactId>trino-product-tests</artifactId>
 
     <properties>
-        <air.main.basedir>${project.parent.basedir}</air.main.basedir>
         <main-class>io.trino.tests.product.TemptoProductTestRunner</main-class>
         <air.check.skip-duplicate-finder>true</air.check.skip-duplicate-finder>
     </properties>
@@ -210,12 +209,12 @@
 
         <dependency>
             <groupId>org.apache.parquet</groupId>
-            <artifactId>parquet-common</artifactId>
+            <artifactId>parquet-column</artifactId>
         </dependency>
 
         <dependency>
             <groupId>org.apache.parquet</groupId>
-            <artifactId>parquet-hadoop</artifactId>
+            <artifactId>parquet-common</artifactId>
         </dependency>
 
         <dependency>

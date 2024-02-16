@@ -40,11 +40,9 @@ To use Iceberg, you need:
   <iceberg-jdbc-catalog>`, a {ref}`REST catalog <iceberg-rest-catalog>`, or a
   {ref}`Nessie server <iceberg-nessie-catalog>`.
 
-- Data files stored in a supported file format. These can be configured using
-  file format configuration properties per catalog:
-
-  - {ref}`ORC <hive-orc-configuration>`
-  - {ref}`Parquet <hive-parquet-configuration>` (default)
+- Data files stored in the file formats {ref}`ORC <hive-orc-configuration>` or
+  {ref}`Parquet <hive-parquet-configuration>` (default) on a [supported file
+  system](iceberg-file-system-configuration).
 
 ## General configuration
 
@@ -172,6 +170,21 @@ implementation is used:
     catalog specific use.
   - `false`
 :::
+
+(iceberg-file-system-configuration)=
+## File system access configuration
+
+The connector supports native, high-performance file system access to object
+storage systems:
+
+* [](/object-storage)
+* [](/object-storage/file-system-azure)
+* [](/object-storage/file-system-gcs)
+* [](/object-storage/file-system-s3)
+
+You must enable and configure the specific native file system access. If none is
+activated, the [legacy support](file-system-legacy) is used and must be
+configured.
 
 ## Type mapping
 
@@ -1518,3 +1531,8 @@ before re-analyzing.
 
 The connector supports redirection from Iceberg tables to Hive tables with the
 `iceberg.hive-catalog-name` catalog configuration property.
+
+### Filesystem cache
+
+The connector supports configuring and using
+[](/object-storage/file-system-cache).

@@ -2090,7 +2090,7 @@ public class LocalExecutionPlanner
 
         private RowExpression toRowExpression(Expression expression, Map<NodeRef<Expression>, Type> types, Map<Symbol, Integer> layout)
         {
-            return SqlToRowExpressionTranslator.translate(expression, types, layout, metadata, plannerContext.getFunctionManager(), session, true);
+            return SqlToRowExpressionTranslator.translate(expression, types, layout, metadata, plannerContext.getFunctionManager(), plannerContext.getTypeManager(), session, true);
         }
 
         @Override
@@ -4154,8 +4154,8 @@ public class LocalExecutionPlanner
             if (target instanceof CreateTarget) {
                 return metadata.finishCreateTable(session, ((CreateTarget) target).getHandle(), fragments, statistics);
             }
-            if (target instanceof InsertTarget) {
-                return metadata.finishInsert(session, ((InsertTarget) target).getHandle(), fragments, statistics);
+            if (target instanceof InsertTarget insertTarget) {
+                return metadata.finishInsert(session, insertTarget.getHandle(), insertTarget.getSourceTableHandles(), fragments, statistics);
             }
             if (target instanceof TableWriterNode.RefreshMaterializedViewTarget refreshTarget) {
                 return metadata.finishRefreshMaterializedView(

@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>439-SNAPSHOT</version>
+        <version>440-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -14,8 +14,6 @@
     <description>Trino - Hive Connector</description>
 
     <properties>
-        <air.main.basedir>${project.parent.basedir}</air.main.basedir>
-
         <!--
           Project's default for air.test.parallel is 'methods'. By design, 'instances' runs all the methods in the same instance in the same thread,
           but two methods on two different instances will be running in different threads.
@@ -215,11 +213,6 @@
         <dependency>
             <groupId>org.apache.parquet</groupId>
             <artifactId>parquet-format-structures</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.parquet</groupId>
-            <artifactId>parquet-hadoop</artifactId>
         </dependency>
 
         <dependency>
@@ -452,6 +445,12 @@
         <dependency>
             <groupId>io.trino.tpch</groupId>
             <artifactId>tpch</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-hadoop</artifactId>
             <scope>test</scope>
         </dependency>
 

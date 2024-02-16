@@ -138,7 +138,6 @@ import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Strings.isNullOrEmpty;
-import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.Comparators.lexicographical;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
@@ -303,21 +302,21 @@ public class GlueHiveMetastore
     }
 
     @Override
-    public Map<String, HiveColumnStatistics> getTableColumnStatistics(String databaseName, String tableName, Set<String> columnNames, OptionalLong rowCount)
+    public Map<String, HiveColumnStatistics> getTableColumnStatistics(String databaseName, String tableName, Set<String> columnNames)
     {
         checkArgument(!columnNames.isEmpty(), "columnNames is empty");
-        return columnStatisticsProvider.getTableColumnStatistics(databaseName, tableName, columnNames, rowCount);
+        return columnStatisticsProvider.getTableColumnStatistics(databaseName, tableName, columnNames);
     }
 
     @Override
     public Map<String, Map<String, HiveColumnStatistics>> getPartitionColumnStatistics(
             String databaseName,
             String tableName,
-            Map<String, OptionalLong> partitionNamesWithRowCount,
+            Set<String> partitionNames,
             Set<String> columnNames)
     {
         checkArgument(!columnNames.isEmpty(), "columnNames is empty");
-        return columnStatisticsProvider.getPartitionColumnStatistics(databaseName, tableName, partitionNamesWithRowCount, columnNames);
+        return columnStatisticsProvider.getPartitionColumnStatistics(databaseName, tableName, partitionNames, columnNames);
     }
 
     @Override
@@ -338,8 +337,7 @@ public class GlueHiveMetastore
         Map<String, HiveColumnStatistics> currentColumnStatistics = getTableColumnStatistics(
                 databaseName,
                 tableName,
-                Stream.concat(table.getDataColumns().stream(), table.getPartitionColumns().stream()).map(Column::getName).collect(toImmutableSet()),
-                currentBasicStatistics.getRowCount());
+                Stream.concat(table.getDataColumns().stream(), table.getPartitionColumns().stream()).map(Column::getName).collect(toImmutableSet()));
         PartitionStatistics currentStatistics = new PartitionStatistics(currentBasicStatistics, currentColumnStatistics);
 
         PartitionStatistics updatedStatistics = mode.updatePartitionStatistics(currentStatistics, statisticsUpdate);
@@ -375,13 +373,10 @@ public class GlueHiveMetastore
         Map<String, Partition> partitions = getPartitionsByNamesInternal(table, partitionUpdates.keySet()).entrySet().stream()
                 .filter(entry -> entry.getValue().isPresent())
                 .collect(toImmutableMap(Entry::getKey, entry -> entry.getValue().orElseThrow()));
-        Map<String, HiveBasicStatistics> currentBasicStats = partitions.entrySet().stream()
-                .collect(toImmutableMap(Entry::getKey, entry -> getHiveBasicStatistics(entry.getValue().getParameters())));
         Map<String, Map<String, HiveColumnStatistics>> currentColumnStats = columnStatisticsProvider.getPartitionColumnStatistics(
                 table.getDatabaseName(),
                 table.getTableName(),
-                currentBasicStats.entrySet().stream()
-                        .collect(toImmutableMap(Entry::getKey, entry -> entry.getValue().getRowCount())),
+                partitionUpdates.keySet(),
                 table.getDataColumns().stream().map(Column::getName).collect(toImmutableSet()));
 
         ImmutableList.Builder<BatchUpdatePartitionRequestEntry> partitionUpdateRequests = ImmutableList.builder();
@@ -389,7 +384,7 @@ public class GlueHiveMetastore
         partitions.forEach((partitionName, partition) -> {
             PartitionStatistics update = partitionUpdates.get(partitionName);
 
-            PartitionStatistics currentStatistics = new PartitionStatistics(currentBasicStats.get(partitionName), currentColumnStats.get(partitionName));
+            PartitionStatistics currentStatistics = new PartitionStatistics(getHiveBasicStatistics(partition.getParameters()), currentColumnStats.get(partitionName));
             PartitionStatistics updatedStatistics = mode.updatePartitionStatistics(currentStatistics, update);
 
             Map<String, String> updatedStatisticsParameters = updateStatisticsParameters(partition.getParameters(), updatedStatistics.getBasicStatistics());
@@ -901,7 +896,7 @@ public class GlueHiveMetastore
                             .withDatabaseName(table.getDatabaseName())
                             .withTableName(table.getTableName())
                             .withPartitionValues(partitionValues)));
-            return Optional.of(new GluePartitionConverter(table).apply(result.getPartition()));
+            return Optional.of(new GluePartitionConverter(table.getDatabaseName(), table.getTableName()).apply(result.getPartition()));
         }
         catch (EntityNotFoundException e) {
             return Optional.empty();
@@ -1044,7 +1039,7 @@ public class GlueHiveMetastore
             ImmutableList.Builder<Partition> resultsBuilder = ImmutableList.builderWithExpectedSize(partitionNames.size());
 
             // Reuse immutable field instances opportunistically between partitions
-            GluePartitionConverter converter = new GluePartitionConverter(table);
+            GluePartitionConverter converter = new GluePartitionConverter(table.getDatabaseName(), table.getTableName());
 
             while (!pendingPartitions.isEmpty()) {
                 for (List<PartitionValueList> partitions : Lists.partition(pendingPartitions, BATCH_GET_PARTITION_MAX_PAGE_SIZE)) {
@@ -1062,8 +1057,8 @@ public class GlueHiveMetastore
                     List<PartitionValueList> unprocessedKeys = batchGetPartitionResult.getUnprocessedKeys();
 
                     // In the unlikely scenario where batchGetPartition call cannot make progress on retrieving partitions, avoid infinite loop
-                    if (partitions.isEmpty()) {
-                        verify(!unprocessedKeys.isEmpty(), "Empty unprocessedKeys for non-empty BatchGetPartitionRequest and empty partitions result");
+                    // We fail only in case there are still unprocessedKeys. Case with empty partitions and empty unprocessedKeys is correct in case partitions from request are not found.
+                    if (partitions.isEmpty() && !unprocessedKeys.isEmpty()) {
                         throw new TrinoException(HIVE_METASTORE_ERROR, "Cannot make progress retrieving partitions. Unable to retrieve partitions: " + unprocessedKeys);
                     }
 

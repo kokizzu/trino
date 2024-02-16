@@ -5,14 +5,13 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>439-SNAPSHOT</version>
+        <version>440-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
     <artifactId>trino-spi</artifactId>
 
     <properties>
-        <air.main.basedir>${project.parent.basedir}</air.main.basedir>
         <released-artifacts.dir>${project.build.directory}/released-artifacts</released-artifacts.dir>
         <trino.check.skip-revapi>${air.check.skip-basic}</trino.check.skip-revapi>
     </properties>

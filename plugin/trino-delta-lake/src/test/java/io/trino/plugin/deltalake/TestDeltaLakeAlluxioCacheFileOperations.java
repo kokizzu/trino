@@ -62,7 +62,7 @@ public class TestDeltaLakeAlluxioCacheFileOperations
                 .build();
 
         Map<String, String> deltaLakeProperties = ImmutableMap.<String, String>builder()
-                .put("fs.cache", "alluxio")
+                .put("fs.cache.enabled", "true")
                 .put("fs.cache.directories", cacheDirectory.toAbsolutePath().toString())
                 .put("fs.cache.max-sizes", "100MB")
                 .put("hive.metastore", "file")
@@ -71,9 +71,10 @@ public class TestDeltaLakeAlluxioCacheFileOperations
                 .buildOrThrow();
 
         DistributedQueryRunner queryRunner = DeltaLakeQueryRunner.builder(session)
+                .setCoordinatorProperties(ImmutableMap.of("node-scheduler.include-coordinator", "false"))
                 .setDeltaProperties(deltaLakeProperties)
                 .setCatalogName(DELTA_CATALOG)
-                .setNodeCount(1)
+                .setNodeCount(2)
                 .build();
 
         queryRunner.execute("CREATE SCHEMA " + session.getSchema().orElseThrow());

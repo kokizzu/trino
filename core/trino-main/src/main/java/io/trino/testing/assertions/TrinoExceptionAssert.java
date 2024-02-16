@@ -16,6 +16,7 @@ package io.trino.testing.assertions;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import io.trino.cache.SafeCaches;
 import io.trino.client.ErrorInfo;
 import io.trino.client.FailureException;
@@ -30,7 +31,6 @@ import io.trino.sql.parser.ParsingException;
 import io.trino.testing.QueryFailedException;
 import org.assertj.core.api.AbstractThrowableAssert;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
-import org.assertj.core.internal.Failures;
 import org.assertj.core.util.CheckReturnValue;
 
 import java.util.Optional;
@@ -42,8 +42,6 @@ import static java.util.stream.Collectors.toSet;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.assertj.core.api.Assertions.failBecauseExceptionWasNotThrown;
-import static org.assertj.core.error.ShouldContainCharSequence.shouldContain;
-import static org.assertj.core.error.ShouldHaveMessageMatchingRegex.shouldHaveMessageMatchingRegex;
 
 public final class TrinoExceptionAssert
         extends AbstractThrowableAssert<TrinoExceptionAssert, Throwable>
@@ -115,6 +113,7 @@ public final class TrinoExceptionAssert
         this.failureInfo = requireNonNull(failureInfo, "failureInfo is null");
     }
 
+    @CanIgnoreReturnValue
     public TrinoExceptionAssert hasErrorCode(ErrorCodeSupplier... errorCodeSupplier)
     {
         ErrorCode errorCode = null;
@@ -136,6 +135,7 @@ public final class TrinoExceptionAssert
         return myself;
     }
 
+    @CanIgnoreReturnValue
     public TrinoExceptionAssert hasLocation(int lineNumber, int columnNumber)
     {
         try {
@@ -148,29 +148,5 @@ public final class TrinoExceptionAssert
             throw e;
         }
         return myself;
-    }
-
-    public TrinoExceptionAssert hasCauseMessageMatching(String regex)
-    {
-        Throwable cause = actual;
-        while (cause != null) {
-            if (cause.getMessage().matches(regex)) {
-                return myself;
-            }
-            cause = cause.getCause();
-        }
-        throw Failures.instance().failure(info, shouldHaveMessageMatchingRegex(actual, regex));
-    }
-
-    public TrinoExceptionAssert hasCauseMessageContaining(String message)
-    {
-        Throwable cause = actual;
-        while (cause != null) {
-            if (cause.getMessage().contains(message)) {
-                return myself;
-            }
-            cause = cause.getCause();
-        }
-        throw Failures.instance().failure(info, shouldContain(actual, message));
     }
 }

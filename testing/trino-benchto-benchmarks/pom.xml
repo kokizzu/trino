@@ -4,14 +4,13 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>439-SNAPSHOT</version>
+        <version>440-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
     <artifactId>trino-benchto-benchmarks</artifactId>
 
     <properties>
-        <air.main.basedir>${project.parent.basedir}</air.main.basedir>
         <air.check.fail-duplicate-finder>false</air.check.fail-duplicate-finder>
     </properties>
 

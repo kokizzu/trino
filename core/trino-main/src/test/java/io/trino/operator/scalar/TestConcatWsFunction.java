@@ -209,6 +209,6 @@ public class TestConcatWsFunction
     public void testLowArguments()
     {
         assertTrinoExceptionThrownBy(assertions.function("concat_ws", "','")::evaluate)
-                .hasCauseMessageContaining("There must be two or more arguments");
+                .hasMessage("There must be two or more arguments");
     }
 }

@@ -155,7 +155,7 @@ public class TestStringFunctions
     public void testConcat()
     {
         assertTrinoExceptionThrownBy(assertions.function("concat", "''")::evaluate)
-                .hasCauseMessageContaining("There must be two or more concatenation arguments");
+                .hasMessage("There must be two or more concatenation arguments");
 
         assertThat(assertions.function("concat", "'hello'", "' world'"))
                 .hasType(VARCHAR)

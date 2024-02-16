@@ -146,7 +146,6 @@ import static io.trino.sql.analyzer.SemanticExceptions.semanticException;
 import static io.trino.sql.analyzer.TypeSignatureTranslator.toSqlType;
 import static io.trino.sql.analyzer.TypeSignatureTranslator.toTypeSignature;
 import static io.trino.sql.gen.VarArgsToMapAdapterGenerator.generateVarArgsToMapAdapter;
-import static io.trino.sql.planner.ResolvedFunctionCallRewriter.rewriteResolvedFunctions;
 import static io.trino.sql.planner.iterative.rule.CanonicalizeExpressionRewriter.canonicalizeExpression;
 import static io.trino.sql.tree.DereferenceExpression.isQualifiedAllFieldsReference;
 import static java.lang.Math.toIntExact;
@@ -158,6 +157,7 @@ public class ExpressionInterpreter
     private final Expression expression;
     private final PlannerContext plannerContext;
     private final Metadata metadata;
+    private final Map<NodeRef<Node>, ResolvedFunction> resolvedFunctions;
     private final LiteralInterpreter literalInterpreter;
     private final ConnectorSession connectorSession;
     private final Map<NodeRef<Expression>, Type> expressionTypes;
@@ -168,11 +168,12 @@ public class ExpressionInterpreter
     private final IdentityHashMap<LikePredicate, LikePattern> likePatternCache = new IdentityHashMap<>();
     private final IdentityHashMap<InListExpression, Set<?>> inListCache = new IdentityHashMap<>();
 
-    public ExpressionInterpreter(Expression expression, PlannerContext plannerContext, Session session, Map<NodeRef<Expression>, Type> expressionTypes)
+    public ExpressionInterpreter(Expression expression, PlannerContext plannerContext, Session session, Map<NodeRef<Expression>, Type> expressionTypes, Map<NodeRef<Node>, ResolvedFunction> resolvedFunctions)
     {
         this.expression = requireNonNull(expression, "expression is null");
         this.plannerContext = requireNonNull(plannerContext, "plannerContext is null");
         this.metadata = plannerContext.getMetadata();
+        this.resolvedFunctions = requireNonNull(resolvedFunctions, "resolvedFunctions is null");
         this.literalInterpreter = new LiteralInterpreter(plannerContext, session);
         this.connectorSession = session.toConnectorSession();
         this.expressionTypes = ImmutableMap.copyOf(requireNonNull(expressionTypes, "expressionTypes is null"));
@@ -223,7 +224,7 @@ public class ExpressionInterpreter
                 .buildOrThrow();
 
         // add coercions
-        Expression rewrite = Coercer.addCoercions(expression, coercions, analyzer.getTypeOnlyCoercions());
+        Expression rewrite = Coercer.addCoercions(expression, coercions);
 
         // redo the analysis since above expression rewriter might create new expressions which do not have entries in the type map
         analyzer = createConstantAnalyzer(plannerContext, accessControl, session, parameters, WarningCollector.NOOP);
@@ -243,16 +244,8 @@ public class ExpressionInterpreter
         analyzer = createConstantAnalyzer(plannerContext, accessControl, session, parameters, WarningCollector.NOOP);
         analyzer.analyze(canonicalized, Scope.create());
 
-        // resolve functions
-        Expression resolved = rewriteResolvedFunctions(canonicalized, analyzer.getResolvedFunctions());
-
-        // The optimization above may have rewritten the expression tree which breaks all the identity maps, so redo the analysis
-        // to re-analyze coercions that might be necessary
-        analyzer = createConstantAnalyzer(plannerContext, accessControl, session, parameters, WarningCollector.NOOP);
-        analyzer.analyze(resolved, Scope.create());
-
         // evaluate the expression
-        return new ExpressionInterpreter(resolved, plannerContext, session, analyzer.getExpressionTypes()).evaluate();
+        return new ExpressionInterpreter(canonicalized, plannerContext, session, analyzer.getExpressionTypes(), analyzer.getResolvedFunctions()).evaluate();
     }
 
     private static Expression coerceIfNecessary(Analysis analysis, Expression original, Expression rewritten)
@@ -262,11 +255,7 @@ public class ExpressionInterpreter
             return rewritten;
         }
 
-        return new Cast(
-                rewritten,
-                toSqlType(coercion),
-                false,
-                analysis.isTypeOnlyCoercion(original));
+        return new Cast(rewritten, toSqlType(coercion), false);
     }
 
     private Object evaluate()
@@ -779,7 +768,7 @@ public class ExpressionInterpreter
                 argumentValues.add(value);
             }
 
-            ResolvedFunction resolvedFunction = metadata.decodeFunction(node.getName());
+            ResolvedFunction resolvedFunction = resolvedFunctions.get(NodeRef.of(node));
             FunctionNullability functionNullability = resolvedFunction.getFunctionNullability();
             for (int i = 0; i < argumentValues.size(); i++) {
                 Object value = argumentValues.get(i);
@@ -904,10 +893,6 @@ public class ExpressionInterpreter
             Object value = processWithExceptionHandling(node.getExpression(), context);
             Type targetType = plannerContext.getTypeManager().getType(toTypeSignature(node.getType()));
             Type sourceType = type(node.getExpression());
-
-            if (node.isTypeOnly()) {
-                return value;
-            }
 
             if (value == null) {
                 return null;

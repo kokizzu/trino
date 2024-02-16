@@ -54,7 +54,7 @@ public final class TestGroups
     public static final String HIVE_COMPRESSION = "hive_compression";
     public static final String HIVE_TRANSACTIONAL = "hive_transactional";
     public static final String HIVE_VIEW_COMPATIBILITY = "hive_view_compatibility";
-    public static final String HIVE_CACHING = "hive_caching";
+    public static final String HIVE_ALLUXIO_CACHING = "hive_alluxio_caching";
     public static final String HIVE_ICEBERG_REDIRECTIONS = "hive_iceberg_redirections";
     public static final String HIVE_HUDI_REDIRECTIONS = "hive_hudi_redirections";
     public static final String HIVE_KERBEROS = "hive_kerberos";
@@ -75,6 +75,7 @@ public final class TestGroups
     public static final String KAFKA_CONFLUENT_LICENSE = "kafka_confluent_license";
     public static final String TWO_HIVES = "two_hives";
     public static final String ICEBERG = "iceberg";
+    public static final String ICEBERG_ALLUXIO_CACHING = "iceberg_alluxio_caching";
     public static final String ICEBERG_FORMAT_VERSION_COMPATIBILITY = "iceberg_format_version_compatibility";
     public static final String ICEBERG_REST = "iceberg_rest";
     public static final String ICEBERG_JDBC = "iceberg_jdbc";

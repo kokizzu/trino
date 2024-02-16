@@ -842,8 +842,8 @@ public class IrExpressionInterpreter
                 verify(!node.isDistinct(), "distinct not supported");
                 verify(node.getOrderBy().isEmpty(), "order by not supported");
                 verify(node.getFilter().isEmpty(), "filter not supported");
+                verify(node.getWindow().isEmpty(), "window not supported");
                 return ResolvedFunctionCallBuilder.builder(resolvedFunction)
-                        .setWindow(node.getWindow())
                         .setArguments(toExpressions(argumentValues, argumentTypes))
                         .build();
             }
@@ -921,11 +921,7 @@ public class IrExpressionInterpreter
                     return value;
                 }
 
-                return new Cast((Expression) value, node.getType(), node.isSafe(), node.isTypeOnly());
-            }
-
-            if (node.isTypeOnly()) {
-                return value;
+                return new Cast((Expression) value, node.getType(), node.isSafe());
             }
 
             if (value == null) {
