@@ -11,11 +11,12 @@
 
     <artifactId>trino-iceberg</artifactId>
     <packaging>trino-plugin</packaging>
-    <description>Trino - Iceberg Connector</description>
+    <description>Trino - Iceberg connector</description>
 
     <properties>
+        <air.main.basedir>${project.parent.basedir}</air.main.basedir>
         <!-- Nessie version (matching to Iceberg release) must be bumped along with Iceberg version bump to avoid compatibility issues -->
-        <dep.nessie.version>0.71.0</dep.nessie.version>
+        <dep.nessie.version>0.71.1</dep.nessie.version>
     </properties>
 
     <dependencies>
@@ -318,25 +319,7 @@
 
         <dependency>
             <groupId>io.opentelemetry</groupId>
-            <artifactId>opentelemetry-sdk</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>io.opentelemetry</groupId>
             <artifactId>opentelemetry-sdk-trace</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>io.opentelemetry.instrumentation</groupId>
-            <artifactId>opentelemetry-aws-sdk-1.11</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>io.trino</groupId>
-            <artifactId>trino-filesystem-cache-alluxio</artifactId>
             <scope>runtime</scope>
         </dependency>
 
@@ -347,22 +330,16 @@
         </dependency>
 
         <dependency>
-            <groupId>org.alluxio</groupId>
-            <artifactId>alluxio-core-common</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-
-        <dependency>
             <groupId>org.apache.httpcomponents.client5</groupId>
             <artifactId>httpclient5</artifactId>
-            <version>5.2.1</version>
+            <version>5.2.3</version>
             <scope>runtime</scope>
         </dependency>
 
         <dependency>
             <groupId>org.apache.httpcomponents.core5</groupId>
             <artifactId>httpcore5</artifactId>
-            <version>5.2.1</version>
+            <version>5.2.4</version>
             <scope>runtime</scope>
         </dependency>
 
@@ -386,6 +363,7 @@
         </dependency>
 
         <dependency>
+            <!-- Docs promise that PostgreSQL driver will be on the classpath, for JDBC catalog's sake-->
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>

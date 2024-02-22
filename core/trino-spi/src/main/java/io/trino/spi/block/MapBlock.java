@@ -18,7 +18,6 @@ import io.trino.spi.type.MapType;
 import jakarta.annotation.Nullable;
 
 import java.util.Arrays;
-import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.function.ObjLongConsumer;
@@ -324,12 +323,6 @@ public final class MapBlock
                 hashTables);
     }
 
-    @Override
-    public List<Block> getChildren()
-    {
-        return List.of(keyBlock, valueBlock);
-    }
-
     MapType getMapType()
     {
         return mapType;
@@ -533,15 +526,6 @@ public final class MapBlock
                 newKeys,
                 newValues,
                 new MapHashTables(mapType, DUPLICATE_NOT_CHECKED, length, Optional.ofNullable(newRawHashTables)));
-    }
-
-    @Override
-    public <T> T getObject(int position, Class<T> clazz)
-    {
-        if (clazz != SqlMap.class) {
-            throw new IllegalArgumentException("clazz must be SqlMap.class");
-        }
-        return clazz.cast(getMap(position));
     }
 
     public SqlMap getMap(int position)

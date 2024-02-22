@@ -11,9 +11,10 @@
 
     <artifactId>trino-ignite</artifactId>
     <packaging>trino-plugin</packaging>
-    <description>Trino - Ignite Connector</description>
+    <description>Trino - Ignite connector</description>
 
     <properties>
+        <air.main.basedir>${project.parent.basedir}</air.main.basedir>
         <air.test.jvm.additional-arguments>${air.test.jvm.additional-arguments.default} --add-opens=java.base/java.nio=ALL-UNNAMED</air.test.jvm.additional-arguments>
     </properties>
 

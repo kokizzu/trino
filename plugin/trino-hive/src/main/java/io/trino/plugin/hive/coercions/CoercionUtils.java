@@ -58,12 +58,14 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static io.trino.plugin.hive.HiveType.HIVE_BOOLEAN;
 import static io.trino.plugin.hive.HiveType.HIVE_BYTE;
 import static io.trino.plugin.hive.HiveType.HIVE_DOUBLE;
 import static io.trino.plugin.hive.HiveType.HIVE_FLOAT;
 import static io.trino.plugin.hive.HiveType.HIVE_INT;
 import static io.trino.plugin.hive.HiveType.HIVE_LONG;
 import static io.trino.plugin.hive.HiveType.HIVE_SHORT;
+import static io.trino.plugin.hive.coercions.BooleanCoercer.createVarcharToBooleanCoercer;
 import static io.trino.plugin.hive.coercions.DecimalCoercers.createDecimalToDecimalCoercer;
 import static io.trino.plugin.hive.coercions.DecimalCoercers.createDecimalToDoubleCoercer;
 import static io.trino.plugin.hive.coercions.DecimalCoercers.createDecimalToInteger;
@@ -107,11 +109,14 @@ public final class CoercionUtils
         if (fromType instanceof VarcharType fromVarcharType && (toHiveType.equals(HIVE_BYTE) || toHiveType.equals(HIVE_SHORT) || toHiveType.equals(HIVE_INT) || toHiveType.equals(HIVE_LONG))) {
             return Optional.of(new VarcharToIntegerNumberCoercer<>(fromVarcharType, toType));
         }
+        if (fromType instanceof VarcharType fromVarcharType && toHiveType.equals(HIVE_BOOLEAN)) {
+            return Optional.of(createVarcharToBooleanCoercer(fromVarcharType, coercionContext.isOrcFile()));
+        }
         if (fromType instanceof VarcharType varcharType && toHiveType.equals(HIVE_DOUBLE)) {
-            return Optional.of(new VarcharToDoubleCoercer(varcharType, coercionContext.treatNaNAsNull()));
+            return Optional.of(new VarcharToDoubleCoercer(varcharType, coercionContext.isOrcFile()));
         }
         if (fromType instanceof VarcharType varcharType && toHiveType.equals(HIVE_FLOAT)) {
-            return Optional.of(new VarcharToFloatCoercer(varcharType, coercionContext.treatNaNAsNull()));
+            return Optional.of(new VarcharToFloatCoercer(varcharType, coercionContext.isOrcFile()));
         }
         if (fromType instanceof VarcharType varcharType && toType instanceof TimestampType timestampType) {
             if (timestampType.isShort()) {
@@ -130,6 +135,9 @@ public final class CoercionUtils
         }
         if (fromType instanceof BooleanType && toType instanceof VarcharType toVarcharType) {
             return Optional.of(new BooleanToVarcharCoercer(toVarcharType));
+        }
+        if (fromType instanceof VarcharType fromVarcharType && toType instanceof CharType toCharType) {
+            return Optional.of(new VarcharToCharCoercer(fromVarcharType, toCharType));
         }
         if (fromType instanceof CharType fromCharType && toType instanceof CharType toCharType) {
             if (narrowerThan(toCharType, fromCharType)) {
@@ -222,7 +230,7 @@ public final class CoercionUtils
             return Optional.of(new DateToVarcharCoercer(toVarcharType));
         }
         if (fromType == DOUBLE && toType instanceof VarcharType toVarcharType) {
-            return Optional.of(new DoubleToVarcharCoercer(toVarcharType, coercionContext.treatNaNAsNull()));
+            return Optional.of(new DoubleToVarcharCoercer(toVarcharType, coercionContext.isOrcFile()));
         }
         if ((fromType instanceof ArrayType) && (toType instanceof ArrayType)) {
             return createCoercerForList(
@@ -505,7 +513,7 @@ public final class CoercionUtils
         }
     }
 
-    public record CoercionContext(HiveTimestampPrecision timestampPrecision, boolean treatNaNAsNull)
+    public record CoercionContext(HiveTimestampPrecision timestampPrecision, boolean isOrcFile)
     {
         public CoercionContext
         {

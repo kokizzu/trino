@@ -10,9 +10,10 @@
 
     <artifactId>trino-cassandra</artifactId>
     <packaging>trino-plugin</packaging>
-    <description>Trino - Cassandra Connector</description>
+    <description>Trino - Cassandra connector</description>
 
     <properties>
+        <air.main.basedir>${project.parent.basedir}</air.main.basedir>
         <dep.native-protocol.version>1.5.1</dep.native-protocol.version>
     </properties>
 

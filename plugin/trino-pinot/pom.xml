@@ -10,9 +10,10 @@
 
     <artifactId>trino-pinot</artifactId>
     <packaging>trino-plugin</packaging>
-    <description>Trino - Pinot Connector</description>
+    <description>Trino - Pinot connector</description>
 
     <properties>
+        <air.main.basedir>${project.parent.basedir}</air.main.basedir>
         <dep.pinot.version>0.12.1</dep.pinot.version>
     </properties>
 
@@ -204,10 +205,6 @@
                     <artifactId>commons-logging</artifactId>
                 </exclusion>
                 <exclusion>
-                    <groupId>io.netty</groupId>
-                    <artifactId>netty</artifactId>
-                </exclusion>
-                <exclusion>
                     <groupId>jakarta.annotation</groupId>
                     <artifactId>jakarta.annotation-api</artifactId>
                 </exclusion>
@@ -318,14 +315,6 @@
                 <exclusion>
                     <groupId>commons-logging</groupId>
                     <artifactId>commons-logging</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>io.netty</groupId>
-                    <artifactId>netty</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>io.netty</groupId>
-                    <artifactId>netty-all</artifactId>
                 </exclusion>
                 <exclusion>
                     <groupId>jakarta.annotation</groupId>

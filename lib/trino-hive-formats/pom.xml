@@ -13,6 +13,7 @@
     <description>Trino - Hive Formats</description>
 
     <properties>
+        <air.main.basedir>${project.parent.basedir}</air.main.basedir>
         <air.compiler.fail-warnings>true</air.compiler.fail-warnings>
     </properties>
 
@@ -140,14 +141,14 @@
         <dependency>
             <groupId>io.starburst.openjson</groupId>
             <artifactId>openjson</artifactId>
-            <version>1.8-e.11</version>
+            <version>1.8-e.12</version>
             <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>io.starburst.openx.data</groupId>
             <artifactId>json-serde</artifactId>
-            <version>1.3.9-e.11</version>
+            <version>1.3.9-e.12</version>
             <scope>test</scope>
             <exclusions>
                 <exclusion>

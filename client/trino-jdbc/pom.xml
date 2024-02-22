@@ -10,8 +10,10 @@
     </parent>
 
     <artifactId>trino-jdbc</artifactId>
+    <description>Trino - JDBC driver</description>
 
     <properties>
+        <air.main.basedir>${project.parent.basedir}</air.main.basedir>
         <project.build.targetJdk>8</project.build.targetJdk>
         <shadeBase>io.trino.jdbc.\$internal</shadeBase>
     </properties>

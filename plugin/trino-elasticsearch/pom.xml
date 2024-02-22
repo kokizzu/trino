@@ -11,9 +11,10 @@
 
     <artifactId>trino-elasticsearch</artifactId>
     <packaging>trino-plugin</packaging>
-    <description>Trino - Elasticsearch Connector</description>
+    <description>Trino - Elasticsearch connector</description>
 
     <properties>
+        <air.main.basedir>${project.parent.basedir}</air.main.basedir>
         <dep.elasticsearch.version>7.17.18</dep.elasticsearch.version>
     </properties>
 
@@ -106,7 +107,7 @@
         <dependency>
             <groupId>org.apache.httpcomponents</groupId>
             <artifactId>httpasyncclient</artifactId>
-            <version>4.1.4</version>
+            <version>4.1.5</version>
             <exclusions>
                 <!-- Brings in duplicate classes already in org.slf4j:jcl-over-slf4j (from io.airlift:log-manager) -->
                 <exclusion>

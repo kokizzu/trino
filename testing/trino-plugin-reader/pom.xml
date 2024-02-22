@@ -10,8 +10,10 @@
     </parent>
 
     <artifactId>trino-plugin-reader</artifactId>
+    <description>Trino - Plugin reader</description>
 
     <properties>
+        <air.main.basedir>${project.parent.basedir}</air.main.basedir>
         <main-class>io.trino.server.PluginReader</main-class>
     </properties>
 
