@@ -177,10 +177,10 @@
         <dep.accumulo-hadoop.version>2.7.7-1</dep.accumulo-hadoop.version>
         <dep.accumulo.version>3.0.0</dep.accumulo.version>
         <dep.airlift.version>240</dep.airlift.version>
-        <dep.alluxio.version>309</dep.alluxio.version>
+        <dep.alluxio.version>310</dep.alluxio.version>
         <dep.antlr.version>4.13.1</dep.antlr.version>
         <dep.avro.version>1.11.3</dep.avro.version>
-        <dep.aws-sdk.version>1.12.663</dep.aws-sdk.version>
+        <dep.aws-sdk.version>1.12.667</dep.aws-sdk.version>
         <dep.cassandra.version>4.17.0</dep.cassandra.version>
         <dep.confluent.version>7.5.1</dep.confluent.version>
         <dep.docker.images.version>91</dep.docker.images.version>
@@ -193,7 +193,7 @@
         <dep.jna.version>5.14.0</dep.jna.version>
         <dep.joda.version>2.12.7</dep.joda.version>
         <dep.jsonwebtoken.version>0.12.5</dep.jsonwebtoken.version>
-        <dep.kafka-clients.version>3.6.1</dep.kafka-clients.version>
+        <dep.kafka-clients.version>3.7.0</dep.kafka-clients.version>
         <dep.okio.version>3.8.0</dep.okio.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
         <dep.parquet.version>1.13.1</dep.parquet.version>
@@ -215,7 +215,7 @@
             <dependency>
                 <groupId>com.azure</groupId>
                 <artifactId>azure-sdk-bom</artifactId>
-                <version>1.2.20</version>
+                <version>1.2.21</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -311,7 +311,7 @@
             <dependency>
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
-                <version>2.24.8</version>
+                <version>2.24.11</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -319,7 +319,7 @@
             <dependency>
                 <groupId>com.adobe.testing</groupId>
                 <artifactId>s3mock-testcontainers</artifactId>
-                <version>3.4.0</version>
+                <version>3.5.1</version>
             </dependency>
 
             <dependency>
@@ -516,7 +516,7 @@
             <dependency>
                 <groupId>com.github.oshi</groupId>
                 <artifactId>oshi-core</artifactId>
-                <version>6.4.12</version>
+                <version>6.4.13</version>
             </dependency>
 
             <dependency>
@@ -614,7 +614,7 @@
             <dependency>
                 <groupId>com.nimbusds</groupId>
                 <artifactId>oauth2-oidc-sdk</artifactId>
-                <version>11.10</version>
+                <version>11.10.1</version>
                 <classifier>jdk11</classifier>
             </dependency>
 
@@ -2303,6 +2303,12 @@
                     <configuration>
                         <dependencyReducedPomLocation>${project.build.directory}/pom.xml</dependencyReducedPomLocation>
                     </configuration>
+                </plugin>
+
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-wrapper-plugin</artifactId>
+                    <version>3.2.0</version>
                 </plugin>
 
                 <plugin>

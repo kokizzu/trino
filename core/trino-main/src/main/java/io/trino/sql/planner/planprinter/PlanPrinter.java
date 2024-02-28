@@ -124,10 +124,11 @@ import io.trino.sql.planner.plan.ValuesNode;
 import io.trino.sql.planner.plan.WindowNode;
 import io.trino.sql.planner.planprinter.NodeRepresentation.TypedSymbol;
 import io.trino.sql.planner.rowpattern.AggregationValuePointer;
-import io.trino.sql.planner.rowpattern.LogicalIndexExtractor.ExpressionAndValuePointers;
+import io.trino.sql.planner.rowpattern.ClassifierValuePointer;
+import io.trino.sql.planner.rowpattern.ExpressionAndValuePointers;
 import io.trino.sql.planner.rowpattern.LogicalIndexPointer;
+import io.trino.sql.planner.rowpattern.MatchNumberValuePointer;
 import io.trino.sql.planner.rowpattern.ScalarValuePointer;
-import io.trino.sql.planner.rowpattern.ValuePointer;
 import io.trino.sql.planner.rowpattern.ir.IrLabel;
 import io.trino.sql.tree.ComparisonExpression;
 import io.trino.sql.tree.Expression;
@@ -1010,15 +1011,9 @@ public class PlanPrinter
             if (node.getRowsPerMatch() != WINDOW) {
                 nodeOutput.appendDetails("%s", formatRowsPerMatch(node.getRowsPerMatch()));
             }
-            nodeOutput.appendDetails("%s", formatSkipTo(node.getSkipToPosition(), node.getSkipToLabel()));
+            nodeOutput.appendDetails("%s", formatSkipTo(node.getSkipToPosition(), node.getSkipToLabels()));
             nodeOutput.appendDetails("pattern[%s] (%s)", node.getPattern(), node.isInitial() ? "INITIAL" : "SEEK");
-            nodeOutput.appendDetails("subsets[%s]", node.getSubsets().entrySet().stream()
-                    .map(subset -> subset.getKey().getName() +
-                            " := " +
-                            subset.getValue().stream()
-                                    .map(IrLabel::getName)
-                                    .collect(joining(", ", "{", "}")))
-                    .collect(joining(", ")));
+
             for (Entry<IrLabel, ExpressionAndValuePointers> entry : node.getVariableDefinitions().entrySet()) {
                 nodeOutput.appendDetails("%s := %s", entry.getKey().getName(), anonymizer.anonymize(unresolveFunctions(entry.getValue().getExpression())));
                 appendValuePointers(nodeOutput, entry.getValue());
@@ -1029,37 +1024,22 @@ public class PlanPrinter
 
         private void appendValuePointers(NodeRepresentation nodeOutput, ExpressionAndValuePointers expressionAndPointers)
         {
-            for (int i = 0; i < expressionAndPointers.getLayout().size(); i++) {
-                Symbol symbol = expressionAndPointers.getLayout().get(i);
-                if (expressionAndPointers.getMatchNumberSymbols().contains(symbol)) {
-                    // match_number does not use the value pointer. It is constant per match.
-                    continue;
-                }
-                ValuePointer pointer = expressionAndPointers.getValuePointers().get(i);
+            for (ExpressionAndValuePointers.Assignment assignment : expressionAndPointers.getAssignments()) {
+                String value = switch (assignment.valuePointer()) {
+                    case AggregationValuePointer pointer -> format(
+                            "%s%s(%s)%s",
+                            pointer.getSetDescriptor().isRunning() ? "RUNNING " : "FINAL ",
+                            formatFunctionName(pointer.getFunction()),
+                            Joiner.on(", ").join(anonymizeExpressions(pointer.getArguments())),
+                            pointer.getSetDescriptor().getLabels().stream()
+                                    .map(IrLabel::getName)
+                                    .collect(joining(", ", "{", "}")));
+                    case ScalarValuePointer pointer -> format("%s[%s]", anonymizer.anonymize(pointer.getInputSymbol()), formatLogicalIndexPointer(pointer.getLogicalIndexPointer()));
+                    case ClassifierValuePointer pointer -> format("%s[%s]", "classifier", formatLogicalIndexPointer(pointer.getLogicalIndexPointer()));
+                    case MatchNumberValuePointer pointer -> "match_number";
+                };
 
-                if (pointer instanceof ScalarValuePointer scalarPointer) {
-                    String sourceSymbolName = expressionAndPointers.getClassifierSymbols().contains(symbol)
-                            ? "classifier"
-                            : anonymizer.anonymize(scalarPointer.getInputSymbol());
-                    nodeOutput.appendDetails("%s%s := %s[%s]", indentString(1), anonymizer.anonymize(symbol), sourceSymbolName, formatLogicalIndexPointer(scalarPointer.getLogicalIndexPointer()));
-                }
-                else if (pointer instanceof AggregationValuePointer aggregationPointer) {
-                    String processingMode = aggregationPointer.getSetDescriptor().isRunning() ? "RUNNING " : "FINAL ";
-                    String arguments = Joiner.on(", ").join(anonymizeExpressions(aggregationPointer.getArguments()));
-                    String labels = aggregationPointer.getSetDescriptor().getLabels().stream()
-                            .map(IrLabel::getName)
-                            .collect(joining(", ", "{", "}"));
-                    nodeOutput.appendDetails("%s%s := %s%s(%s)%s",
-                            indentString(1),
-                            anonymizer.anonymize(symbol),
-                            processingMode,
-                            formatFunctionName(aggregationPointer.getFunction()),
-                            arguments,
-                            labels);
-                }
-                else {
-                    throw new UnsupportedOperationException("unexpected ValuePointer type: " + pointer.getClass().getSimpleName());
-                }
+                nodeOutput.appendDetails("%s%s := %s", indentString(1), anonymizer.anonymize(assignment.symbol()), value);
             }
         }
 
@@ -1121,13 +1101,13 @@ public class PlanPrinter
             };
         }
 
-        private String formatSkipTo(SkipToPosition position, Optional<IrLabel> label)
+        private String formatSkipTo(SkipToPosition position, Set<IrLabel> labels)
         {
             return switch (position) {
                 case PAST_LAST -> "AFTER MATCH SKIP PAST LAST ROW";
                 case NEXT -> "AFTER MATCH SKIP TO NEXT ROW";
-                case FIRST -> "AFTER MATCH SKIP TO FIRST " + label.get().getName();
-                case LAST -> "AFTER MATCH SKIP TO LAST " + label.get().getName();
+                case FIRST -> "AFTER MATCH SKIP TO FIRST " + labels; // TODO: ir
+                case LAST -> "AFTER MATCH SKIP TO LAST " + labels; // TODO: ir
             };
         }
 

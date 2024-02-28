@@ -11,21 +11,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.bigquery;
+package io.trino.sql.planner.rowpattern;
 
-import com.google.common.collect.ImmutableMap;
-import io.trino.testing.QueryRunner;
-
-public class TestBigQueryArrowConnectorSmokeTest
-        extends BaseBigQueryConnectorSmokeTest
+public final class MatchNumberValuePointer
+        implements ValuePointer
 {
     @Override
-    protected QueryRunner createQueryRunner()
-            throws Exception
+    public int hashCode()
     {
-        return BigQueryQueryRunner.createQueryRunner(
-                ImmutableMap.of(),
-                ImmutableMap.of("bigquery.experimental.arrow-serialization.enabled", "true"),
-                REQUIRED_TPCH_TABLES);
+        return MatchNumberValuePointer.class.hashCode();
+    }
+
+    @Override
+    public boolean equals(Object obj)
+    {
+        return obj instanceof MatchNumberValuePointer;
     }
 }
