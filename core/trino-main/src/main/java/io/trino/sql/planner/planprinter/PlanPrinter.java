@@ -167,7 +167,7 @@ import static io.trino.metadata.ResolvedFunction.extractFunctionName;
 import static io.trino.server.DynamicFilterService.DynamicFilterDomainStats;
 import static io.trino.spi.function.table.DescriptorArgument.NULL_DESCRIPTOR;
 import static io.trino.sql.DynamicFilters.extractDynamicFilters;
-import static io.trino.sql.ExpressionUtils.combineConjunctsWithDuplicates;
+import static io.trino.sql.ir.IrUtils.combineConjunctsWithDuplicates;
 import static io.trino.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
 import static io.trino.sql.planner.plan.JoinType.INNER;
 import static io.trino.sql.planner.plan.RowsPerMatch.WINDOW;
@@ -985,7 +985,7 @@ public class PlanPrinter
 
             NodeRepresentation nodeOutput = addNode(
                     node,
-                    "PatterRecognition",
+                    "PatternRecognition",
                     descriptor.put("hash", formatHash(node.getHashSymbol())).buildOrThrow(),
                     context);
 
@@ -1106,8 +1106,8 @@ public class PlanPrinter
             return switch (position) {
                 case PAST_LAST -> "AFTER MATCH SKIP PAST LAST ROW";
                 case NEXT -> "AFTER MATCH SKIP TO NEXT ROW";
-                case FIRST -> "AFTER MATCH SKIP TO FIRST " + labels; // TODO: ir
-                case LAST -> "AFTER MATCH SKIP TO LAST " + labels; // TODO: ir
+                case FIRST -> "AFTER MATCH SKIP TO FIRST " + labels;
+                case LAST -> "AFTER MATCH SKIP TO LAST " + labels;
             };
         }
 

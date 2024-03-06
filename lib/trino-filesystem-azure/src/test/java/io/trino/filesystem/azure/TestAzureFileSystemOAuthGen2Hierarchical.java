@@ -19,16 +19,20 @@ import org.junit.jupiter.api.TestInstance.Lifecycle;
 
 import java.io.IOException;
 
-import static io.trino.filesystem.azure.AbstractTestAzureFileSystem.AccountKind.BLOB;
+import static io.trino.filesystem.azure.AbstractTestAzureFileSystem.AccountKind.HIERARCHICAL;
 
 @TestInstance(Lifecycle.PER_CLASS)
-class TestAzureFileSystemBlob
+public class TestAzureFileSystemOAuthGen2Hierarchical
         extends AbstractTestAzureFileSystem
 {
     @BeforeAll
     void setup()
             throws IOException
     {
-        initialize(getRequiredEnvironmentVariable("ABFS_BLOB_ACCOUNT"), getRequiredEnvironmentVariable("ABFS_BLOB_ACCESS_KEY"), BLOB);
+        String account = getRequiredEnvironmentVariable("ABFS_HIERARCHICAL_ACCOUNT");
+        String tenantId = getRequiredEnvironmentVariable("ABFS_OAUTH_TENANT_ID");
+        String clientId = getRequiredEnvironmentVariable("ABFS_OAUTH_CLIENT_ID");
+        String clientSecret = getRequiredEnvironmentVariable("ABFS_OAUTH_CLIENT_SECRET");
+        initializeWithOAuth(account, tenantId, clientId, clientSecret, HIERARCHICAL);
     }
 }

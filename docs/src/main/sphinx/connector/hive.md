@@ -8,13 +8,11 @@
 :hidden: true
 :maxdepth: 1
 
-Metastores <metastores>
 Security <hive-security>
 Amazon S3 <hive-s3>
 Azure Storage <hive-azure>
 Google Cloud Storage <hive-gcs-tutorial>
 IBM Cloud Object Storage <hive-cos>
-Object storage file formats <object-storage-file-formats>
 ```
 
 The Hive connector allows querying data stored in an

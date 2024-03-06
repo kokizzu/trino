@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.airlift</groupId>
         <artifactId>airbase</artifactId>
-        <version>150</version>
+        <version>151</version>
     </parent>
 
     <groupId>io.trino</groupId>
@@ -170,6 +170,8 @@
             -XX:+UnlockDiagnosticVMOptions
             <!-- bump from default of 2 -->
             -XX:GCLockerRetryAllocationCount=10
+            <!-- # Allow loading dynamic agent used by JOL -->
+            -XX:+EnableDynamicAgentLoading
         </air.test.jvm.additional-arguments.default>
         <air.test.jvm.additional-arguments>${air.test.jvm.additional-arguments.default}</air.test.jvm.additional-arguments>
 

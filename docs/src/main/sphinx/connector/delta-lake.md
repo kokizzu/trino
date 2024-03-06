@@ -136,7 +136,7 @@ values. Typical usage does not require you to configure them.
     columns which are irrelevant for the query when reading Delta Lake
     checkpoint files.
     The equivalent catalog session property is ``checkpoint_filtering_enabled``.
-  - ``false``
+  - ``true``
 * - `delta.dynamic-filtering.wait-timeout`
   - Duration to wait for completion of [dynamic
     filtering](/admin/dynamic-filtering) during split generation. The equivalent
@@ -325,6 +325,35 @@ this table:
 :::
 
 No other types are supported.
+
+## Delta Lake table features
+
+The connector supports the following [Delta Lake table 
+features](https://github.com/delta-io/delta/blob/master/PROTOCOL.md#table-features):
+
+:::{list-table} Table features
+:widths: 70, 30
+:header-rows: 1
+
+* - Feature
+  - Description
+* - Append-only tables
+  - Writers only
+* - Column invariants
+  - Writers only
+* - CHECK constraints
+  - Writers only
+* - Change data feed
+  - Writers only
+* - Column mapping
+  - Readers and writers
+* - Deletion vectors
+  - Readers only
+* - Timestamp without time zone
+  - Readers and writers
+:::
+
+No other features are supported.
 
 ## Security
 
