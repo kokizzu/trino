@@ -20,6 +20,10 @@ import io.trino.sql.planner.iterative.rule.test.PlanBuilder;
 import io.trino.sql.planner.plan.Assignments;
 import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.PlanNodeId;
+import io.trino.sql.tree.ArithmeticBinaryExpression;
+import io.trino.sql.tree.ComparisonExpression;
+import io.trino.sql.tree.LongLiteral;
+import io.trino.sql.tree.SymbolReference;
 import org.junit.jupiter.api.Test;
 
 import java.util.function.Function;
@@ -27,7 +31,10 @@ import java.util.function.Function;
 import static io.trino.SystemSessionProperties.NON_ESTIMATABLE_PREDICATE_APPROXIMATION_ENABLED;
 import static io.trino.cost.FilterStatsCalculator.UNKNOWN_FILTER_COEFFICIENT;
 import static io.trino.spi.type.BigintType.BIGINT;
-import static io.trino.sql.planner.iterative.rule.test.PlanBuilder.expression;
+import static io.trino.sql.planner.iterative.rule.test.PlanBuilder.aggregation;
+import static io.trino.sql.tree.ArithmeticBinaryExpression.Operator.ADD;
+import static io.trino.sql.tree.ComparisonExpression.Operator.EQUAL;
+import static io.trino.sql.tree.ComparisonExpression.Operator.GREATER_THAN;
 import static io.trino.testing.TestingSession.testSessionBuilder;
 
 public class TestFilterProjectAggregationStatsRule
@@ -59,9 +66,9 @@ public class TestFilterProjectAggregationStatsRule
     public void testFilterOverAggregationStats()
     {
         Function<PlanBuilder, PlanNode> planProvider = pb -> pb.filter(
-                expression("count_on_x > 0"),
+                new ComparisonExpression(GREATER_THAN, new SymbolReference("count_on_x"), new LongLiteral("0")),
                 pb.aggregation(ab -> ab
-                        .addAggregation(pb.symbol("count_on_x", BIGINT), expression("count(x)"), ImmutableList.of(BIGINT))
+                        .addAggregation(pb.symbol("count_on_x", BIGINT), aggregation("count", ImmutableList.of(new SymbolReference("x"))), ImmutableList.of(BIGINT))
                         .singleGroupingSet(pb.symbol("y", BIGINT))
                         .source(pb.values(pb.symbol("x", BIGINT), pb.symbol("y", BIGINT)))));
 
@@ -88,9 +95,9 @@ public class TestFilterProjectAggregationStatsRule
 
         // If filter estimate is known, approximation should not be applied
         tester().assertStatsFor(APPROXIMATION_ENABLED, pb -> pb.filter(
-                        expression("y = 1"),
+                        new ComparisonExpression(EQUAL, new SymbolReference("y"), new LongLiteral("1")),
                         pb.aggregation(ab -> ab
-                                .addAggregation(pb.symbol("count_on_x", BIGINT), expression("count(x)"), ImmutableList.of(BIGINT))
+                                .addAggregation(pb.symbol("count_on_x", BIGINT), aggregation("count", ImmutableList.of(new SymbolReference("x"))), ImmutableList.of(BIGINT))
                                 .singleGroupingSet(pb.symbol("y", BIGINT))
                                 .source(pb.values(pb.symbol("x", BIGINT), pb.symbol("y", BIGINT))))))
                 .withSourceStats(sourceStats)
@@ -111,11 +118,11 @@ public class TestFilterProjectAggregationStatsRule
                         pb -> {
                             Symbol aggregatedOutput = pb.symbol("count_on_x", BIGINT);
                             return pb.filter(
-                                    expression("count_on_x > 0"),
+                                    new ComparisonExpression(GREATER_THAN, new SymbolReference("count_on_x"), new LongLiteral("0")),
                                     // Narrowing identity projection
                                     pb.project(Assignments.identity(aggregatedOutput),
                                             pb.aggregation(ab -> ab
-                                                    .addAggregation(aggregatedOutput, expression("count(x)"), ImmutableList.of(BIGINT))
+                                                    .addAggregation(aggregatedOutput, aggregation("count", ImmutableList.of(new SymbolReference("x"))), ImmutableList.of(BIGINT))
                                                     .singleGroupingSet(pb.symbol("y", BIGINT))
                                                     .source(pb.values(pb.symbol("x", BIGINT), pb.symbol("y", BIGINT)))
                                                     .nodeId(aggregationId))));
@@ -129,11 +136,11 @@ public class TestFilterProjectAggregationStatsRule
                         pb -> {
                             Symbol aggregatedOutput = pb.symbol("count_on_x", BIGINT);
                             return pb.filter(
-                                    expression("count_on_x > 0"),
+                                    new ComparisonExpression(GREATER_THAN, new SymbolReference("count_on_x"), new LongLiteral("0")),
                                     // Non-narrowing projection
-                                    pb.project(Assignments.of(pb.symbol("x_1"), PlanBuilder.expression("x + 1"), aggregatedOutput, aggregatedOutput.toSymbolReference()),
+                                    pb.project(Assignments.of(pb.symbol("x_1"), new ArithmeticBinaryExpression(ADD, new SymbolReference("x"), new LongLiteral("1")), aggregatedOutput, aggregatedOutput.toSymbolReference()),
                                             pb.aggregation(ab -> ab
-                                                    .addAggregation(aggregatedOutput, expression("count(x)"), ImmutableList.of(BIGINT))
+                                                    .addAggregation(aggregatedOutput, aggregation("count", ImmutableList.of(new SymbolReference("x"))), ImmutableList.of(BIGINT))
                                                     .singleGroupingSet(pb.symbol("y", BIGINT))
                                                     .source(pb.values(pb.symbol("x", BIGINT), pb.symbol("y", BIGINT)))
                                                     .nodeId(aggregationId))));

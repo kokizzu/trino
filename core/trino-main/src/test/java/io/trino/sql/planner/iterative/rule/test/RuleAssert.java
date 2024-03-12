@@ -20,6 +20,7 @@ import io.trino.cost.CachingStatsProvider;
 import io.trino.cost.CachingTableStatsProvider;
 import io.trino.cost.CostCalculator;
 import io.trino.cost.CostProvider;
+import io.trino.cost.RuntimeInfoProvider;
 import io.trino.cost.StatsAndCosts;
 import io.trino.cost.StatsCalculator;
 import io.trino.cost.StatsProvider;
@@ -80,9 +81,18 @@ public class RuleAssert
 
             if (ruleApplication.wasRuleApplied()) {
                 fail(format(
-                        "Expected %s to not fire for:\n%s",
+                        """
+                        Expected %s to not fire for:
+                        
+                        %s
+                        
+                        ==>
+                        
+                        %s
+                        """,
                         rule,
-                        textLogicalPlan(plan, ruleApplication.types(), planTester.getPlannerContext().getMetadata(), planTester.getPlannerContext().getFunctionManager(), StatsAndCosts.empty(), session, 2, false)));
+                        textLogicalPlan(plan, ruleApplication.types(), planTester.getPlannerContext().getMetadata(), planTester.getPlannerContext().getFunctionManager(), StatsAndCosts.empty(), session, 2, false),
+                        textLogicalPlan(ruleApplication.result.getTransformedPlan().get(), ruleApplication.types(), planTester.getPlannerContext().getMetadata(), planTester.getPlannerContext().getFunctionManager(), StatsAndCosts.empty(), session, 2, false)));
             }
         }
         finally {
@@ -173,7 +183,7 @@ public class RuleAssert
 
     private Rule.Context ruleContext(StatsCalculator statsCalculator, CostCalculator costCalculator, SymbolAllocator symbolAllocator, Memo memo, Lookup lookup, Session session)
     {
-        StatsProvider statsProvider = new CachingStatsProvider(statsCalculator, Optional.of(memo), lookup, session, symbolAllocator.getTypes(), new CachingTableStatsProvider(planTester.getPlannerContext().getMetadata(), session));
+        StatsProvider statsProvider = new CachingStatsProvider(statsCalculator, Optional.of(memo), lookup, session, symbolAllocator.getTypes(), new CachingTableStatsProvider(planTester.getPlannerContext().getMetadata(), session), RuntimeInfoProvider.noImplementation());
         CostProvider costProvider = new CachingCostProvider(costCalculator, statsProvider, Optional.of(memo), session, symbolAllocator.getTypes());
 
         return new Rule.Context()

@@ -6,7 +6,7 @@ inputs:
     default: 21
   cache:
     description: "Cache Maven repo (true/false/restore)"
-    default: true
+    default: restore
   cleanup-node:
     description: "Clean up node (true/false) to increase free disk space"
     default: false # Disabled by default as it adds ~4 minutes of test runtime. Should be enabled case by case.
@@ -47,6 +47,7 @@ runs:
         if: ${{ format('{0}', inputs.cache) == 'true' }}
         uses: actions/cache@v4
         with:
+          # Note: must be same set of paths as for cache:restore mode
           path: ~/.m2/repository
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
@@ -56,6 +57,7 @@ runs:
         if: ${{ format('{0}', inputs.cache) == 'restore' }}
         uses: actions/cache/restore@v4
         with:
+          # Note: must be same set of paths as for cache:true mode
           path: ~/.m2/repository
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
           restore-keys: |

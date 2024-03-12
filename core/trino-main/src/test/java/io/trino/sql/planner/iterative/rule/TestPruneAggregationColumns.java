@@ -20,6 +20,7 @@ import io.trino.sql.planner.iterative.rule.test.BaseRuleTest;
 import io.trino.sql.planner.iterative.rule.test.PlanBuilder;
 import io.trino.sql.planner.plan.Assignments;
 import io.trino.sql.planner.plan.ProjectNode;
+import io.trino.sql.tree.SymbolReference;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
@@ -45,7 +46,7 @@ public class TestPruneAggregationColumns
                 .on(p -> buildProjectedAggregation(p, symbol -> symbol.getName().equals("b")))
                 .matches(
                         strictProject(
-                                ImmutableMap.of("b", expression("b")),
+                                ImmutableMap.of("b", expression(new SymbolReference("b"))),
                                 aggregation(
                                         singleGroupingSet("key"),
                                         ImmutableMap.of(
@@ -74,7 +75,7 @@ public class TestPruneAggregationColumns
                 planBuilder.aggregation(aggregationBuilder -> aggregationBuilder
                         .source(planBuilder.values(key))
                         .singleGroupingSet(key)
-                        .addAggregation(a, PlanBuilder.expression("count()"), ImmutableList.of())
-                        .addAggregation(b, PlanBuilder.expression("count()"), ImmutableList.of())));
+                        .addAggregation(a, PlanBuilder.aggregation("count", ImmutableList.of()), ImmutableList.of())
+                        .addAggregation(b, PlanBuilder.aggregation("count", ImmutableList.of()), ImmutableList.of())));
     }
 }

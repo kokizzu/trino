@@ -771,7 +771,7 @@ public class DeltaLakeMetadata
                         }
                         String tableLocation = metastoreTable.get().location();
                         TableSnapshot snapshot = transactionLogAccess.loadSnapshot(session, table, tableLocation);
-                        MetadataEntry metadata = transactionLogAccess.getMetadataEntry(snapshot, session);
+                        MetadataEntry metadata = transactionLogAccess.getMetadataEntry(session, snapshot);
                         ProtocolEntry protocol = transactionLogAccess.getProtocolEntry(session, snapshot);
                         List<ColumnMetadata> columnMetadata = getTableColumnMetadata(metadata, protocol);
                         return Stream.of(TableColumnsMetadata.forTable(table, columnMetadata));
@@ -966,7 +966,7 @@ public class DeltaLakeMetadata
         // As a precaution, clear the caches
         statisticsAccess.invalidateCache(schemaTableName, Optional.of(location));
         transactionLogAccess.invalidateCache(schemaTableName, Optional.of(location));
-        metastore.createTable(session, table, principalPrivileges);
+        metastore.createTable(table, principalPrivileges);
     }
 
     public static Table buildTable(ConnectorSession session, SchemaTableName schemaTableName, String location, boolean isExternal)
@@ -1261,7 +1261,7 @@ public class DeltaLakeMetadata
             // As a precaution, clear the caches
             statisticsAccess.invalidateCache(schemaTableName, Optional.of(location));
             transactionLogAccess.invalidateCache(schemaTableName, Optional.of(location));
-            metastore.createTable(session, table, principalPrivileges);
+            metastore.createTable(table, principalPrivileges);
         }
         catch (Exception e) {
             // Remove the transaction log entry if the table creation fails
@@ -1379,7 +1379,7 @@ public class DeltaLakeMetadata
 
         if (!newColumnMetadata.isNullable()) {
             boolean tableHasDataFiles;
-            try (Stream<AddFileEntry> addFileEntries = transactionLogAccess.getActiveFiles(getSnapshot(session, handle), handle.getMetadataEntry(), handle.getProtocolEntry(), session)) {
+            try (Stream<AddFileEntry> addFileEntries = transactionLogAccess.getActiveFiles(session, getSnapshot(session, handle), handle.getMetadataEntry(), handle.getProtocolEntry())) {
                 tableHasDataFiles = addFileEntries.findAny().isPresent();
             }
             if (tableHasDataFiles) {
@@ -1728,7 +1728,7 @@ public class DeltaLakeMetadata
                     table.getMetadataEntry(),
                     table.getProtocolEntry(),
                     inputColumns,
-                    getMandatoryCurrentVersion(fileSystem, tableLocation),
+                    getMandatoryCurrentVersion(fileSystem, tableLocation, table.getReadVersion()),
                     retryMode != NO_RETRIES);
         }
         catch (IOException e) {
@@ -1820,7 +1820,7 @@ public class DeltaLakeMetadata
             throws IOException
     {
         TrinoFileSystem fileSystem = fileSystemFactory.create(session);
-        long currentVersion = getMandatoryCurrentVersion(fileSystem, handle.getLocation());
+        long currentVersion = getMandatoryCurrentVersion(fileSystem, handle.getLocation(), handle.getReadVersion());
 
         boolean isBlindAppend = sourceTableHandles.stream()
                 .filter(sourceTableHandle -> sourceTableHandle instanceof DeltaLakeTableHandle)
@@ -2018,7 +2018,7 @@ public class DeltaLakeMetadata
             long createdTime = Instant.now().toEpochMilli();
 
             TrinoFileSystem fileSystem = fileSystemFactory.create(session);
-            long currentVersion = getMandatoryCurrentVersion(fileSystem, tableLocation);
+            long currentVersion = getMandatoryCurrentVersion(fileSystem, tableLocation, handle.getReadVersion());
             if (currentVersion != handle.getReadVersion()) {
                 throw new TransactionConflictException(format("Conflicting concurrent writes found. Expected transaction log version: %s, actual version: %s", handle.getReadVersion(), currentVersion));
             }
@@ -2427,7 +2427,7 @@ public class DeltaLakeMetadata
     {
         LocatedTableHandle handle = (LocatedTableHandle) tableHandle;
         boolean deleteData = handle.managed();
-        metastore.dropTable(session, handle.schemaTableName(), handle.location(), deleteData);
+        metastore.dropTable(handle.schemaTableName(), handle.location(), deleteData);
         if (deleteData) {
             try {
                 fileSystemFactory.create(session).deleteDirectory(Location.of(handle.location()));
@@ -2450,7 +2450,7 @@ public class DeltaLakeMetadata
         if (table.managed() && !allowManagedTableRename) {
             throw new TrinoException(NOT_SUPPORTED, "Renaming managed tables is not allowed with current metastore configuration");
         }
-        metastore.renameTable(session, handle.getSchemaTableName(), newTableName);
+        metastore.renameTable(handle.getSchemaTableName(), newTableName);
     }
 
     private CommitInfoEntry getCommitInfoEntry(
@@ -3200,7 +3200,7 @@ public class DeltaLakeMetadata
     {
         Map<String, AddFileEntry> addFileEntriesWithNoStats;
         try (Stream<AddFileEntry> activeFiles = transactionLogAccess.getActiveFiles(
-                getSnapshot(session, tableHandle), tableHandle.getMetadataEntry(), tableHandle.getProtocolEntry(), session)) {
+                session, getSnapshot(session, tableHandle), tableHandle.getMetadataEntry(), tableHandle.getProtocolEntry())) {
             addFileEntriesWithNoStats = activeFiles.filter(addFileEntry -> addFileEntry.getStats().isEmpty()
                             || addFileEntry.getStats().get().getNumRecords().isEmpty()
                             || addFileEntry.getStats().get().getMaxValues().isEmpty()
@@ -3525,7 +3525,7 @@ public class DeltaLakeMetadata
 
             long writeTimestamp = Instant.now().toEpochMilli();
             TrinoFileSystem fileSystem = fileSystemFactory.create(session);
-            long currentVersion = getMandatoryCurrentVersion(fileSystem, tableLocation);
+            long currentVersion = getMandatoryCurrentVersion(fileSystem, tableLocation, tableHandle.getReadVersion());
             if (currentVersion != tableHandle.getReadVersion()) {
                 throw new TransactionConflictException(format("Conflicting concurrent writes found. Expected transaction log version: %s, actual version: %s", tableHandle.getReadVersion(), currentVersion));
             }
@@ -3563,12 +3563,12 @@ public class DeltaLakeMetadata
     {
         TableSnapshot tableSnapshot = getSnapshot(session, tableHandle);
         Stream<AddFileEntry> validDataFiles = transactionLogAccess.getActiveFiles(
+                session,
                 tableSnapshot,
                 tableHandle.getMetadataEntry(),
                 tableHandle.getProtocolEntry(),
                 tableHandle.getEnforcedPartitionConstraint(),
-                tableHandle.getProjectedColumns(),
-                session);
+                tableHandle.getProjectedColumns());
         TupleDomain<DeltaLakeColumnHandle> enforcedPartitionConstraint = tableHandle.getEnforcedPartitionConstraint();
         if (enforcedPartitionConstraint.isAll()) {
             return validDataFiles;
@@ -3807,10 +3807,5 @@ public class DeltaLakeMetadata
     private static Optional<String> getQueryId(Database database)
     {
         return Optional.ofNullable(database.getParameters().get(TRINO_QUERY_ID_NAME));
-    }
-
-    public static Optional<String> getQueryId(Table table)
-    {
-        return Optional.ofNullable(table.getParameters().get(TRINO_QUERY_ID_NAME));
     }
 }
