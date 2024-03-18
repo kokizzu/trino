@@ -14,7 +14,6 @@
 package io.trino.plugin.hive.metastore;
 
 import io.trino.hive.thrift.metastore.DataOperationType;
-import io.trino.plugin.hive.HiveColumnStatisticType;
 import io.trino.plugin.hive.HivePartition;
 import io.trino.plugin.hive.HiveType;
 import io.trino.plugin.hive.PartitionStatistics;
@@ -22,12 +21,10 @@ import io.trino.plugin.hive.acid.AcidOperation;
 import io.trino.plugin.hive.acid.AcidTransaction;
 import io.trino.plugin.hive.metastore.HivePrivilegeInfo.HivePrivilege;
 import io.trino.spi.TrinoException;
-import io.trino.spi.connector.RelationType;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.function.LanguageFunction;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.security.RoleGrant;
-import io.trino.spi.type.Type;
 
 import java.util.Collection;
 import java.util.List;
@@ -46,8 +43,6 @@ public interface HiveMetastore
 
     Optional<Table> getTable(String databaseName, String tableName);
 
-    Set<HiveColumnStatisticType> getSupportedColumnStatistics(Type type);
-
     /**
      * @param columnNames Must not be empty.
      */
@@ -64,7 +59,7 @@ public interface HiveMetastore
 
     /**
      * If true, callers should inspect table and partition parameters for spark stats.
-     * This method realy only exists for the ThriftHiveMetastore implementation. Spark mixes table and column statistics into the table parameters, and this breaks
+     * This method really only exists for the ThriftHiveMetastore implementation. Spark mixes table and column statistics into the table parameters, and this breaks
      * the abstractions of the metastore interface.
      */
     default boolean useSparkTableStatistics()
@@ -76,31 +71,7 @@ public interface HiveMetastore
 
     void updatePartitionStatistics(Table table, StatisticsUpdateMode mode, Map<String, PartitionStatistics> partitionUpdates);
 
-    List<String> getTables(String databaseName);
-
-    /**
-     * @return List of tables, views and materialized views names from all schemas or Optional.empty if operation is not supported
-     */
-    Optional<List<SchemaTableName>> getAllTables();
-
-    Map<String, RelationType> getRelationTypes(String databaseName);
-
-    /**
-     * @return empty if operation is not supported
-     */
-    Optional<Map<SchemaTableName, RelationType>> getAllRelationTypes();
-
-    List<String> getTablesWithParameter(String databaseName, String parameterKey, String parameterValue);
-
-    /**
-     * Lists views and materialized views from given database.
-     */
-    List<String> getViews(String databaseName);
-
-    /**
-     * @return List of views including materialized views names from all schemas or Optional.empty if operation is not supported
-     */
-    Optional<List<SchemaTableName>> getAllViews();
+    List<TableInfo> getTables(String databaseName);
 
     void createDatabase(Database database);
 
@@ -115,7 +86,7 @@ public interface HiveMetastore
     void dropTable(String databaseName, String tableName, boolean deleteData);
 
     /**
-     * This should only be used if the semantic here is drop and add. Trying to
+     * This should only be used if the semantic here is to drop and add. Trying to
      * alter one field of a table object previously acquired from getTable is
      * probably not what you want.
      */

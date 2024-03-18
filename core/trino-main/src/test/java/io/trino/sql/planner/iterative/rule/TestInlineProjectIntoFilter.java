@@ -15,25 +15,26 @@ package io.trino.sql.planner.iterative.rule;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import io.trino.sql.ir.ComparisonExpression;
+import io.trino.sql.ir.Constant;
+import io.trino.sql.ir.IsNullPredicate;
+import io.trino.sql.ir.LogicalExpression;
+import io.trino.sql.ir.SymbolReference;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.iterative.rule.test.BaseRuleTest;
 import io.trino.sql.planner.plan.Assignments;
-import io.trino.sql.tree.ComparisonExpression;
-import io.trino.sql.tree.IsNullPredicate;
-import io.trino.sql.tree.LogicalExpression;
-import io.trino.sql.tree.LongLiteral;
-import io.trino.sql.tree.SymbolReference;
 import org.junit.jupiter.api.Test;
 
+import static io.trino.spi.type.IntegerType.INTEGER;
+import static io.trino.sql.ir.BooleanLiteral.FALSE_LITERAL;
+import static io.trino.sql.ir.BooleanLiteral.TRUE_LITERAL;
+import static io.trino.sql.ir.ComparisonExpression.Operator.GREATER_THAN;
+import static io.trino.sql.ir.LogicalExpression.Operator.AND;
+import static io.trino.sql.ir.LogicalExpression.Operator.OR;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.expression;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.filter;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.project;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.values;
-import static io.trino.sql.tree.BooleanLiteral.FALSE_LITERAL;
-import static io.trino.sql.tree.BooleanLiteral.TRUE_LITERAL;
-import static io.trino.sql.tree.ComparisonExpression.Operator.GREATER_THAN;
-import static io.trino.sql.tree.LogicalExpression.Operator.AND;
-import static io.trino.sql.tree.LogicalExpression.Operator.OR;
 
 public class TestInlineProjectIntoFilter
         extends BaseRuleTest
@@ -42,22 +43,22 @@ public class TestInlineProjectIntoFilter
     @Test
     public void testInlineProjection()
     {
-        tester().assertThat(new InlineProjectIntoFilter(tester().getMetadata()))
+        tester().assertThat(new InlineProjectIntoFilter())
                 .on(p -> p.filter(
                         new SymbolReference("a"),
                         p.project(
-                                Assignments.of(p.symbol("a"), new ComparisonExpression(GREATER_THAN, new SymbolReference("b"), new LongLiteral("0"))),
+                                Assignments.of(p.symbol("a"), new ComparisonExpression(GREATER_THAN, new SymbolReference("b"), new Constant(INTEGER, 0L))),
                                 p.values(p.symbol("b")))))
                 .matches(
                         project(
                                 ImmutableMap.of("a", expression(TRUE_LITERAL)),
                                 filter(
-                                        new ComparisonExpression(GREATER_THAN, new SymbolReference("b"), new LongLiteral("0")),
+                                        new ComparisonExpression(GREATER_THAN, new SymbolReference("b"), new Constant(INTEGER, 0L)),
                                         project(
                                                 ImmutableMap.of("b", expression(new SymbolReference("b"))),
                                                 values("b")))));
 
-        tester().assertThat(new InlineProjectIntoFilter(tester().getMetadata()))
+        tester().assertThat(new InlineProjectIntoFilter())
                 .on(p -> {
                     Symbol a = p.symbol("a");
                     Symbol b = p.symbol("b");
@@ -86,11 +87,11 @@ public class TestInlineProjectIntoFilter
     @Test
     public void testNoSimpleConjuncts()
     {
-        tester().assertThat(new InlineProjectIntoFilter(tester().getMetadata()))
+        tester().assertThat(new InlineProjectIntoFilter())
                 .on(p -> p.filter(
                         new LogicalExpression(OR, ImmutableList.of(new SymbolReference("a"), FALSE_LITERAL)),
                         p.project(
-                                Assignments.of(p.symbol("a"), new ComparisonExpression(GREATER_THAN, new SymbolReference("b"), new LongLiteral("0"))),
+                                Assignments.of(p.symbol("a"), new ComparisonExpression(GREATER_THAN, new SymbolReference("b"), new Constant(INTEGER, 0L))),
                                 p.values(p.symbol("b")))))
                 .doesNotFire();
     }
@@ -98,19 +99,19 @@ public class TestInlineProjectIntoFilter
     @Test
     public void testMultipleReferencesToConjunct()
     {
-        tester().assertThat(new InlineProjectIntoFilter(tester().getMetadata()))
+        tester().assertThat(new InlineProjectIntoFilter())
                 .on(p -> p.filter(
                         new LogicalExpression(AND, ImmutableList.of(new SymbolReference("a"), new SymbolReference("a"))),
                         p.project(
-                                Assignments.of(p.symbol("a"), new ComparisonExpression(GREATER_THAN, new SymbolReference("b"), new LongLiteral("0"))),
+                                Assignments.of(p.symbol("a"), new ComparisonExpression(GREATER_THAN, new SymbolReference("b"), new Constant(INTEGER, 0L))),
                                 p.values(p.symbol("b")))))
                 .doesNotFire();
 
-        tester().assertThat(new InlineProjectIntoFilter(tester().getMetadata()))
+        tester().assertThat(new InlineProjectIntoFilter())
                 .on(p -> p.filter(
                         new LogicalExpression(AND, ImmutableList.of(new SymbolReference("a"), new LogicalExpression(OR, ImmutableList.of(new SymbolReference("a"), FALSE_LITERAL)))),
                         p.project(
-                                Assignments.of(p.symbol("a"), new ComparisonExpression(GREATER_THAN, new SymbolReference("b"), new LongLiteral("0"))),
+                                Assignments.of(p.symbol("a"), new ComparisonExpression(GREATER_THAN, new SymbolReference("b"), new Constant(INTEGER, 0L))),
                                 p.values(p.symbol("b")))))
                 .doesNotFire();
     }
@@ -118,18 +119,18 @@ public class TestInlineProjectIntoFilter
     @Test
     public void testInlineMultiple()
     {
-        tester().assertThat(new InlineProjectIntoFilter(tester().getMetadata()))
+        tester().assertThat(new InlineProjectIntoFilter())
                 .on(p -> p.filter(
                         new LogicalExpression(AND, ImmutableList.of(new SymbolReference("a"), new SymbolReference("b"))),
                         p.project(
                                 Assignments.of(
-                                        p.symbol("a"), new ComparisonExpression(GREATER_THAN, new SymbolReference("c"), new LongLiteral("0")),
-                                        p.symbol("b"), new ComparisonExpression(GREATER_THAN, new SymbolReference("c"), new LongLiteral("5"))),
+                                        p.symbol("a"), new ComparisonExpression(GREATER_THAN, new SymbolReference("c"), new Constant(INTEGER, 0L)),
+                                        p.symbol("b"), new ComparisonExpression(GREATER_THAN, new SymbolReference("c"), new Constant(INTEGER, 5L))),
                                 p.values(p.symbol("c")))))
                 .matches(
                         project(
                                 filter(
-                                        new LogicalExpression(AND, ImmutableList.of(new ComparisonExpression(GREATER_THAN, new SymbolReference("c"), new LongLiteral("0")), new ComparisonExpression(GREATER_THAN, new SymbolReference("c"), new LongLiteral("5")))),
+                                        new LogicalExpression(AND, ImmutableList.of(new ComparisonExpression(GREATER_THAN, new SymbolReference("c"), new Constant(INTEGER, 0L)), new ComparisonExpression(GREATER_THAN, new SymbolReference("c"), new Constant(INTEGER, 5L)))),
                                         project(
                                                 ImmutableMap.of("c", expression(new SymbolReference("c"))),
                                                 values("c")))));
@@ -138,22 +139,22 @@ public class TestInlineProjectIntoFilter
     @Test
     public void testInlinePartially()
     {
-        tester().assertThat(new InlineProjectIntoFilter(tester().getMetadata()))
+        tester().assertThat(new InlineProjectIntoFilter())
                 .on(p -> p.filter(
                         new LogicalExpression(AND, ImmutableList.of(new SymbolReference("a"), new SymbolReference("a"), new SymbolReference("b"))),
                         p.project(
                                 Assignments.of(
-                                        p.symbol("a"), new ComparisonExpression(GREATER_THAN, new SymbolReference("c"), new LongLiteral("0")),
-                                        p.symbol("b"), new ComparisonExpression(GREATER_THAN, new SymbolReference("c"), new LongLiteral("5"))),
+                                        p.symbol("a"), new ComparisonExpression(GREATER_THAN, new SymbolReference("c"), new Constant(INTEGER, 0L)),
+                                        p.symbol("b"), new ComparisonExpression(GREATER_THAN, new SymbolReference("c"), new Constant(INTEGER, 5L))),
                                 p.values(p.symbol("c")))))
                 .matches(
                         project(
                                 ImmutableMap.of("a", expression(new SymbolReference("a")), "b", expression(TRUE_LITERAL)),
                                 filter(
-                                        new LogicalExpression(AND, ImmutableList.of(new SymbolReference("a"), new ComparisonExpression(GREATER_THAN, new SymbolReference("c"), new LongLiteral("5")))), // combineConjuncts() removed duplicate conjunct `a`. The predicate is now eligible for further inlining.
+                                        new LogicalExpression(AND, ImmutableList.of(new SymbolReference("a"), new ComparisonExpression(GREATER_THAN, new SymbolReference("c"), new Constant(INTEGER, 5L)))), // combineConjuncts() removed duplicate conjunct `a`. The predicate is now eligible for further inlining.
                                         project(
                                                 ImmutableMap.of(
-                                                        "a", expression(new ComparisonExpression(GREATER_THAN, new SymbolReference("c"), new LongLiteral("0"))),
+                                                        "a", expression(new ComparisonExpression(GREATER_THAN, new SymbolReference("c"), new Constant(INTEGER, 0L))),
                                                         "c", expression(new SymbolReference("c"))),
                                                 values("c")))));
     }
@@ -162,7 +163,7 @@ public class TestInlineProjectIntoFilter
     public void testTrivialProjection()
     {
         // identity projection
-        tester().assertThat(new InlineProjectIntoFilter(tester().getMetadata()))
+        tester().assertThat(new InlineProjectIntoFilter())
                 .on(p -> p.filter(
                         new SymbolReference("a"),
                         p.project(
@@ -171,7 +172,7 @@ public class TestInlineProjectIntoFilter
                 .doesNotFire();
 
         // renaming projection
-        tester().assertThat(new InlineProjectIntoFilter(tester().getMetadata()))
+        tester().assertThat(new InlineProjectIntoFilter())
                 .on(p -> p.filter(
                         new SymbolReference("a"),
                         p.project(
@@ -183,11 +184,11 @@ public class TestInlineProjectIntoFilter
     @Test
     public void testCorrelationSymbol()
     {
-        tester().assertThat(new InlineProjectIntoFilter(tester().getMetadata()))
+        tester().assertThat(new InlineProjectIntoFilter())
                 .on(p -> p.filter(
                         new SymbolReference("corr"),
                         p.project(
-                                Assignments.of(p.symbol("a"), new ComparisonExpression(GREATER_THAN, new SymbolReference("b"), new LongLiteral("0"))),
+                                Assignments.of(p.symbol("a"), new ComparisonExpression(GREATER_THAN, new SymbolReference("b"), new Constant(INTEGER, 0L))),
                                 p.values(p.symbol("b")))))
                 .doesNotFire();
     }

@@ -19,7 +19,6 @@ import com.google.common.collect.ImmutableSet;
 import io.airlift.units.Duration;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.filesystem.cache.DefaultCachingHostAddressProvider;
-import io.trino.plugin.base.CatalogName;
 import io.trino.plugin.hive.TrinoViewHiveMetastore;
 import io.trino.plugin.hive.metastore.HiveMetastore;
 import io.trino.plugin.hive.metastore.HiveMetastoreFactory;
@@ -32,6 +31,7 @@ import io.trino.plugin.iceberg.catalog.TrinoCatalog;
 import io.trino.plugin.iceberg.catalog.file.FileMetastoreTableOperationsProvider;
 import io.trino.plugin.iceberg.catalog.hms.TrinoHiveCatalog;
 import io.trino.plugin.iceberg.catalog.rest.DefaultIcebergFileSystemFactory;
+import io.trino.spi.catalog.CatalogName;
 import io.trino.spi.connector.CatalogHandle;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorSession;
@@ -67,7 +67,6 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 
 import static com.google.common.io.MoreFiles.deleteRecursively;
 import static com.google.common.io.RecursiveDeleteOption.ALLOW_INSECURE;
@@ -150,6 +149,7 @@ public class TestIcebergSplitSource
         Table nationTable = catalog.loadTable(SESSION, schemaTableName);
         IcebergTableHandle tableHandle = createTableHandle(schemaTableName, nationTable, TupleDomain.all());
 
+        CompletableFuture<?> isBlocked = new CompletableFuture<>();
         try (IcebergSplitSource splitSource = new IcebergSplitSource(
                 new DefaultIcebergFileSystemFactory(fileSystemFactory),
                 SESSION,
@@ -168,14 +168,7 @@ public class TestIcebergSplitSource
                     @Override
                     public CompletableFuture<?> isBlocked()
                     {
-                        return CompletableFuture.runAsync(() -> {
-                            try {
-                                TimeUnit.HOURS.sleep(1);
-                            }
-                            catch (InterruptedException e) {
-                                throw new IllegalStateException(e);
-                            }
-                        });
+                        return isBlocked;
                     }
 
                     @Override
@@ -215,6 +208,9 @@ public class TestIcebergSplitSource
             assertThat(System.currentTimeMillis() - startMillis)
                     .as("IcebergSplitSource failed to wait for dynamicFilteringWaitTimeout")
                     .isGreaterThanOrEqualTo(2000);
+        }
+        finally {
+            isBlocked.complete(null);
         }
     }
 

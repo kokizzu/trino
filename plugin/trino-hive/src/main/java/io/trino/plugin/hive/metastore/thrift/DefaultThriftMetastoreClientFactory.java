@@ -47,13 +47,10 @@ public class DefaultThriftMetastoreClientFactory
     private final String hostname;
 
     private final MetastoreSupportsDateStatistics metastoreSupportsDateStatistics = new MetastoreSupportsDateStatistics();
+    private final AtomicInteger chosenGetTableMetaAlternative = new AtomicInteger(Integer.MAX_VALUE);
     private final AtomicInteger chosenGetTableAlternative = new AtomicInteger(Integer.MAX_VALUE);
-    private final AtomicInteger chosenTableParamAlternative = new AtomicInteger(Integer.MAX_VALUE);
-    private final AtomicInteger chosenGetAllViewsPerDatabaseAlternative = new AtomicInteger(Integer.MAX_VALUE);
     private final AtomicInteger chosenAlterTransactionalTableAlternative = new AtomicInteger(Integer.MAX_VALUE);
     private final AtomicInteger chosenAlterPartitionsAlternative = new AtomicInteger(Integer.MAX_VALUE);
-    private final AtomicInteger chosenGetAllTablesAlternative = new AtomicInteger(Integer.MAX_VALUE);
-    private final AtomicInteger chosenGetAllViewsAlternative = new AtomicInteger(Integer.MAX_VALUE);
 
     public DefaultThriftMetastoreClientFactory(
             Optional<SSLContext> sslContext,
@@ -112,11 +109,8 @@ public class DefaultThriftMetastoreClientFactory
                 transportSupplier,
                 hostname,
                 metastoreSupportsDateStatistics,
+                chosenGetTableMetaAlternative,
                 chosenGetTableAlternative,
-                chosenTableParamAlternative,
-                chosenGetAllTablesAlternative,
-                chosenGetAllViewsPerDatabaseAlternative,
-                chosenGetAllViewsAlternative,
                 chosenAlterTransactionalTableAlternative,
                 chosenAlterPartitionsAlternative);
     }

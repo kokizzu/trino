@@ -37,6 +37,7 @@ import io.trino.plugin.base.filter.UtcConstraintExtractor;
 import io.trino.plugin.base.projection.ApplyProjectionUtil;
 import io.trino.plugin.base.projection.ApplyProjectionUtil.ProjectedColumnRepresentation;
 import io.trino.plugin.hive.HiveWrittenPartitions;
+import io.trino.plugin.hive.metastore.TableInfo;
 import io.trino.plugin.iceberg.aggregation.DataSketchStateSerializer;
 import io.trino.plugin.iceberg.aggregation.IcebergThetaSketchForStats;
 import io.trino.plugin.iceberg.catalog.TrinoCatalog;
@@ -685,13 +686,19 @@ public class IcebergMetadata
     @Override
     public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> schemaName)
     {
-        return catalog.listTables(session, schemaName);
+        return catalog.listTables(session, schemaName).stream()
+                .map(TableInfo::tableName)
+                .toList();
     }
 
     @Override
     public Map<SchemaTableName, RelationType> getRelationTypes(ConnectorSession session, Optional<String> schemaName)
     {
-        return catalog.getRelationTypes(session, schemaName);
+        ImmutableMap.Builder<SchemaTableName, RelationType> result = ImmutableMap.builder();
+        for (TableInfo info : catalog.listTables(session, schemaName)) {
+            result.put(info.tableName(), info.extendedRelationType().toRelationType());
+        }
+        return result.buildKeepingLast();
     }
 
     @Override
@@ -766,7 +773,9 @@ public class IcebergMetadata
         requireNonNull(prefix, "prefix is null");
         List<SchemaTableName> schemaTableNames;
         if (prefix.getTable().isEmpty()) {
-            schemaTableNames = catalog.listTables(session, prefix.getSchema());
+            schemaTableNames = catalog.listTables(session, prefix.getSchema()).stream()
+                    .map(TableInfo::tableName)
+                    .collect(toImmutableList());
         }
         else {
             schemaTableNames = ImmutableList.of(prefix.toSchemaTableName());
@@ -799,16 +808,13 @@ public class IcebergMetadata
                         }
                         catch (TableNotFoundException e) {
                             // Table disappeared during listing operation
-                            continue;
                         }
                         catch (UnknownTableTypeException e) {
                             // Skip unsupported table type in case that the table redirects are not enabled
-                            continue;
                         }
                         catch (RuntimeException e) {
                             // Table can be being removed and this may cause all sorts of exceptions. Log, because we're catching broadly.
                             log.warn(e, "Failed to access metadata of table %s during streaming table columns for %s", tableName, prefix);
-                            continue;
                         }
                     }
                     return tableMetadatas.build();
@@ -1063,7 +1069,7 @@ public class IcebergMetadata
                 .map(Types.NestedField::fieldId)
                 .collect(toImmutableSet());
 
-        ImmutableList.Builder<TrinoSortField> sortFields = ImmutableList.<TrinoSortField>builder();
+        ImmutableList.Builder<TrinoSortField> sortFields = ImmutableList.builder();
         for (SortField sortField : sortOrder.fields()) {
             if (!sortField.transform().isIdentity()) {
                 continue;
@@ -2462,7 +2468,10 @@ public class IcebergMetadata
     @Override
     public List<SchemaTableName> listViews(ConnectorSession session, Optional<String> schemaName)
     {
-        return catalog.listViews(session, schemaName);
+        return catalog.listTables(session, schemaName).stream()
+                .filter(info -> info.extendedRelationType() == TableInfo.ExtendedRelationType.TRINO_VIEW)
+                .map(TableInfo::tableName)
+                .toList();
     }
 
     @Override
@@ -2927,7 +2936,10 @@ public class IcebergMetadata
     @Override
     public List<SchemaTableName> listMaterializedViews(ConnectorSession session, Optional<String> schemaName)
     {
-        return catalog.listMaterializedViews(session, schemaName);
+        return catalog.listTables(session, schemaName).stream()
+                .filter(info -> info.extendedRelationType() == TableInfo.ExtendedRelationType.TRINO_MATERIALIZED_VIEW)
+                .map(TableInfo::tableName)
+                .toList();
     }
 
     @Override

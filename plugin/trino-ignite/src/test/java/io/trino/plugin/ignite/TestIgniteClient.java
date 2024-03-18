@@ -28,15 +28,14 @@ import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.expression.ConnectorExpression;
 import io.trino.spi.expression.Variable;
 import io.trino.spi.type.Type;
+import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.IsNullPredicate;
+import io.trino.sql.ir.NotExpression;
+import io.trino.sql.ir.SymbolReference;
 import io.trino.sql.planner.ConnectorExpressionTranslator;
 import io.trino.sql.planner.IrTypeAnalyzer;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.TypeProvider;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.IsNotNullPredicate;
-import io.trino.sql.tree.IsNullPredicate;
-import io.trino.sql.tree.NotExpression;
-import io.trino.sql.tree.SymbolReference;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Types;
@@ -187,8 +186,7 @@ public class TestIgniteClient
         // c_varchar IS NOT NULL
         ParameterizedExpression converted = JDBC_CLIENT.convertPredicate(SESSION,
                         translateToConnectorExpression(
-                                new IsNotNullPredicate(
-                                        new SymbolReference("c_varchar_symbol")),
+                                new NotExpression(new IsNullPredicate(new SymbolReference("c_varchar_symbol"))),
                                 Map.of("c_varchar_symbol", VARCHAR_COLUMN.getColumnType())),
                         Map.of("c_varchar_symbol", VARCHAR_COLUMN))
                 .orElseThrow();
@@ -203,8 +201,7 @@ public class TestIgniteClient
         ParameterizedExpression converted = JDBC_CLIENT.convertPredicate(SESSION,
                         translateToConnectorExpression(
                                 new NotExpression(
-                                        new IsNotNullPredicate(
-                                                new SymbolReference("c_varchar_symbol"))),
+                                        new NotExpression(new IsNullPredicate(new SymbolReference("c_varchar_symbol")))),
                                 Map.of("c_varchar_symbol", VARCHAR_COLUMN.getColumnType())),
                         Map.of("c_varchar_symbol", VARCHAR_COLUMN))
                 .orElseThrow();
@@ -219,7 +216,6 @@ public class TestIgniteClient
                         expression,
                         TypeProvider.viewOf(symbolTypes.entrySet().stream()
                                 .collect(toImmutableMap(entry -> new Symbol(entry.getKey()), Map.Entry::getValue))),
-                        PLANNER_CONTEXT,
                         new IrTypeAnalyzer(PLANNER_CONTEXT))
                 .orElseThrow();
     }

@@ -15,50 +15,27 @@ package io.trino.sql.ir;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
-import io.trino.Session;
+import com.google.common.graph.SuccessorsFunction;
+import com.google.common.graph.Traverser;
 import io.trino.metadata.Metadata;
-import io.trino.metadata.ResolvedFunction;
-import io.trino.spi.type.Type;
-import io.trino.sql.PlannerContext;
 import io.trino.sql.planner.DeterminismEvaluator;
-import io.trino.sql.planner.IrExpressionInterpreter;
-import io.trino.sql.planner.IrTypeAnalyzer;
-import io.trino.sql.planner.LiteralEncoder;
-import io.trino.sql.planner.NoOpSymbolResolver;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.SymbolsExtractor;
-import io.trino.sql.planner.TypeProvider;
-import io.trino.sql.tree.Cast;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.ExpressionRewriter;
-import io.trino.sql.tree.ExpressionTreeRewriter;
-import io.trino.sql.tree.FunctionCall;
-import io.trino.sql.tree.GenericDataType;
-import io.trino.sql.tree.Identifier;
-import io.trino.sql.tree.IsNullPredicate;
-import io.trino.sql.tree.LambdaExpression;
-import io.trino.sql.tree.Literal;
-import io.trino.sql.tree.LogicalExpression;
-import io.trino.sql.tree.NodeRef;
-import io.trino.sql.tree.QualifiedName;
-import io.trino.sql.tree.RowDataType;
-import io.trino.sql.tree.SymbolReference;
 
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.stream.Stream;
 
 import static com.google.common.base.Predicates.not;
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static io.trino.metadata.LiteralFunction.LITERAL_FUNCTION_NAME;
-import static io.trino.metadata.ResolvedFunction.isResolved;
-import static io.trino.sql.tree.BooleanLiteral.FALSE_LITERAL;
-import static io.trino.sql.tree.BooleanLiteral.TRUE_LITERAL;
+import static com.google.common.collect.Streams.stream;
+import static io.trino.sql.ir.BooleanLiteral.FALSE_LITERAL;
+import static io.trino.sql.ir.BooleanLiteral.TRUE_LITERAL;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
 
@@ -142,26 +119,21 @@ public final class IrUtils
         return new LogicalExpression(operator, ImmutableList.copyOf(expressions));
     }
 
-    public static Expression combinePredicates(Metadata metadata, LogicalExpression.Operator operator, Expression... expressions)
-    {
-        return combinePredicates(metadata, operator, Arrays.asList(expressions));
-    }
-
-    public static Expression combinePredicates(Metadata metadata, LogicalExpression.Operator operator, Collection<Expression> expressions)
+    public static Expression combinePredicates(LogicalExpression.Operator operator, Collection<Expression> expressions)
     {
         if (operator == LogicalExpression.Operator.AND) {
-            return combineConjuncts(metadata, expressions);
+            return combineConjuncts(expressions);
         }
 
-        return combineDisjuncts(metadata, expressions);
+        return combineDisjuncts(expressions);
     }
 
-    public static Expression combineConjuncts(Metadata metadata, Expression... expressions)
+    public static Expression combineConjuncts(Expression... expressions)
     {
-        return combineConjuncts(metadata, Arrays.asList(expressions));
+        return combineConjuncts(Arrays.asList(expressions));
     }
 
-    public static Expression combineConjuncts(Metadata metadata, Collection<Expression> expressions)
+    public static Expression combineConjuncts(Collection<Expression> expressions)
     {
         requireNonNull(expressions, "expressions is null");
 
@@ -170,7 +142,7 @@ public final class IrUtils
                 .filter(e -> !e.equals(TRUE_LITERAL))
                 .collect(toList());
 
-        conjuncts = removeDuplicates(metadata, conjuncts);
+        conjuncts = removeDuplicates(conjuncts);
 
         if (conjuncts.contains(FALSE_LITERAL)) {
             return FALSE_LITERAL;
@@ -195,17 +167,17 @@ public final class IrUtils
         return and(conjuncts);
     }
 
-    public static Expression combineDisjuncts(Metadata metadata, Expression... expressions)
+    public static Expression combineDisjuncts(Expression... expressions)
     {
-        return combineDisjuncts(metadata, Arrays.asList(expressions));
+        return combineDisjuncts(Arrays.asList(expressions));
     }
 
-    public static Expression combineDisjuncts(Metadata metadata, Collection<Expression> expressions)
+    public static Expression combineDisjuncts(Collection<Expression> expressions)
     {
-        return combineDisjunctsWithDefault(metadata, expressions, FALSE_LITERAL);
+        return combineDisjunctsWithDefault(expressions, FALSE_LITERAL);
     }
 
-    public static Expression combineDisjunctsWithDefault(Metadata metadata, Collection<Expression> expressions, Expression emptyDefault)
+    public static Expression combineDisjunctsWithDefault(Collection<Expression> expressions, Expression emptyDefault)
     {
         requireNonNull(expressions, "expressions is null");
 
@@ -214,7 +186,7 @@ public final class IrUtils
                 .filter(e -> !e.equals(FALSE_LITERAL))
                 .collect(toList());
 
-        disjuncts = removeDuplicates(metadata, disjuncts);
+        disjuncts = removeDuplicates(disjuncts);
 
         if (disjuncts.contains(TRUE_LITERAL)) {
             return TRUE_LITERAL;
@@ -225,21 +197,21 @@ public final class IrUtils
 
     public static Expression filterDeterministicConjuncts(Metadata metadata, Expression expression)
     {
-        return filterConjuncts(metadata, expression, expression1 -> DeterminismEvaluator.isDeterministic(expression1, metadata));
+        return filterConjuncts(expression, expression1 -> DeterminismEvaluator.isDeterministic(expression1));
     }
 
     public static Expression filterNonDeterministicConjuncts(Metadata metadata, Expression expression)
     {
-        return filterConjuncts(metadata, expression, not(testExpression -> DeterminismEvaluator.isDeterministic(testExpression, metadata)));
+        return filterConjuncts(expression, not(testExpression -> DeterminismEvaluator.isDeterministic(testExpression)));
     }
 
-    public static Expression filterConjuncts(Metadata metadata, Expression expression, Predicate<Expression> predicate)
+    public static Expression filterConjuncts(Expression expression, Predicate<Expression> predicate)
     {
         List<Expression> conjuncts = extractConjuncts(expression).stream()
                 .filter(predicate)
                 .collect(toList());
 
-        return combineConjuncts(metadata, conjuncts);
+        return combineConjuncts(conjuncts);
     }
 
     @SafeVarargs
@@ -271,50 +243,16 @@ public final class IrUtils
     }
 
     /**
-     * Returns whether expression is effectively literal. An effectively literal expression is a simple constant value, or null,
-     * in either {@link Literal} form, or other form returned by {@link LiteralEncoder}. In particular, other constant expressions
-     * like a deterministic function call with constant arguments are not considered effectively literal.
-     */
-    public static boolean isEffectivelyLiteral(PlannerContext plannerContext, Session session, Expression expression)
-    {
-        if (expression instanceof Literal) {
-            return true;
-        }
-        if (expression instanceof Cast) {
-            return ((Cast) expression).getExpression() instanceof Literal
-                    // a Cast(Literal(...)) can fail, so this requires verification
-                    && constantExpressionEvaluatesSuccessfully(plannerContext, session, expression);
-        }
-        if (expression instanceof FunctionCall) {
-            QualifiedName functionName = ((FunctionCall) expression).getName();
-            if (isResolved(functionName)) {
-                ResolvedFunction resolvedFunction = plannerContext.getMetadata().decodeFunction(functionName);
-                return LITERAL_FUNCTION_NAME.equals(resolvedFunction.getSignature().getName().getFunctionName());
-            }
-        }
-
-        return false;
-    }
-
-    private static boolean constantExpressionEvaluatesSuccessfully(PlannerContext plannerContext, Session session, Expression constantExpression)
-    {
-        Map<NodeRef<Expression>, Type> types = new IrTypeAnalyzer(plannerContext).getTypes(session, TypeProvider.empty(), constantExpression);
-        IrExpressionInterpreter interpreter = new IrExpressionInterpreter(constantExpression, plannerContext, session, types);
-        Object literalValue = interpreter.optimize(NoOpSymbolResolver.INSTANCE);
-        return !(literalValue instanceof Expression);
-    }
-
-    /**
      * Removes duplicate deterministic expressions. Preserves the relative order
      * of the expressions in the list.
      */
-    private static List<Expression> removeDuplicates(Metadata metadata, List<Expression> expressions)
+    private static List<Expression> removeDuplicates(List<Expression> expressions)
     {
         Set<Expression> seen = new HashSet<>();
 
         ImmutableList.Builder<Expression> result = ImmutableList.builder();
         for (Expression expression : expressions) {
-            if (!DeterminismEvaluator.isDeterministic(expression, metadata)) {
+            if (!DeterminismEvaluator.isDeterministic(expression)) {
                 result.add(expression);
             }
             else if (!seen.contains(expression)) {
@@ -326,35 +264,10 @@ public final class IrUtils
         return result.build();
     }
 
-    public static Expression rewriteIdentifiersToSymbolReferences(Expression expression)
+    public static Stream<Expression> preOrder(Expression node)
     {
-        return ExpressionTreeRewriter.rewriteWith(new ExpressionRewriter<>()
-        {
-            @Override
-            public Expression rewriteIdentifier(Identifier node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
-            {
-                return new SymbolReference(node.getValue());
-            }
-
-            @Override
-            public Expression rewriteLambdaExpression(LambdaExpression node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
-            {
-                return new LambdaExpression(node.getArguments(), treeRewriter.rewrite(node.getBody(), context));
-            }
-
-            @Override
-            public Expression rewriteGenericDataType(GenericDataType node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
-            {
-                // do not rewrite identifiers within type parameters
-                return node;
-            }
-
-            @Override
-            public Expression rewriteRowDataType(RowDataType node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
-            {
-                // do not rewrite identifiers in field names
-                return node;
-            }
-        }, expression);
+        return stream(
+                Traverser.forTree((SuccessorsFunction<Expression>) Expression::getChildren)
+                        .depthFirstPreOrder(requireNonNull(node, "node is null")));
     }
 }

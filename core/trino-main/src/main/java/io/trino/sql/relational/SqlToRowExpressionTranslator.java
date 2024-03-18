@@ -19,67 +19,43 @@ import io.trino.Session;
 import io.trino.metadata.FunctionManager;
 import io.trino.metadata.Metadata;
 import io.trino.metadata.ResolvedFunction;
-import io.trino.spi.type.CharType;
-import io.trino.spi.type.DecimalParseResult;
-import io.trino.spi.type.Decimals;
 import io.trino.spi.type.RowType;
-import io.trino.spi.type.TimeType;
-import io.trino.spi.type.TimeWithTimeZoneType;
-import io.trino.spi.type.TimestampType;
-import io.trino.spi.type.TimestampWithTimeZoneType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeManager;
+import io.trino.sql.ir.ArithmeticBinaryExpression;
+import io.trino.sql.ir.ArithmeticNegation;
+import io.trino.sql.ir.BetweenPredicate;
+import io.trino.sql.ir.BindExpression;
+import io.trino.sql.ir.Cast;
+import io.trino.sql.ir.CoalesceExpression;
+import io.trino.sql.ir.ComparisonExpression;
+import io.trino.sql.ir.ComparisonExpression.Operator;
+import io.trino.sql.ir.Constant;
+import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.FunctionCall;
+import io.trino.sql.ir.InPredicate;
+import io.trino.sql.ir.IrVisitor;
+import io.trino.sql.ir.IsNullPredicate;
+import io.trino.sql.ir.LambdaExpression;
+import io.trino.sql.ir.LogicalExpression;
+import io.trino.sql.ir.NodeRef;
+import io.trino.sql.ir.NotExpression;
+import io.trino.sql.ir.NullIfExpression;
+import io.trino.sql.ir.Row;
+import io.trino.sql.ir.SearchedCaseExpression;
+import io.trino.sql.ir.SimpleCaseExpression;
+import io.trino.sql.ir.SubscriptExpression;
+import io.trino.sql.ir.SymbolReference;
+import io.trino.sql.ir.WhenClause;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.relational.SpecialForm.Form;
 import io.trino.sql.relational.optimizer.ExpressionOptimizer;
-import io.trino.sql.tree.ArithmeticBinaryExpression;
-import io.trino.sql.tree.ArithmeticUnaryExpression;
-import io.trino.sql.tree.AstVisitor;
-import io.trino.sql.tree.BetweenPredicate;
-import io.trino.sql.tree.BinaryLiteral;
-import io.trino.sql.tree.BindExpression;
-import io.trino.sql.tree.BooleanLiteral;
-import io.trino.sql.tree.Cast;
-import io.trino.sql.tree.CoalesceExpression;
-import io.trino.sql.tree.ComparisonExpression;
-import io.trino.sql.tree.ComparisonExpression.Operator;
-import io.trino.sql.tree.DecimalLiteral;
-import io.trino.sql.tree.DoubleLiteral;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.FunctionCall;
-import io.trino.sql.tree.GenericLiteral;
-import io.trino.sql.tree.Identifier;
-import io.trino.sql.tree.IfExpression;
-import io.trino.sql.tree.InListExpression;
-import io.trino.sql.tree.InPredicate;
-import io.trino.sql.tree.IntervalLiteral;
-import io.trino.sql.tree.IsNotNullPredicate;
-import io.trino.sql.tree.IsNullPredicate;
-import io.trino.sql.tree.LambdaArgumentDeclaration;
-import io.trino.sql.tree.LambdaExpression;
-import io.trino.sql.tree.LogicalExpression;
-import io.trino.sql.tree.LongLiteral;
-import io.trino.sql.tree.NodeRef;
-import io.trino.sql.tree.NotExpression;
-import io.trino.sql.tree.NullIfExpression;
-import io.trino.sql.tree.NullLiteral;
-import io.trino.sql.tree.Row;
-import io.trino.sql.tree.SearchedCaseExpression;
-import io.trino.sql.tree.SimpleCaseExpression;
-import io.trino.sql.tree.StringLiteral;
-import io.trino.sql.tree.SubscriptExpression;
-import io.trino.sql.tree.SymbolReference;
-import io.trino.sql.tree.WhenClause;
-import io.trino.type.JsonType;
 import io.trino.type.TypeCoercion;
-import io.trino.type.UnknownType;
 
 import java.util.List;
 import java.util.Map;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static io.airlift.slice.Slices.utf8Slice;
-import static io.airlift.slice.Slices.wrappedBuffer;
 import static io.trino.metadata.GlobalFunctionCatalog.builtinFunctionName;
 import static io.trino.spi.function.OperatorType.EQUAL;
 import static io.trino.spi.function.OperatorType.HASH_CODE;
@@ -87,13 +63,8 @@ import static io.trino.spi.function.OperatorType.INDETERMINATE;
 import static io.trino.spi.function.OperatorType.LESS_THAN_OR_EQUAL;
 import static io.trino.spi.function.OperatorType.NEGATION;
 import static io.trino.spi.function.OperatorType.SUBSCRIPT;
-import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
-import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.spi.type.IntegerType.INTEGER;
-import static io.trino.spi.type.VarbinaryType.VARBINARY;
-import static io.trino.spi.type.VarcharType.VARCHAR;
-import static io.trino.spi.type.VarcharType.createVarcharType;
 import static io.trino.sql.analyzer.TypeSignatureProvider.fromTypes;
 import static io.trino.sql.relational.Expressions.call;
 import static io.trino.sql.relational.Expressions.constant;
@@ -112,12 +83,6 @@ import static io.trino.sql.relational.SpecialForm.Form.OR;
 import static io.trino.sql.relational.SpecialForm.Form.ROW_CONSTRUCTOR;
 import static io.trino.sql.relational.SpecialForm.Form.SWITCH;
 import static io.trino.sql.relational.SpecialForm.Form.WHEN;
-import static io.trino.type.DateTimes.parseTime;
-import static io.trino.type.DateTimes.parseTimeWithTimeZone;
-import static io.trino.type.DateTimes.parseTimestamp;
-import static io.trino.type.DateTimes.parseTimestampWithTimeZone;
-import static io.trino.util.DateTimeUtils.parseDayTimeInterval;
-import static io.trino.util.DateTimeUtils.parseYearMonthInterval;
 import static java.util.Objects.requireNonNull;
 
 public final class SqlToRowExpressionTranslator
@@ -148,7 +113,7 @@ public final class SqlToRowExpressionTranslator
     }
 
     public static class Visitor
-            extends AstVisitor<RowExpression, Void>
+            extends IrVisitor<RowExpression, Void>
     {
         private final Metadata metadata;
         private final TypeCoercion typeCoercion;
@@ -181,80 +146,9 @@ public final class SqlToRowExpressionTranslator
         }
 
         @Override
-        protected RowExpression visitNullLiteral(NullLiteral node, Void context)
+        protected RowExpression visitConstant(Constant node, Void context)
         {
-            return constantNull(UnknownType.UNKNOWN);
-        }
-
-        @Override
-        protected RowExpression visitBooleanLiteral(BooleanLiteral node, Void context)
-        {
-            return constant(node.getValue(), BOOLEAN);
-        }
-
-        @Override
-        protected RowExpression visitLongLiteral(LongLiteral node, Void context)
-        {
-            if (node.getParsedValue() >= Integer.MIN_VALUE && node.getParsedValue() <= Integer.MAX_VALUE) {
-                return constant(node.getParsedValue(), INTEGER);
-            }
-            return constant(node.getParsedValue(), BIGINT);
-        }
-
-        @Override
-        protected RowExpression visitDoubleLiteral(DoubleLiteral node, Void context)
-        {
-            return constant(node.getValue(), DOUBLE);
-        }
-
-        @Override
-        protected RowExpression visitDecimalLiteral(DecimalLiteral node, Void context)
-        {
-            DecimalParseResult parseResult = Decimals.parse(node.getValue());
-            return constant(parseResult.getObject(), parseResult.getType());
-        }
-
-        @Override
-        protected RowExpression visitStringLiteral(StringLiteral node, Void context)
-        {
-            return constant(utf8Slice(node.getValue()), createVarcharType(node.length()));
-        }
-
-        @Override
-        protected RowExpression visitBinaryLiteral(BinaryLiteral node, Void context)
-        {
-            return constant(wrappedBuffer(node.getValue()), VARBINARY);
-        }
-
-        @Override
-        protected RowExpression visitGenericLiteral(GenericLiteral node, Void context)
-        {
-            return switch (getType(node)) {
-                case CharType type -> constant(utf8Slice(node.getValue()), type);
-                case TimeType type -> constant(parseTime(node.getValue()), type);
-                case TimeWithTimeZoneType type -> constant(parseTimeWithTimeZone(type.getPrecision(), node.getValue()), type);
-                case TimestampType type -> constant(parseTimestamp(type.getPrecision(), node.getValue()), type);
-                case TimestampWithTimeZoneType type -> constant(parseTimestampWithTimeZone(type.getPrecision(), node.getValue()), type);
-                case JsonType unused -> call(
-                        metadata.resolveBuiltinFunction("json_parse", fromTypes(VARCHAR)),
-                        constant(utf8Slice(node.getValue()), VARCHAR));
-                case Type type -> call(
-                        metadata.getCoercion(VARCHAR, type),
-                        constant(utf8Slice(node.getValue()), VARCHAR));
-            };
-        }
-
-        @Override
-        protected RowExpression visitIntervalLiteral(IntervalLiteral node, Void context)
-        {
-            long value;
-            if (node.isYearToMonth()) {
-                value = node.getSign().multiplier() * parseYearMonthInterval(node.getValue(), node.getStartField(), node.getEndField());
-            }
-            else {
-                value = node.getSign().multiplier() * parseDayTimeInterval(node.getValue(), node.getStartField(), node.getEndField());
-            }
-            return constant(value, getType(node));
+            return constant(node.getValue(), node.getType());
         }
 
         @Override
@@ -293,7 +187,7 @@ public final class SqlToRowExpressionTranslator
                     .map(value -> process(value, context))
                     .collect(toImmutableList());
 
-            return new CallExpression(metadata.decodeFunction(node.getName()), arguments);
+            return new CallExpression(node.getFunction(), arguments);
         }
 
         @Override
@@ -315,10 +209,7 @@ public final class SqlToRowExpressionTranslator
             Type type = getType(node);
             List<Type> typeParameters = type.getTypeParameters();
             List<Type> argumentTypes = typeParameters.subList(0, typeParameters.size() - 1);
-            List<String> argumentNames = node.getArguments().stream()
-                    .map(LambdaArgumentDeclaration::getName)
-                    .map(Identifier::getValue)
-                    .collect(toImmutableList());
+            List<String> argumentNames = node.getArguments();
 
             return new LambdaDefinitionExpression(argumentTypes, argumentNames, body);
         }
@@ -352,20 +243,12 @@ public final class SqlToRowExpressionTranslator
         }
 
         @Override
-        protected RowExpression visitArithmeticUnary(ArithmeticUnaryExpression node, Void context)
+        protected RowExpression visitArithmeticNegation(ArithmeticNegation node, Void context)
         {
             RowExpression expression = process(node.getValue(), context);
-
-            switch (node.getSign()) {
-                case PLUS:
-                    return expression;
-                case MINUS:
-                    return call(
-                            metadata.resolveOperator(NEGATION, ImmutableList.of(expression.getType())),
-                            expression);
-            }
-
-            throw new UnsupportedOperationException("Unsupported unary operator: " + node.getSign());
+            return call(
+                    metadata.resolveOperator(NEGATION, ImmutableList.of(expression.getType())),
+                    expression);
         }
 
         @Override
@@ -545,31 +428,12 @@ public final class SqlToRowExpressionTranslator
         }
 
         @Override
-        protected RowExpression visitIfExpression(IfExpression node, Void context)
-        {
-            ImmutableList.Builder<RowExpression> arguments = ImmutableList.builder();
-
-            arguments.add(process(node.getCondition(), context))
-                    .add(process(node.getTrueValue(), context));
-
-            if (node.getFalseValue().isPresent()) {
-                arguments.add(process(node.getFalseValue().get(), context));
-            }
-            else {
-                arguments.add(constantNull(getType(node)));
-            }
-
-            return new SpecialForm(IF, getType(node), arguments.build());
-        }
-
-        @Override
         protected RowExpression visitInPredicate(InPredicate node, Void context)
         {
             ImmutableList.Builder<RowExpression> arguments = ImmutableList.builder();
             RowExpression value = process(node.getValue(), context);
             arguments.add(value);
-            InListExpression values = (InListExpression) node.getValueList();
-            for (Expression testValue : values.getValues()) {
+            for (Expression testValue : node.getValueList()) {
                 arguments.add(process(testValue, context));
             }
 
@@ -580,14 +444,6 @@ public final class SqlToRowExpressionTranslator
                     .build();
 
             return new SpecialForm(IN, BOOLEAN, arguments.build(), functionDependencies);
-        }
-
-        @Override
-        protected RowExpression visitIsNotNullPredicate(IsNotNullPredicate node, Void context)
-        {
-            RowExpression expression = process(node.getValue(), context);
-
-            return notExpression(new SpecialForm(IS_NULL, BOOLEAN, ImmutableList.of(expression)));
         }
 
         @Override

@@ -191,7 +191,7 @@ public class BasePlanTest
     {
         Metadata metadata = getPlanTester().getPlannerContext().getMetadata();
         List<PlanOptimizer> optimizers = ImmutableList.of(
-                new UnaliasSymbolReferences(metadata),
+                new UnaliasSymbolReferences(),
                 new IterativeOptimizer(
                         planTester.getPlannerContext(),
                         new RuleStatsRecorder(),
@@ -279,30 +279,6 @@ public class BasePlanTest
         catch (RuntimeException e) {
             throw new AssertionError("Planning failed for SQL: " + sql, e);
         }
-    }
-
-    protected SubPlan createAdaptivePlan(@Language("SQL") String sql, List<AdaptivePlanOptimizer> optimizers, Map<PlanFragmentId, OutputStatsEstimateResult> completeStageStats)
-    {
-        return createAdaptivePlan(sql, planTester.getDefaultSession(), optimizers, completeStageStats);
-    }
-
-    protected SubPlan createAdaptivePlan(@Language("SQL") String sql, Session session, List<AdaptivePlanOptimizer> optimizers, Map<PlanFragmentId, OutputStatsEstimateResult> completeStageStats)
-    {
-        try {
-            return planTester.inTransaction(session, transactionSession -> {
-                Plan plan = planTester.createPlan(transactionSession, sql, planTester.getPlanOptimizers(false), OPTIMIZED_AND_VALIDATED, WarningCollector.NOOP, createPlanOptimizersStatsCollector());
-                SubPlan subPlan = planTester.createSubPlans(transactionSession, plan, false);
-                return planTester.createAdaptivePlan(transactionSession, subPlan, optimizers, WarningCollector.NOOP, createPlanOptimizersStatsCollector(), createRuntimeInfoProvider(subPlan, completeStageStats));
-            });
-        }
-        catch (RuntimeException e) {
-            throw new AssertionError("Adaptive Planning failed for SQL: " + sql, e);
-        }
-    }
-
-    protected void assertAdaptivePlan(@Language("SQL") String sql, Map<PlanFragmentId, OutputStatsEstimateResult> completeStageStats, SubPlanMatcher subPlanMatcher)
-    {
-        assertAdaptivePlan(sql, planTester.getDefaultSession(), planTester.getAdaptivePlanOptimizers(), completeStageStats, subPlanMatcher);
     }
 
     protected void assertAdaptivePlan(@Language("SQL") String sql, Session session, Map<PlanFragmentId, OutputStatsEstimateResult> completeStageStats, SubPlanMatcher subPlanMatcher)

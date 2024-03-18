@@ -15,21 +15,26 @@ package io.trino.sql.planner.iterative.rule;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import io.airlift.slice.Slices;
+import io.trino.spi.type.VarcharType;
+import io.trino.sql.ir.Cast;
+import io.trino.sql.ir.ComparisonExpression;
+import io.trino.sql.ir.Constant;
+import io.trino.sql.ir.FunctionCall;
+import io.trino.sql.ir.Row;
+import io.trino.sql.ir.SymbolReference;
 import io.trino.sql.planner.assertions.PlanMatchPattern;
 import io.trino.sql.planner.iterative.rule.test.BaseRuleTest;
 import io.trino.sql.planner.plan.JoinNode.EquiJoinClause;
-import io.trino.sql.tree.Cast;
-import io.trino.sql.tree.ComparisonExpression;
-import io.trino.sql.tree.FunctionCall;
-import io.trino.sql.tree.LongLiteral;
-import io.trino.sql.tree.Row;
-import io.trino.sql.tree.StringLiteral;
-import io.trino.sql.tree.SymbolReference;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
 
-import static io.trino.sql.planner.assertions.PlanMatchPattern.dataType;
+import static io.trino.spi.type.BooleanType.BOOLEAN;
+import static io.trino.spi.type.IntegerType.INTEGER;
+import static io.trino.spi.type.RowType.field;
+import static io.trino.spi.type.RowType.rowType;
+import static io.trino.sql.ir.ComparisonExpression.Operator.GREATER_THAN;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.project;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.strictProject;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.values;
@@ -37,7 +42,6 @@ import static io.trino.sql.planner.plan.JoinType.FULL;
 import static io.trino.sql.planner.plan.JoinType.INNER;
 import static io.trino.sql.planner.plan.JoinType.LEFT;
 import static io.trino.sql.planner.plan.JoinType.RIGHT;
-import static io.trino.sql.tree.ComparisonExpression.Operator.GREATER_THAN;
 
 public class TestReplaceJoinOverConstantWithProject
         extends BaseRuleTest
@@ -45,7 +49,7 @@ public class TestReplaceJoinOverConstantWithProject
     @Test
     public void testDoesNotFireOnJoinWithEmptySource()
     {
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 INNER,
@@ -53,7 +57,7 @@ public class TestReplaceJoinOverConstantWithProject
                                 p.values(0, p.symbol("b"))))
                 .doesNotFire();
 
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 INNER,
@@ -65,7 +69,7 @@ public class TestReplaceJoinOverConstantWithProject
     @Test
     public void testDoesNotFireOnJoinWithCondition()
     {
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 INNER,
@@ -74,7 +78,7 @@ public class TestReplaceJoinOverConstantWithProject
                                 new EquiJoinClause(p.symbol("a"), p.symbol("b"))))
                 .doesNotFire();
 
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 INNER,
@@ -87,7 +91,7 @@ public class TestReplaceJoinOverConstantWithProject
     @Test
     public void testDoesNotFireOnValuesWithMultipleRows()
     {
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 INNER,
@@ -99,7 +103,7 @@ public class TestReplaceJoinOverConstantWithProject
     @Test
     public void testDoesNotFireOnValuesWithNoOutputs()
     {
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 INNER,
@@ -111,11 +115,11 @@ public class TestReplaceJoinOverConstantWithProject
     @Test
     public void testDoesNotFireOnValuesWithNonRowExpression()
     {
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 INNER,
-                                p.valuesOfExpressions(ImmutableList.of(p.symbol("a")), ImmutableList.of(new Cast(new Row(ImmutableList.of(new StringLiteral("true"))), dataType("row(\"b\" boolean)")))),
+                                p.valuesOfExpressions(ImmutableList.of(p.symbol("a")), ImmutableList.of(new Cast(new Row(ImmutableList.of(new Constant(VarcharType.VARCHAR, Slices.utf8Slice("true")))), rowType(field("b", BOOLEAN))))),
                                 p.values(5, p.symbol("b"))))
                 .doesNotFire();
     }
@@ -123,42 +127,42 @@ public class TestReplaceJoinOverConstantWithProject
     @Test
     public void testDoesNotFireOnOuterJoinWhenSourcePossiblyEmpty()
     {
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 LEFT,
                                 p.values(1, p.symbol("a")),
                                 p.filter(
-                                        new ComparisonExpression(GREATER_THAN, new SymbolReference("b"), new LongLiteral("5")),
+                                        new ComparisonExpression(GREATER_THAN, new SymbolReference("b"), new Constant(INTEGER, 5L)),
                                         p.values(10, p.symbol("b")))))
                 .doesNotFire();
 
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 RIGHT,
                                 p.filter(
-                                        new ComparisonExpression(GREATER_THAN, new SymbolReference("a"), new LongLiteral("5")),
+                                        new ComparisonExpression(GREATER_THAN, new SymbolReference("a"), new Constant(INTEGER, 5L)),
                                         p.values(10, p.symbol("a"))),
                                 p.values(1, p.symbol("b"))))
                 .doesNotFire();
 
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 FULL,
                                 p.values(1, p.symbol("a")),
                                 p.filter(
-                                        new ComparisonExpression(GREATER_THAN, new SymbolReference("b"), new LongLiteral("5")),
+                                        new ComparisonExpression(GREATER_THAN, new SymbolReference("b"), new Constant(INTEGER, 5L)),
                                         p.values(10, p.symbol("b")))))
                 .doesNotFire();
 
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 FULL,
                                 p.filter(
-                                        new ComparisonExpression(GREATER_THAN, new SymbolReference("a"), new LongLiteral("5")),
+                                        new ComparisonExpression(GREATER_THAN, new SymbolReference("a"), new Constant(INTEGER, 5L)),
                                         p.values(10, p.symbol("a"))),
                                 p.values(1, p.symbol("b"))))
                 .doesNotFire();
@@ -167,31 +171,31 @@ public class TestReplaceJoinOverConstantWithProject
     @Test
     public void testReplaceInnerJoinWithProject()
     {
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 INNER,
-                                p.valuesOfExpressions(ImmutableList.of(p.symbol("a"), p.symbol("b")), ImmutableList.of(new Row(ImmutableList.of(new LongLiteral("1"), new StringLiteral("x"))))),
+                                p.valuesOfExpressions(ImmutableList.of(p.symbol("a"), p.symbol("b")), ImmutableList.of(new Row(ImmutableList.of(new Constant(INTEGER, 1L), new Constant(VarcharType.VARCHAR, Slices.utf8Slice("x")))))),
                                 p.values(5, p.symbol("c"))))
                 .matches(
                         project(
                                 ImmutableMap.of(
-                                        "a", PlanMatchPattern.expression(new LongLiteral("1")),
-                                        "b", PlanMatchPattern.expression(new StringLiteral("x")),
+                                        "a", PlanMatchPattern.expression(new Constant(INTEGER, 1L)),
+                                        "b", PlanMatchPattern.expression(new Constant(VarcharType.VARCHAR, Slices.utf8Slice("x"))),
                                         "c", PlanMatchPattern.expression(new SymbolReference("c"))),
                                 values("c")));
 
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 INNER,
                                 p.values(5, p.symbol("c")),
-                                p.valuesOfExpressions(ImmutableList.of(p.symbol("a"), p.symbol("b")), ImmutableList.of(new Row(ImmutableList.of(new LongLiteral("1"), new StringLiteral("x")))))))
+                                p.valuesOfExpressions(ImmutableList.of(p.symbol("a"), p.symbol("b")), ImmutableList.of(new Row(ImmutableList.of(new Constant(INTEGER, 1L), new Constant(VarcharType.VARCHAR, Slices.utf8Slice("x"))))))))
                 .matches(
                         project(
                                 ImmutableMap.of(
-                                        "a", PlanMatchPattern.expression(new LongLiteral("1")),
-                                        "b", PlanMatchPattern.expression(new StringLiteral("x")),
+                                        "a", PlanMatchPattern.expression(new Constant(INTEGER, 1L)),
+                                        "b", PlanMatchPattern.expression(new Constant(VarcharType.VARCHAR, Slices.utf8Slice("x"))),
                                         "c", PlanMatchPattern.expression(new SymbolReference("c"))),
                                 values("c")));
     }
@@ -199,31 +203,31 @@ public class TestReplaceJoinOverConstantWithProject
     @Test
     public void testReplaceLeftJoinWithProject()
     {
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 LEFT,
-                                p.valuesOfExpressions(ImmutableList.of(p.symbol("a"), p.symbol("b")), ImmutableList.of(new Row(ImmutableList.of(new LongLiteral("1"), new StringLiteral("x"))))),
+                                p.valuesOfExpressions(ImmutableList.of(p.symbol("a"), p.symbol("b")), ImmutableList.of(new Row(ImmutableList.of(new Constant(INTEGER, 1L), new Constant(VarcharType.VARCHAR, Slices.utf8Slice("x")))))),
                                 p.values(5, p.symbol("c"))))
                 .matches(
                         project(
                                 ImmutableMap.of(
-                                        "a", PlanMatchPattern.expression(new LongLiteral("1")),
-                                        "b", PlanMatchPattern.expression(new StringLiteral("x")),
+                                        "a", PlanMatchPattern.expression(new Constant(INTEGER, 1L)),
+                                        "b", PlanMatchPattern.expression(new Constant(VarcharType.VARCHAR, Slices.utf8Slice("x"))),
                                         "c", PlanMatchPattern.expression(new SymbolReference("c"))),
                                 values("c")));
 
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 LEFT,
                                 p.values(5, p.symbol("c")),
-                                p.valuesOfExpressions(ImmutableList.of(p.symbol("a"), p.symbol("b")), ImmutableList.of(new Row(ImmutableList.of(new LongLiteral("1"), new StringLiteral("x")))))))
+                                p.valuesOfExpressions(ImmutableList.of(p.symbol("a"), p.symbol("b")), ImmutableList.of(new Row(ImmutableList.of(new Constant(INTEGER, 1L), new Constant(VarcharType.VARCHAR, Slices.utf8Slice("x"))))))))
                 .matches(
                         project(
                                 ImmutableMap.of(
-                                        "a", PlanMatchPattern.expression(new LongLiteral("1")),
-                                        "b", PlanMatchPattern.expression(new StringLiteral("x")),
+                                        "a", PlanMatchPattern.expression(new Constant(INTEGER, 1L)),
+                                        "b", PlanMatchPattern.expression(new Constant(VarcharType.VARCHAR, Slices.utf8Slice("x"))),
                                         "c", PlanMatchPattern.expression(new SymbolReference("c"))),
                                 values("c")));
     }
@@ -231,31 +235,31 @@ public class TestReplaceJoinOverConstantWithProject
     @Test
     public void testReplaceRightJoinWithProject()
     {
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 RIGHT,
-                                p.valuesOfExpressions(ImmutableList.of(p.symbol("a"), p.symbol("b")), ImmutableList.of(new Row(ImmutableList.of(new LongLiteral("1"), new StringLiteral("x"))))),
+                                p.valuesOfExpressions(ImmutableList.of(p.symbol("a"), p.symbol("b")), ImmutableList.of(new Row(ImmutableList.of(new Constant(INTEGER, 1L), new Constant(VarcharType.VARCHAR, Slices.utf8Slice("x")))))),
                                 p.values(5, p.symbol("c"))))
                 .matches(
                         project(
                                 ImmutableMap.of(
-                                        "a", PlanMatchPattern.expression(new LongLiteral("1")),
-                                        "b", PlanMatchPattern.expression(new StringLiteral("x")),
+                                        "a", PlanMatchPattern.expression(new Constant(INTEGER, 1L)),
+                                        "b", PlanMatchPattern.expression(new Constant(VarcharType.VARCHAR, Slices.utf8Slice("x"))),
                                         "c", PlanMatchPattern.expression(new SymbolReference("c"))),
                                 values("c")));
 
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 RIGHT,
                                 p.values(5, p.symbol("c")),
-                                p.valuesOfExpressions(ImmutableList.of(p.symbol("a"), p.symbol("b")), ImmutableList.of(new Row(ImmutableList.of(new LongLiteral("1"), new StringLiteral("x")))))))
+                                p.valuesOfExpressions(ImmutableList.of(p.symbol("a"), p.symbol("b")), ImmutableList.of(new Row(ImmutableList.of(new Constant(INTEGER, 1L), new Constant(VarcharType.VARCHAR, Slices.utf8Slice("x"))))))))
                 .matches(
                         project(
                                 ImmutableMap.of(
-                                        "a", PlanMatchPattern.expression(new LongLiteral("1")),
-                                        "b", PlanMatchPattern.expression(new StringLiteral("x")),
+                                        "a", PlanMatchPattern.expression(new Constant(INTEGER, 1L)),
+                                        "b", PlanMatchPattern.expression(new Constant(VarcharType.VARCHAR, Slices.utf8Slice("x"))),
                                         "c", PlanMatchPattern.expression(new SymbolReference("c"))),
                                 values("c")));
     }
@@ -263,31 +267,31 @@ public class TestReplaceJoinOverConstantWithProject
     @Test
     public void testReplaceFullJoinWithProject()
     {
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 FULL,
-                                p.valuesOfExpressions(ImmutableList.of(p.symbol("a"), p.symbol("b")), ImmutableList.of(new Row(ImmutableList.of(new LongLiteral("1"), new StringLiteral("x"))))),
+                                p.valuesOfExpressions(ImmutableList.of(p.symbol("a"), p.symbol("b")), ImmutableList.of(new Row(ImmutableList.of(new Constant(INTEGER, 1L), new Constant(VarcharType.VARCHAR, Slices.utf8Slice("x")))))),
                                 p.values(5, p.symbol("c"))))
                 .matches(
                         project(
                                 ImmutableMap.of(
-                                        "a", PlanMatchPattern.expression(new LongLiteral("1")),
-                                        "b", PlanMatchPattern.expression(new StringLiteral("x")),
+                                        "a", PlanMatchPattern.expression(new Constant(INTEGER, 1L)),
+                                        "b", PlanMatchPattern.expression(new Constant(VarcharType.VARCHAR, Slices.utf8Slice("x"))),
                                         "c", PlanMatchPattern.expression(new SymbolReference("c"))),
                                 values("c")));
 
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 FULL,
                                 p.values(5, p.symbol("c")),
-                                p.valuesOfExpressions(ImmutableList.of(p.symbol("a"), p.symbol("b")), ImmutableList.of(new Row(ImmutableList.of(new LongLiteral("1"), new StringLiteral("x")))))))
+                                p.valuesOfExpressions(ImmutableList.of(p.symbol("a"), p.symbol("b")), ImmutableList.of(new Row(ImmutableList.of(new Constant(INTEGER, 1L), new Constant(VarcharType.VARCHAR, Slices.utf8Slice("x"))))))))
                 .matches(
                         project(
                                 ImmutableMap.of(
-                                        "a", PlanMatchPattern.expression(new LongLiteral("1")),
-                                        "b", PlanMatchPattern.expression(new StringLiteral("x")),
+                                        "a", PlanMatchPattern.expression(new Constant(INTEGER, 1L)),
+                                        "b", PlanMatchPattern.expression(new Constant(VarcharType.VARCHAR, Slices.utf8Slice("x"))),
                                         "c", PlanMatchPattern.expression(new SymbolReference("c"))),
                                 values("c")));
     }
@@ -295,11 +299,11 @@ public class TestReplaceJoinOverConstantWithProject
     @Test
     public void testRemoveOutputDuplicates()
     {
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 INNER,
-                                p.valuesOfExpressions(ImmutableList.of(p.symbol("a"), p.symbol("b")), ImmutableList.of(new Row(ImmutableList.of(new LongLiteral("1"), new StringLiteral("x"))))),
+                                p.valuesOfExpressions(ImmutableList.of(p.symbol("a"), p.symbol("b")), ImmutableList.of(new Row(ImmutableList.of(new Constant(INTEGER, 1L), new Constant(VarcharType.VARCHAR, Slices.utf8Slice("x")))))),
                                 p.values(5, p.symbol("c")),
                                 ImmutableList.of(),
                                 ImmutableList.of(p.symbol("a"), p.symbol("b"), p.symbol("a"), p.symbol("b")),
@@ -308,8 +312,8 @@ public class TestReplaceJoinOverConstantWithProject
                 .matches(
                         strictProject(
                                 ImmutableMap.of(
-                                        "a", PlanMatchPattern.expression(new LongLiteral("1")),
-                                        "b", PlanMatchPattern.expression(new StringLiteral("x")),
+                                        "a", PlanMatchPattern.expression(new Constant(INTEGER, 1L)),
+                                        "b", PlanMatchPattern.expression(new Constant(VarcharType.VARCHAR, Slices.utf8Slice("x"))),
                                         "c", PlanMatchPattern.expression(new SymbolReference("c"))),
                                 values("c")));
     }
@@ -318,10 +322,10 @@ public class TestReplaceJoinOverConstantWithProject
     public void testNonDeterministicValues()
     {
         FunctionCall randomFunction = new FunctionCall(
-                tester().getMetadata().resolveBuiltinFunction("random", ImmutableList.of()).toQualifiedName(),
+                tester().getMetadata().resolveBuiltinFunction("random", ImmutableList.of()),
                 ImmutableList.of());
 
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 INNER,
@@ -330,10 +334,10 @@ public class TestReplaceJoinOverConstantWithProject
                 .doesNotFire();
 
         FunctionCall uuidFunction = new FunctionCall(
-                tester().getMetadata().resolveBuiltinFunction("uuid", ImmutableList.of()).toQualifiedName(),
+                tester().getMetadata().resolveBuiltinFunction("uuid", ImmutableList.of()),
                 ImmutableList.of());
 
-        tester().assertThat(new ReplaceJoinOverConstantWithProject(tester().getMetadata()))
+        tester().assertThat(new ReplaceJoinOverConstantWithProject())
                 .on(p ->
                         p.join(
                                 INNER,

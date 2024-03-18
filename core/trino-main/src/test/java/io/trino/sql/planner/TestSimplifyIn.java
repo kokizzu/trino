@@ -13,16 +13,17 @@
  */
 package io.trino.sql.planner;
 
+import io.trino.sql.ir.ComparisonExpression;
+import io.trino.sql.ir.Constant;
+import io.trino.sql.ir.SymbolReference;
 import io.trino.sql.planner.assertions.BasePlanTest;
-import io.trino.sql.tree.ComparisonExpression;
-import io.trino.sql.tree.LongLiteral;
-import io.trino.sql.tree.SymbolReference;
 import org.junit.jupiter.api.Test;
 
+import static io.trino.spi.type.IntegerType.INTEGER;
+import static io.trino.sql.ir.ComparisonExpression.Operator.EQUAL;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.anyTree;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.filter;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.values;
-import static io.trino.sql.tree.ComparisonExpression.Operator.EQUAL;
 
 public class TestSimplifyIn
         extends BasePlanTest
@@ -34,7 +35,7 @@ public class TestSimplifyIn
                 "SELECT * FROM (VALUES 0) t(a) WHERE a IN (5)",
                 anyTree(
                         filter(
-                                new ComparisonExpression(EQUAL, new SymbolReference("A"), new LongLiteral("5")),
+                                new ComparisonExpression(EQUAL, new SymbolReference("A"), new Constant(INTEGER, 5L)),
                                 values("A"))));
     }
 }

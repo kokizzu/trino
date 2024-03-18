@@ -17,7 +17,6 @@ import com.google.common.cache.Cache;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.CacheLoader.InvalidCacheLoadException;
 import com.google.common.cache.LoadingCache;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets.SetView;
@@ -28,7 +27,6 @@ import io.airlift.jmx.CacheStatsMBean;
 import io.airlift.units.Duration;
 import io.trino.cache.EvictableCacheBuilder;
 import io.trino.hive.thrift.metastore.DataOperationType;
-import io.trino.plugin.hive.HiveColumnStatisticType;
 import io.trino.plugin.hive.HivePartition;
 import io.trino.plugin.hive.HiveType;
 import io.trino.plugin.hive.PartitionStatistics;
@@ -49,13 +47,12 @@ import io.trino.plugin.hive.metastore.PartitionWithStatistics;
 import io.trino.plugin.hive.metastore.PrincipalPrivileges;
 import io.trino.plugin.hive.metastore.StatisticsUpdateMode;
 import io.trino.plugin.hive.metastore.Table;
+import io.trino.plugin.hive.metastore.TableInfo;
 import io.trino.spi.TrinoException;
-import io.trino.spi.connector.RelationType;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.function.LanguageFunction;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.security.RoleGrant;
-import io.trino.spi.type.Type;
 import org.weakref.jmx.Managed;
 import org.weakref.jmx.Nested;
 
@@ -115,15 +112,9 @@ public final class CachingHiveMetastore
     private final LoadingCache<String, Optional<Database>> databaseCache;
     private final LoadingCache<String, List<String>> databaseNamesCache;
     private final LoadingCache<HiveTableName, Optional<Table>> tableCache;
-    private final LoadingCache<String, List<String>> tableNamesCache;
-    private final LoadingCache<SingletonCacheKey, Optional<List<SchemaTableName>>> allTableNamesCache;
-    private final LoadingCache<String, Map<String, RelationType>> relationTypesCache;
-    private final LoadingCache<SingletonCacheKey, Optional<Map<SchemaTableName, RelationType>>> allRelationTypesCache;
-    private final LoadingCache<TablesWithParameterCacheKey, List<String>> tablesWithParameterCache;
+    private final LoadingCache<String, List<TableInfo>> tablesCacheNew;
     private final Cache<HiveTableName, AtomicReference<Map<String, HiveColumnStatistics>>> tableColumnStatisticsCache;
     private final Cache<HivePartitionName, AtomicReference<Map<String, HiveColumnStatistics>>> partitionStatisticsCache;
-    private final LoadingCache<String, List<String>> viewNamesCache;
-    private final LoadingCache<SingletonCacheKey, Optional<List<SchemaTableName>>> allViewNamesCache;
     private final Cache<HivePartitionName, AtomicReference<Optional<Partition>>> partitionCache;
     private final LoadingCache<PartitionFilter, Optional<List<String>>> partitionFilterCache;
     private final LoadingCache<UserTableKey, Set<HivePrivilegeInfo>> tablePrivilegesCache;
@@ -203,15 +194,9 @@ public final class CachingHiveMetastore
 
         databaseNamesCache = cacheFactory.buildCache(ignored -> loadAllDatabases());
         databaseCache = cacheFactory.buildCache(this::loadDatabase);
-        tableNamesCache = cacheFactory.buildCache(this::loadAllTables);
-        allTableNamesCache = cacheFactory.buildCache(ignore -> loadAllTables());
-        relationTypesCache = cacheFactory.buildCache(this::loadRelationTypes);
-        allRelationTypesCache = cacheFactory.buildCache(ignore -> loadRelationTypes());
-        tablesWithParameterCache = cacheFactory.buildCache(this::loadTablesMatchingParameter);
+        tablesCacheNew = cacheFactory.buildCache(this::loadTablesNew);
         tableColumnStatisticsCache = statsCacheFactory.buildCache(this::refreshTableColumnStatistics);
         tableCache = cacheFactory.buildCache(this::loadTable);
-        viewNamesCache = cacheFactory.buildCache(this::loadAllViews);
-        allViewNamesCache = cacheFactory.buildCache(ignore -> loadAllViews());
         tablePrivilegesCache = cacheFactory.buildCache(key -> loadTablePrivileges(key.database(), key.table(), key.owner(), key.principal()));
         rolesCache = cacheFactory.buildCache(ignored -> loadRoles());
         roleGrantsCache = cacheFactory.buildCache(this::loadRoleGrants);
@@ -226,12 +211,7 @@ public final class CachingHiveMetastore
     public void flushCache()
     {
         databaseNamesCache.invalidateAll();
-        tableNamesCache.invalidateAll();
-        allTableNamesCache.invalidateAll();
-        relationTypesCache.invalidateAll();
-        allRelationTypesCache.invalidateAll();
-        viewNamesCache.invalidateAll();
-        allViewNamesCache.invalidateAll();
+        tablesCacheNew.invalidateAll();
         databaseCache.invalidateAll();
         tableCache.invalidateAll();
         partitionCache.invalidateAll();
@@ -441,12 +421,6 @@ public final class CachingHiveMetastore
         return getOptional(tableCache, hiveTableName(databaseName, tableName));
     }
 
-    @Override
-    public Set<HiveColumnStatisticType> getSupportedColumnStatistics(Type type)
-    {
-        return delegate.getSupportedColumnStatistics(type);
-    }
-
     private Optional<Table> loadTable(HiveTableName hiveTableName)
     {
         return delegate.getTable(hiveTableName.getDatabaseName(), hiveTableName.getTableName());
@@ -571,89 +545,14 @@ public final class CachingHiveMetastore
     }
 
     @Override
-    public List<String> getTables(String databaseName)
+    public List<TableInfo> getTables(String databaseName)
     {
-        Map<String, RelationType> relationTypes = relationTypesCache.getIfPresent(databaseName);
-        if (relationTypes != null) {
-            return ImmutableList.copyOf(relationTypes.keySet());
-        }
-        return get(tableNamesCache, databaseName);
+        return get(tablesCacheNew, databaseName);
     }
 
-    private List<String> loadAllTables(String databaseName)
+    private List<TableInfo> loadTablesNew(String databaseName)
     {
         return delegate.getTables(databaseName);
-    }
-
-    @Override
-    public Optional<List<SchemaTableName>> getAllTables()
-    {
-        Optional<Map<SchemaTableName, RelationType>> relationTypes = allRelationTypesCache.getIfPresent(SingletonCacheKey.INSTANCE);
-        if (relationTypes != null && relationTypes.isPresent()) {
-            return Optional.of(ImmutableList.copyOf(relationTypes.get().keySet()));
-        }
-        return getOptional(allTableNamesCache, SingletonCacheKey.INSTANCE);
-    }
-
-    private Optional<List<SchemaTableName>> loadAllTables()
-    {
-        return delegate.getAllTables();
-    }
-
-    @Override
-    public Map<String, RelationType> getRelationTypes(String databaseName)
-    {
-        return get(relationTypesCache, databaseName);
-    }
-
-    private Map<String, RelationType> loadRelationTypes(String databaseName)
-    {
-        return delegate.getRelationTypes(databaseName);
-    }
-
-    @Override
-    public Optional<Map<SchemaTableName, RelationType>> getAllRelationTypes()
-    {
-        return getOptional(allRelationTypesCache, SingletonCacheKey.INSTANCE);
-    }
-
-    private Optional<Map<SchemaTableName, RelationType>> loadRelationTypes()
-    {
-        return delegate.getAllRelationTypes();
-    }
-
-    @Override
-    public List<String> getTablesWithParameter(String databaseName, String parameterKey, String parameterValue)
-    {
-        TablesWithParameterCacheKey key = new TablesWithParameterCacheKey(databaseName, parameterKey, parameterValue);
-        return get(tablesWithParameterCache, key);
-    }
-
-    private List<String> loadTablesMatchingParameter(TablesWithParameterCacheKey key)
-    {
-        return delegate.getTablesWithParameter(key.databaseName(), key.parameterKey(), key.parameterValue());
-    }
-
-    @Override
-    public List<String> getViews(String databaseName)
-    {
-        return get(viewNamesCache, databaseName);
-    }
-
-    private List<String> loadAllViews(String databaseName)
-    {
-        return delegate.getViews(databaseName);
-    }
-
-    @Override
-    public Optional<List<SchemaTableName>> getAllViews()
-    {
-        return getOptional(allViewNamesCache, SingletonCacheKey.INSTANCE);
-    }
-
-    private Optional<List<SchemaTableName>> loadAllViews()
-    {
-        return delegate.getAllViews();
     }
 
     @Override
@@ -823,27 +722,10 @@ public final class CachingHiveMetastore
     {
         HiveTableName hiveTableName = new HiveTableName(databaseName, tableName);
         tableCache.invalidate(hiveTableName);
-        tableNamesCache.invalidate(databaseName);
-        allTableNamesCache.invalidateAll();
-        relationTypesCache.invalidate(databaseName);
-        allRelationTypesCache.invalidateAll();
-        viewNamesCache.invalidate(databaseName);
-        allViewNamesCache.invalidateAll();
+        tablesCacheNew.invalidate(databaseName);
         invalidateAllIf(tablePrivilegesCache, userTableKey -> userTableKey.matches(databaseName, tableName));
         tableColumnStatisticsCache.invalidate(hiveTableName);
-        invalidateTablesWithParameterCache(databaseName, tableName);
         invalidatePartitionCache(databaseName, tableName);
-    }
-
-    private void invalidateTablesWithParameterCache(String databaseName, String tableName)
-    {
-        tablesWithParameterCache.asMap().keySet().stream()
-                .filter(cacheKey -> cacheKey.databaseName().equals(databaseName))
-                .filter(cacheKey -> {
-                    List<String> cacheValue = tablesWithParameterCache.getIfPresent(cacheKey);
-                    return cacheValue != null && cacheValue.contains(tableName);
-                })
-                .forEach(tablesWithParameterCache::invalidate);
     }
 
     @Override
@@ -1261,13 +1143,6 @@ public final class CachingHiveMetastore
         return cacheBuilder.build();
     }
 
-    private enum SingletonCacheKey
-    {
-        INSTANCE
-    }
-
-    record TablesWithParameterCacheKey(String databaseName, String parameterKey, String parameterValue) {}
-
     record UserTableKey(Optional<HivePrincipal> principal, String database, String table, Optional<String> owner)
     {
         UserTableKey
@@ -1313,35 +1188,7 @@ public final class CachingHiveMetastore
     @Nested
     public CacheStatsMBean getTableNamesStats()
     {
-        return new CacheStatsMBean(tableNamesCache);
-    }
-
-    @Managed
-    @Nested
-    public CacheStatsMBean getAllTableNamesStats()
-    {
-        return new CacheStatsMBean(allTableNamesCache);
-    }
-
-    @Managed
-    @Nested
-    public CacheStatsMBean getRelationTypesStats()
-    {
-        return new CacheStatsMBean(relationTypesCache);
-    }
-
-    @Managed
-    @Nested
-    public CacheStatsMBean getAllRelationTypesStats()
-    {
-        return new CacheStatsMBean(allRelationTypesCache);
-    }
-
-    @Managed
-    @Nested
-    public CacheStatsMBean getTableWithParameterStats()
-    {
-        return new CacheStatsMBean(tablesWithParameterCache);
+        return new CacheStatsMBean(tablesCacheNew);
     }
 
     @Managed
@@ -1356,20 +1203,6 @@ public final class CachingHiveMetastore
     public CacheStatsMBean getPartitionStatisticsStats()
     {
         return new CacheStatsMBean(partitionStatisticsCache);
-    }
-
-    @Managed
-    @Nested
-    public CacheStatsMBean getViewNamesStats()
-    {
-        return new CacheStatsMBean(viewNamesCache);
-    }
-
-    @Managed
-    @Nested
-    public CacheStatsMBean getAllViewNamesStats()
-    {
-        return new CacheStatsMBean(allViewNamesCache);
     }
 
     @Managed
@@ -1432,29 +1265,9 @@ public final class CachingHiveMetastore
         return tableCache;
     }
 
-    LoadingCache<String, List<String>> getTableNamesCache()
+    public LoadingCache<String, List<TableInfo>> getTablesCacheNew()
     {
-        return tableNamesCache;
-    }
-
-    LoadingCache<SingletonCacheKey, Optional<List<SchemaTableName>>> getAllTableNamesCache()
-    {
-        return allTableNamesCache;
-    }
-
-    LoadingCache<String, Map<String, RelationType>> getRelationTypesCache()
-    {
-        return relationTypesCache;
-    }
-
-    LoadingCache<SingletonCacheKey, Optional<Map<SchemaTableName, RelationType>>> getAllRelationTypesCache()
-    {
-        return allRelationTypesCache;
-    }
-
-    LoadingCache<TablesWithParameterCacheKey, List<String>> getTablesWithParameterCache()
-    {
-        return tablesWithParameterCache;
+        return tablesCacheNew;
     }
 
     Cache<HiveTableName, AtomicReference<Map<String, HiveColumnStatistics>>> getTableColumnStatisticsCache()
@@ -1465,16 +1278,6 @@ public final class CachingHiveMetastore
     Cache<HivePartitionName, AtomicReference<Map<String, HiveColumnStatistics>>> getPartitionStatisticsCache()
     {
         return partitionStatisticsCache;
-    }
-
-    LoadingCache<String, List<String>> getViewNamesCache()
-    {
-        return viewNamesCache;
-    }
-
-    LoadingCache<SingletonCacheKey, Optional<List<SchemaTableName>>> getAllViewNamesCache()
-    {
-        return allViewNamesCache;
     }
 
     Cache<HivePartitionName, AtomicReference<Optional<Partition>>> getPartitionCache()

@@ -18,7 +18,7 @@ import io.trino.hive.thrift.metastore.Database;
 import io.trino.hive.thrift.metastore.FieldSchema;
 import io.trino.hive.thrift.metastore.Partition;
 import io.trino.hive.thrift.metastore.Table;
-import io.trino.plugin.hive.HiveColumnStatisticType;
+import io.trino.hive.thrift.metastore.TableMeta;
 import io.trino.plugin.hive.HivePartition;
 import io.trino.plugin.hive.PartitionStatistics;
 import io.trino.plugin.hive.acid.AcidOperation;
@@ -35,7 +35,6 @@ import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.TableNotFoundException;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.security.RoleGrant;
-import io.trino.spi.type.Type;
 
 import java.util.Collection;
 import java.util.List;
@@ -66,15 +65,7 @@ public sealed interface ThriftMetastore
 
     List<String> getAllDatabases();
 
-    List<String> getAllTables(String databaseName);
-
-    Optional<List<SchemaTableName>> getAllTables();
-
-    List<String> getTablesWithParameter(String databaseName, String parameterKey, String parameterValue);
-
-    List<String> getAllViews(String databaseName);
-
-    Optional<List<SchemaTableName>> getAllViews();
+    List<TableMeta> getTables(String databaseName);
 
     Optional<Database> getDatabase(String databaseName);
 
@@ -91,8 +82,6 @@ public sealed interface ThriftMetastore
     List<Partition> getPartitionsByNames(String databaseName, String tableName, List<String> partitionNames);
 
     Optional<Table> getTable(String databaseName, String tableName);
-
-    Set<HiveColumnStatisticType> getSupportedColumnStatistics(Type type);
 
     Map<String, HiveColumnStatistics> getTableColumnStatistics(String databaseName, String tableName, Set<String> columnNames);
 

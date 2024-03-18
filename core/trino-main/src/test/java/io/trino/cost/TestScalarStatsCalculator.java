@@ -13,48 +13,62 @@
  */
 package io.trino.cost;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.airlift.slice.Slices;
 import io.trino.Session;
 import io.trino.metadata.Metadata;
 import io.trino.metadata.MetadataManager;
+import io.trino.metadata.ResolvedFunction;
 import io.trino.metadata.TestingFunctionResolution;
 import io.trino.security.AllowAllAccessControl;
+import io.trino.spi.function.OperatorType;
+import io.trino.spi.type.Decimals;
+import io.trino.spi.type.VarcharType;
+import io.trino.sql.ir.ArithmeticBinaryExpression;
+import io.trino.sql.ir.Cast;
+import io.trino.sql.ir.CoalesceExpression;
+import io.trino.sql.ir.Constant;
+import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.SymbolReference;
 import io.trino.sql.planner.IrTypeAnalyzer;
-import io.trino.sql.planner.LiteralEncoder;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.TypeProvider;
-import io.trino.sql.tree.ArithmeticBinaryExpression;
-import io.trino.sql.tree.Cast;
-import io.trino.sql.tree.CoalesceExpression;
-import io.trino.sql.tree.DecimalLiteral;
-import io.trino.sql.tree.DoubleLiteral;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.GenericLiteral;
-import io.trino.sql.tree.NullLiteral;
-import io.trino.sql.tree.StringLiteral;
-import io.trino.sql.tree.SymbolReference;
 import io.trino.transaction.TestingTransactionManager;
 import io.trino.transaction.TransactionManager;
+import io.trino.type.UnknownType;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
+
 import static io.trino.spi.type.BigintType.BIGINT;
+import static io.trino.spi.type.DecimalType.createDecimalType;
 import static io.trino.spi.type.DoubleType.DOUBLE;
+import static io.trino.spi.type.IntegerType.INTEGER;
+import static io.trino.spi.type.SmallintType.SMALLINT;
+import static io.trino.spi.type.TinyintType.TINYINT;
 import static io.trino.spi.type.VarbinaryType.VARBINARY;
 import static io.trino.spi.type.VarcharType.createVarcharType;
-import static io.trino.sql.analyzer.TypeSignatureTranslator.toSqlType;
-import static io.trino.sql.tree.ArithmeticBinaryExpression.Operator.ADD;
-import static io.trino.sql.tree.ArithmeticBinaryExpression.Operator.DIVIDE;
-import static io.trino.sql.tree.ArithmeticBinaryExpression.Operator.MODULUS;
-import static io.trino.sql.tree.ArithmeticBinaryExpression.Operator.MULTIPLY;
-import static io.trino.sql.tree.ArithmeticBinaryExpression.Operator.SUBTRACT;
+import static io.trino.sql.ir.ArithmeticBinaryExpression.Operator.ADD;
+import static io.trino.sql.ir.ArithmeticBinaryExpression.Operator.DIVIDE;
+import static io.trino.sql.ir.ArithmeticBinaryExpression.Operator.MODULUS;
+import static io.trino.sql.ir.ArithmeticBinaryExpression.Operator.MULTIPLY;
+import static io.trino.sql.ir.ArithmeticBinaryExpression.Operator.SUBTRACT;
 import static io.trino.testing.TestingSession.testSessionBuilder;
 import static io.trino.testing.TransactionBuilder.transaction;
 import static java.lang.Double.NEGATIVE_INFINITY;
 import static java.lang.Double.POSITIVE_INFINITY;
+import static java.lang.Long.MAX_VALUE;
 
 public class TestScalarStatsCalculator
 {
+    private static final TestingFunctionResolution FUNCTIONS = new TestingFunctionResolution();
+    private static final ResolvedFunction ADD_BIGINT = FUNCTIONS.resolveOperator(OperatorType.ADD, ImmutableList.of(BIGINT, BIGINT));
+    private static final ResolvedFunction SUBTRACT_BIGINT = FUNCTIONS.resolveOperator(OperatorType.SUBTRACT, ImmutableList.of(BIGINT, BIGINT));
+    private static final ResolvedFunction MULTIPLY_BIGINT = FUNCTIONS.resolveOperator(OperatorType.MULTIPLY, ImmutableList.of(BIGINT, BIGINT));
+    private static final ResolvedFunction DIVIDE_BIGINT = FUNCTIONS.resolveOperator(OperatorType.DIVIDE, ImmutableList.of(BIGINT, BIGINT));
+    private static final ResolvedFunction MODULUS_BIGINT = FUNCTIONS.resolveOperator(OperatorType.MODULUS, ImmutableList.of(BIGINT, BIGINT));
+
     private final TestingFunctionResolution functionResolution = new TestingFunctionResolution();
     private final ScalarStatsCalculator calculator = new ScalarStatsCalculator(functionResolution.getPlannerContext(), new IrTypeAnalyzer(functionResolution.getPlannerContext()));
     private final Session session = testSessionBuilder().build();
@@ -62,49 +76,49 @@ public class TestScalarStatsCalculator
     @Test
     public void testLiteral()
     {
-        assertCalculate(new GenericLiteral("TINYINT", "7"))
+        assertCalculate(new Constant(TINYINT, 7L))
                 .distinctValuesCount(1.0)
                 .lowValue(7)
                 .highValue(7)
                 .nullsFraction(0.0);
 
-        assertCalculate(new GenericLiteral("SMALLINT", "8"))
+        assertCalculate(new Constant(SMALLINT, 8L))
                 .distinctValuesCount(1.0)
                 .lowValue(8)
                 .highValue(8)
                 .nullsFraction(0.0);
 
-        assertCalculate(new GenericLiteral("INTEGER", "9"))
+        assertCalculate(new Constant(INTEGER, 9L))
                 .distinctValuesCount(1.0)
                 .lowValue(9)
                 .highValue(9)
                 .nullsFraction(0.0);
 
-        assertCalculate(new GenericLiteral("BIGINT", Long.toString(Long.MAX_VALUE)))
+        assertCalculate(new Constant(BIGINT, MAX_VALUE))
                 .distinctValuesCount(1.0)
                 .lowValue(Long.MAX_VALUE)
                 .highValue(Long.MAX_VALUE)
                 .nullsFraction(0.0);
 
-        assertCalculate(new DoubleLiteral("7.5"))
+        assertCalculate(new Constant(DOUBLE, 7.5))
                 .distinctValuesCount(1.0)
                 .lowValue(7.5)
                 .highValue(7.5)
                 .nullsFraction(0.0);
 
-        assertCalculate(new DecimalLiteral("75.5"))
+        assertCalculate(new Constant(createDecimalType(3, 1), Decimals.valueOfShort(new BigDecimal("75.5"))))
                 .distinctValuesCount(1.0)
                 .lowValue(75.5)
                 .highValue(75.5)
                 .nullsFraction(0.0);
 
-        assertCalculate(new StringLiteral("blah"))
+        assertCalculate(new Constant(VarcharType.VARCHAR, Slices.utf8Slice("blah")))
                 .distinctValuesCount(1.0)
                 .lowValueUnknown()
                 .highValueUnknown()
                 .nullsFraction(0.0);
 
-        assertCalculate(new NullLiteral())
+        assertCalculate(new Constant(UnknownType.UNKNOWN, null))
                 .distinctValuesCount(0.0)
                 .lowValueUnknown()
                 .highValueUnknown()
@@ -117,7 +131,7 @@ public class TestScalarStatsCalculator
         assertCalculate(
                 functionResolution
                         .functionCallBuilder("length")
-                        .addArgument(createVarcharType(10), new Cast(new NullLiteral(), toSqlType(createVarcharType(10))))
+                        .addArgument(createVarcharType(10), new Constant(createVarcharType(10), null))
                         .build())
                 .distinctValuesCount(0.0)
                 .lowValueUnknown()
@@ -140,8 +154,7 @@ public class TestScalarStatsCalculator
     @Test
     public void testVarbinaryConstant()
     {
-        LiteralEncoder literalEncoder = new LiteralEncoder(functionResolution.getPlannerContext());
-        Expression expression = literalEncoder.toExpression(Slices.utf8Slice("ala ma kota"), VARBINARY);
+        Expression expression = new Constant(VARBINARY, Slices.utf8Slice("ala ma kota"));
 
         assertCalculate(expression)
                 .distinctValuesCount(1.0)
@@ -182,7 +195,7 @@ public class TestScalarStatsCalculator
                 .build();
 
         assertCalculate(
-                new Cast(new SymbolReference("a"), toSqlType(BIGINT)),
+                new Cast(new SymbolReference("a"), BIGINT),
                 inputStatistics,
                 TypeProvider.viewOf(ImmutableMap.of(new Symbol("a"), BIGINT)))
                 .lowValue(2.0)
@@ -206,7 +219,7 @@ public class TestScalarStatsCalculator
                 .build();
 
         assertCalculate(
-                new Cast(new SymbolReference("a"), toSqlType(BIGINT)),
+                new Cast(new SymbolReference("a"), BIGINT),
                 inputStatistics,
                 TypeProvider.viewOf(ImmutableMap.of(new Symbol("a"), BIGINT)))
                 .lowValue(2.0)
@@ -229,7 +242,7 @@ public class TestScalarStatsCalculator
                 .build();
 
         assertCalculate(
-                new Cast(new SymbolReference("a"), toSqlType(BIGINT)),
+                new Cast(new SymbolReference("a"), BIGINT),
                 inputStatistics,
                 TypeProvider.viewOf(ImmutableMap.of(new Symbol("a"), BIGINT)))
                 .lowValue(2.0)
@@ -253,7 +266,7 @@ public class TestScalarStatsCalculator
                 .build();
 
         assertCalculate(
-                new Cast(new SymbolReference("a"), toSqlType(DOUBLE)),
+                new Cast(new SymbolReference("a"), DOUBLE),
                 inputStatistics,
                 TypeProvider.viewOf(ImmutableMap.of(new Symbol("a"), DOUBLE)))
                 .lowValue(2.0)
@@ -267,7 +280,7 @@ public class TestScalarStatsCalculator
     public void testCastUnknown()
     {
         assertCalculate(
-                new Cast(new SymbolReference("a"), toSqlType(BIGINT)),
+                new Cast(new SymbolReference("a"), BIGINT),
                 PlanNodeStatsEstimate.unknown(),
                 TypeProvider.viewOf(ImmutableMap.of(new Symbol("a"), BIGINT)))
                 .lowValueUnknown()
@@ -320,26 +333,26 @@ public class TestScalarStatsCalculator
                 .setOutputRowCount(10)
                 .build();
 
-        assertCalculate(new ArithmeticBinaryExpression(ADD, new SymbolReference("x"), new SymbolReference("y")), relationStats)
+        assertCalculate(new ArithmeticBinaryExpression(ADD_BIGINT, ADD, new SymbolReference("x"), new SymbolReference("y")), relationStats)
                 .distinctValuesCount(10.0)
                 .lowValue(-3.0)
                 .highValue(15.0)
                 .nullsFraction(0.28)
                 .averageRowSize(2.0);
 
-        assertCalculate(new ArithmeticBinaryExpression(ADD, new SymbolReference("x"), new SymbolReference("unknown")), relationStats)
+        assertCalculate(new ArithmeticBinaryExpression(ADD_BIGINT, ADD, new SymbolReference("x"), new SymbolReference("unknown")), relationStats)
                 .isEqualTo(SymbolStatsEstimate.unknown());
-        assertCalculate(new ArithmeticBinaryExpression(ADD, new SymbolReference("unknown"), new SymbolReference("unknown")), relationStats)
+        assertCalculate(new ArithmeticBinaryExpression(ADD_BIGINT, ADD, new SymbolReference("unknown"), new SymbolReference("unknown")), relationStats)
                 .isEqualTo(SymbolStatsEstimate.unknown());
 
-        assertCalculate(new ArithmeticBinaryExpression(SUBTRACT, new SymbolReference("x"), new SymbolReference("y")), relationStats)
+        assertCalculate(new ArithmeticBinaryExpression(SUBTRACT_BIGINT, SUBTRACT, new SymbolReference("x"), new SymbolReference("y")), relationStats)
                 .distinctValuesCount(10.0)
                 .lowValue(-6.0)
                 .highValue(12.0)
                 .nullsFraction(0.28)
                 .averageRowSize(2.0);
 
-        assertCalculate(new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("x"), new SymbolReference("y")), relationStats)
+        assertCalculate(new ArithmeticBinaryExpression(MULTIPLY_BIGINT, MULTIPLY, new SymbolReference("x"), new SymbolReference("y")), relationStats)
                 .distinctValuesCount(10.0)
                 .lowValue(-20.0)
                 .highValue(50.0)
@@ -363,95 +376,95 @@ public class TestScalarStatsCalculator
                 .setOutputRowCount(10)
                 .build();
 
-        assertCalculate(new ArithmeticBinaryExpression(ADD, new SymbolReference("x"), new SymbolReference("all_null")), relationStats)
+        assertCalculate(new ArithmeticBinaryExpression(ADD_BIGINT, ADD, new SymbolReference("x"), new SymbolReference("all_null")), relationStats)
                 .isEqualTo(allNullStats);
-        assertCalculate(new ArithmeticBinaryExpression(SUBTRACT, new SymbolReference("x"), new SymbolReference("all_null")), relationStats)
+        assertCalculate(new ArithmeticBinaryExpression(SUBTRACT_BIGINT, SUBTRACT, new SymbolReference("x"), new SymbolReference("all_null")), relationStats)
                 .isEqualTo(allNullStats);
-        assertCalculate(new ArithmeticBinaryExpression(SUBTRACT, new SymbolReference("all_null"), new SymbolReference("x")), relationStats)
+        assertCalculate(new ArithmeticBinaryExpression(SUBTRACT_BIGINT, SUBTRACT, new SymbolReference("all_null"), new SymbolReference("x")), relationStats)
                 .isEqualTo(allNullStats);
-        assertCalculate(new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("all_null"), new SymbolReference("x")), relationStats)
+        assertCalculate(new ArithmeticBinaryExpression(MULTIPLY_BIGINT, MULTIPLY, new SymbolReference("all_null"), new SymbolReference("x")), relationStats)
                 .isEqualTo(allNullStats);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("all_null")), relationStats)
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("all_null")), relationStats)
                 .isEqualTo(allNullStats);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("all_null"), new SymbolReference("x")), relationStats)
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("all_null"), new SymbolReference("x")), relationStats)
                 .isEqualTo(allNullStats);
-        assertCalculate(new ArithmeticBinaryExpression(DIVIDE, new SymbolReference("x"), new SymbolReference("all_null")), relationStats)
+        assertCalculate(new ArithmeticBinaryExpression(DIVIDE_BIGINT, DIVIDE, new SymbolReference("x"), new SymbolReference("all_null")), relationStats)
                 .isEqualTo(allNullStats);
-        assertCalculate(new ArithmeticBinaryExpression(DIVIDE, new SymbolReference("all_null"), new SymbolReference("x")), relationStats)
+        assertCalculate(new ArithmeticBinaryExpression(DIVIDE_BIGINT, DIVIDE, new SymbolReference("all_null"), new SymbolReference("x")), relationStats)
                 .isEqualTo(allNullStats);
     }
 
     @Test
     public void testDivideArithmeticBinaryExpression()
     {
-        assertCalculate(new ArithmeticBinaryExpression(DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(-11, -3, -5, -4)).lowValue(0.6).highValue(2.75);
-        assertCalculate(new ArithmeticBinaryExpression(DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(-11, -3, -5, 4)).lowValue(NEGATIVE_INFINITY).highValue(POSITIVE_INFINITY);
-        assertCalculate(new ArithmeticBinaryExpression(DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(-11, -3, 4, 5)).lowValue(-2.75).highValue(-0.6);
+        assertCalculate(new ArithmeticBinaryExpression(DIVIDE_BIGINT, DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(-11, -3, -5, -4)).lowValue(0.6).highValue(2.75);
+        assertCalculate(new ArithmeticBinaryExpression(DIVIDE_BIGINT, DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(-11, -3, -5, 4)).lowValue(NEGATIVE_INFINITY).highValue(POSITIVE_INFINITY);
+        assertCalculate(new ArithmeticBinaryExpression(DIVIDE_BIGINT, DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(-11, -3, 4, 5)).lowValue(-2.75).highValue(-0.6);
 
-        assertCalculate(new ArithmeticBinaryExpression(DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(-11, 0, -5, -4)).lowValue(0).highValue(2.75);
-        assertCalculate(new ArithmeticBinaryExpression(DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(-11, 0, -5, 4)).lowValue(NEGATIVE_INFINITY).highValue(POSITIVE_INFINITY);
-        assertCalculate(new ArithmeticBinaryExpression(DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(-11, 0, 4, 5)).lowValue(-2.75).highValue(0);
+        assertCalculate(new ArithmeticBinaryExpression(DIVIDE_BIGINT, DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(-11, 0, -5, -4)).lowValue(0).highValue(2.75);
+        assertCalculate(new ArithmeticBinaryExpression(DIVIDE_BIGINT, DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(-11, 0, -5, 4)).lowValue(NEGATIVE_INFINITY).highValue(POSITIVE_INFINITY);
+        assertCalculate(new ArithmeticBinaryExpression(DIVIDE_BIGINT, DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(-11, 0, 4, 5)).lowValue(-2.75).highValue(0);
 
-        assertCalculate(new ArithmeticBinaryExpression(DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(-11, 3, -5, -4)).lowValue(-0.75).highValue(2.75);
-        assertCalculate(new ArithmeticBinaryExpression(DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(-11, 3, -5, 4)).lowValue(NEGATIVE_INFINITY).highValue(POSITIVE_INFINITY);
-        assertCalculate(new ArithmeticBinaryExpression(DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(-11, 3, 4, 5)).lowValue(-2.75).highValue(0.75);
+        assertCalculate(new ArithmeticBinaryExpression(DIVIDE_BIGINT, DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(-11, 3, -5, -4)).lowValue(-0.75).highValue(2.75);
+        assertCalculate(new ArithmeticBinaryExpression(DIVIDE_BIGINT, DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(-11, 3, -5, 4)).lowValue(NEGATIVE_INFINITY).highValue(POSITIVE_INFINITY);
+        assertCalculate(new ArithmeticBinaryExpression(DIVIDE_BIGINT, DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(-11, 3, 4, 5)).lowValue(-2.75).highValue(0.75);
 
-        assertCalculate(new ArithmeticBinaryExpression(DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 3, -5, -4)).lowValue(-0.75).highValue(0);
-        assertCalculate(new ArithmeticBinaryExpression(DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 3, -5, 4)).lowValue(NEGATIVE_INFINITY).highValue(POSITIVE_INFINITY);
-        assertCalculate(new ArithmeticBinaryExpression(DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 3, 4, 5)).lowValue(0).highValue(0.75);
+        assertCalculate(new ArithmeticBinaryExpression(DIVIDE_BIGINT, DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 3, -5, -4)).lowValue(-0.75).highValue(0);
+        assertCalculate(new ArithmeticBinaryExpression(DIVIDE_BIGINT, DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 3, -5, 4)).lowValue(NEGATIVE_INFINITY).highValue(POSITIVE_INFINITY);
+        assertCalculate(new ArithmeticBinaryExpression(DIVIDE_BIGINT, DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 3, 4, 5)).lowValue(0).highValue(0.75);
 
-        assertCalculate(new ArithmeticBinaryExpression(DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(3, 11, -5, -4)).lowValue(-2.75).highValue(-0.6);
-        assertCalculate(new ArithmeticBinaryExpression(DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(3, 11, -5, 4)).lowValue(NEGATIVE_INFINITY).highValue(POSITIVE_INFINITY);
-        assertCalculate(new ArithmeticBinaryExpression(DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(3, 11, 4, 5)).lowValue(0.6).highValue(2.75);
+        assertCalculate(new ArithmeticBinaryExpression(DIVIDE_BIGINT, DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(3, 11, -5, -4)).lowValue(-2.75).highValue(-0.6);
+        assertCalculate(new ArithmeticBinaryExpression(DIVIDE_BIGINT, DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(3, 11, -5, 4)).lowValue(NEGATIVE_INFINITY).highValue(POSITIVE_INFINITY);
+        assertCalculate(new ArithmeticBinaryExpression(DIVIDE_BIGINT, DIVIDE, new SymbolReference("x"), new SymbolReference("y")), xyStats(3, 11, 4, 5)).lowValue(0.6).highValue(2.75);
     }
 
     @Test
     public void testModulusArithmeticBinaryExpression()
     {
         // negative
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-1, 0, -6, -4)).lowValue(-1).highValue(0);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 0, -6, -4)).lowValue(-5).highValue(0);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 0, -6, -4)).lowValue(-6).highValue(0);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 0, -6, -4)).lowValue(-6).highValue(0);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 0, -6, 4)).lowValue(-6).highValue(0);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 0, -6, 6)).lowValue(-6).highValue(0);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 0, 4, 6)).lowValue(-6).highValue(0);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-1, 0, 4, 6)).lowValue(-1).highValue(0);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 0, 4, 6)).lowValue(-5).highValue(0);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 0, 4, 6)).lowValue(-6).highValue(0);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-1, 0, -6, -4)).lowValue(-1).highValue(0);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 0, -6, -4)).lowValue(-5).highValue(0);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 0, -6, -4)).lowValue(-6).highValue(0);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 0, -6, -4)).lowValue(-6).highValue(0);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 0, -6, 4)).lowValue(-6).highValue(0);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 0, -6, 6)).lowValue(-6).highValue(0);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 0, 4, 6)).lowValue(-6).highValue(0);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-1, 0, 4, 6)).lowValue(-1).highValue(0);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 0, 4, 6)).lowValue(-5).highValue(0);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 0, 4, 6)).lowValue(-6).highValue(0);
 
         // positive
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 5, -6, -4)).lowValue(0).highValue(5);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 8, -6, -4)).lowValue(0).highValue(6);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 1, -6, 4)).lowValue(0).highValue(1);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 5, -6, 4)).lowValue(0).highValue(5);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 8, -6, 4)).lowValue(0).highValue(6);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 1, 4, 6)).lowValue(0).highValue(1);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 5, 4, 6)).lowValue(0).highValue(5);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 8, 4, 6)).lowValue(0).highValue(6);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 5, -6, -4)).lowValue(0).highValue(5);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 8, -6, -4)).lowValue(0).highValue(6);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 1, -6, 4)).lowValue(0).highValue(1);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 5, -6, 4)).lowValue(0).highValue(5);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 8, -6, 4)).lowValue(0).highValue(6);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 1, 4, 6)).lowValue(0).highValue(1);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 5, 4, 6)).lowValue(0).highValue(5);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(0, 8, 4, 6)).lowValue(0).highValue(6);
 
         // mix
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-1, 1, -6, -4)).lowValue(-1).highValue(1);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-1, 5, -6, -4)).lowValue(-1).highValue(5);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 1, -6, -4)).lowValue(-5).highValue(1);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 5, -6, -4)).lowValue(-5).highValue(5);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 8, -6, -4)).lowValue(-5).highValue(6);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 5, -6, -4)).lowValue(-6).highValue(5);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 8, -6, -4)).lowValue(-6).highValue(6);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-1, 1, -6, 4)).lowValue(-1).highValue(1);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-1, 5, -6, 4)).lowValue(-1).highValue(5);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 1, -6, 4)).lowValue(-5).highValue(1);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 5, -6, 4)).lowValue(-5).highValue(5);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 8, -6, 4)).lowValue(-5).highValue(6);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 5, -6, 4)).lowValue(-6).highValue(5);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 8, -6, 4)).lowValue(-6).highValue(6);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-1, 1, 4, 6)).lowValue(-1).highValue(1);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-1, 5, 4, 6)).lowValue(-1).highValue(5);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 1, 4, 6)).lowValue(-5).highValue(1);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 5, 4, 6)).lowValue(-5).highValue(5);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 8, 4, 6)).lowValue(-5).highValue(6);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 5, 4, 6)).lowValue(-6).highValue(5);
-        assertCalculate(new ArithmeticBinaryExpression(MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 8, 4, 6)).lowValue(-6).highValue(6);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-1, 1, -6, -4)).lowValue(-1).highValue(1);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-1, 5, -6, -4)).lowValue(-1).highValue(5);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 1, -6, -4)).lowValue(-5).highValue(1);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 5, -6, -4)).lowValue(-5).highValue(5);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 8, -6, -4)).lowValue(-5).highValue(6);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 5, -6, -4)).lowValue(-6).highValue(5);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 8, -6, -4)).lowValue(-6).highValue(6);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-1, 1, -6, 4)).lowValue(-1).highValue(1);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-1, 5, -6, 4)).lowValue(-1).highValue(5);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 1, -6, 4)).lowValue(-5).highValue(1);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 5, -6, 4)).lowValue(-5).highValue(5);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 8, -6, 4)).lowValue(-5).highValue(6);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 5, -6, 4)).lowValue(-6).highValue(5);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 8, -6, 4)).lowValue(-6).highValue(6);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-1, 1, 4, 6)).lowValue(-1).highValue(1);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-1, 5, 4, 6)).lowValue(-1).highValue(5);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 1, 4, 6)).lowValue(-5).highValue(1);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 5, 4, 6)).lowValue(-5).highValue(5);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-5, 8, 4, 6)).lowValue(-5).highValue(6);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 5, 4, 6)).lowValue(-6).highValue(5);
+        assertCalculate(new ArithmeticBinaryExpression(MODULUS_BIGINT, MODULUS, new SymbolReference("x"), new SymbolReference("y")), xyStats(-8, 8, 4, 6)).lowValue(-6).highValue(6);
     }
 
     private PlanNodeStatsEstimate xyStats(double lowX, double highX, double lowY, double highY)

@@ -37,6 +37,7 @@ import io.trino.metadata.ViewDefinition;
 import io.trino.security.AccessControl;
 import io.trino.security.AllowAllAccessControl;
 import io.trino.spi.TrinoException;
+import io.trino.spi.catalog.CatalogName;
 import io.trino.spi.connector.CatalogHandle;
 import io.trino.spi.connector.CatalogSchemaName;
 import io.trino.spi.connector.CatalogSchemaTableName;
@@ -326,7 +327,7 @@ public abstract class BaseDataDefinitionTaskTest
         @Override
         public TableSchema getTableSchema(Session session, TableHandle tableHandle)
         {
-            return new TableSchema(TEST_CATALOG_NAME, getTableMetadata(tableHandle).getTableSchema());
+            return new TableSchema(new CatalogName(TEST_CATALOG_NAME), getTableMetadata(tableHandle).getTableSchema());
         }
 
         @Override
@@ -342,7 +343,7 @@ public abstract class BaseDataDefinitionTaskTest
         @Override
         public TableMetadata getTableMetadata(Session session, TableHandle tableHandle)
         {
-            return new TableMetadata(TEST_CATALOG_NAME, getTableMetadata(tableHandle));
+            return new TableMetadata(new CatalogName(TEST_CATALOG_NAME), getTableMetadata(tableHandle));
         }
 
         @Override

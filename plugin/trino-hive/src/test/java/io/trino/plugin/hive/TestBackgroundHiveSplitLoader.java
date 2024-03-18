@@ -77,12 +77,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.google.common.base.Throwables.throwIfUnchecked;
 import static com.google.common.io.Resources.getResource;
-import static io.airlift.concurrent.MoreFutures.unmodifiableFuture;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.airlift.units.DataSize.Unit.GIGABYTE;
 import static io.airlift.units.DataSize.Unit.KILOBYTE;
 import static io.airlift.units.DataSize.Unit.MEGABYTE;
+import static io.trino.hive.formats.HiveClassNames.SYMLINK_TEXT_INPUT_FORMAT_CLASS;
 import static io.trino.hive.thrift.metastore.hive_metastoreConstants.FILE_INPUT_FORMAT;
 import static io.trino.plugin.hive.BackgroundHiveSplitLoader.BucketSplitInfo.createBucketSplitInfo;
 import static io.trino.plugin.hive.BackgroundHiveSplitLoader.getBucketNumber;
@@ -101,7 +101,6 @@ import static io.trino.plugin.hive.HiveType.HIVE_INT;
 import static io.trino.plugin.hive.HiveType.HIVE_STRING;
 import static io.trino.plugin.hive.TableType.MANAGED_TABLE;
 import static io.trino.plugin.hive.util.HiveBucketing.BucketingVersion.BUCKETING_V1;
-import static io.trino.plugin.hive.util.HiveClassNames.SYMLINK_TEXT_INPUT_FORMAT_CLASS;
 import static io.trino.plugin.hive.util.HiveUtil.getRegularColumnHandles;
 import static io.trino.plugin.hive.util.SerdeConstants.FOOTER_COUNT;
 import static io.trino.plugin.hive.util.SerdeConstants.HEADER_COUNT;
@@ -298,52 +297,51 @@ public class TestBackgroundHiveSplitLoader
     public void testIncompleteDynamicFilterTimeout()
             throws Exception
     {
-        BackgroundHiveSplitLoader backgroundHiveSplitLoader = backgroundHiveSplitLoader(
-                new DynamicFilter()
-                {
-                    @Override
-                    public Set<ColumnHandle> getColumnsCovered()
+        CompletableFuture<?> isBlocked = new CompletableFuture<>();
+        try {
+            BackgroundHiveSplitLoader backgroundHiveSplitLoader = backgroundHiveSplitLoader(
+                    new DynamicFilter()
                     {
-                        return Set.of();
-                    }
+                        @Override
+                        public Set<ColumnHandle> getColumnsCovered()
+                        {
+                            return Set.of();
+                        }
 
-                    @Override
-                    public CompletableFuture<?> isBlocked()
-                    {
-                        return unmodifiableFuture(CompletableFuture.runAsync(() -> {
-                            try {
-                                TimeUnit.HOURS.sleep(1);
-                            }
-                            catch (InterruptedException e) {
-                                throw new IllegalStateException(e);
-                            }
-                        }));
-                    }
+                        @Override
+                        public CompletableFuture<?> isBlocked()
+                        {
+                            return isBlocked;
+                        }
 
-                    @Override
-                    public boolean isComplete()
-                    {
-                        return false;
-                    }
+                        @Override
+                        public boolean isComplete()
+                        {
+                            return false;
+                        }
 
-                    @Override
-                    public boolean isAwaitable()
-                    {
-                        return true;
-                    }
+                        @Override
+                        public boolean isAwaitable()
+                        {
+                            return true;
+                        }
 
-                    @Override
-                    public TupleDomain<ColumnHandle> getCurrentPredicate()
-                    {
-                        return TupleDomain.all();
-                    }
-                },
-                new Duration(1, SECONDS));
-        HiveSplitSource hiveSplitSource = hiveSplitSource(backgroundHiveSplitLoader);
-        backgroundHiveSplitLoader.start(hiveSplitSource);
+                        @Override
+                        public TupleDomain<ColumnHandle> getCurrentPredicate()
+                        {
+                            return TupleDomain.all();
+                        }
+                    },
+                    new Duration(1, SECONDS));
+            HiveSplitSource hiveSplitSource = hiveSplitSource(backgroundHiveSplitLoader);
+            backgroundHiveSplitLoader.start(hiveSplitSource);
 
-        assertThat(drain(hiveSplitSource).size()).isEqualTo(2);
-        assertThat(hiveSplitSource.isFinished()).isTrue();
+            assertThat(drain(hiveSplitSource).size()).isEqualTo(2);
+            assertThat(hiveSplitSource.isFinished()).isTrue();
+        }
+        finally {
+            isBlocked.complete(null);
+        }
     }
 
     @Test

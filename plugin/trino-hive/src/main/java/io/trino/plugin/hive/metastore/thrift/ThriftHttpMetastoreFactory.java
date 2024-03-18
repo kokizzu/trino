@@ -71,8 +71,6 @@ public class ThriftHttpMetastoreFactory
                 false,
                 false,
                 false,
-                false,
-                true,
                 stats,
                 writeStatisticsExecutor);
     }

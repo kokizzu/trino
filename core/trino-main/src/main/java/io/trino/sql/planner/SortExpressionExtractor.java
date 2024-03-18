@@ -14,15 +14,13 @@
 package io.trino.sql.planner;
 
 import com.google.common.collect.ImmutableList;
-import io.trino.metadata.Metadata;
 import io.trino.operator.join.SortedPositionLinks;
+import io.trino.sql.ir.BetweenPredicate;
+import io.trino.sql.ir.ComparisonExpression;
+import io.trino.sql.ir.Expression;
 import io.trino.sql.ir.IrUtils;
-import io.trino.sql.tree.AstVisitor;
-import io.trino.sql.tree.BetweenPredicate;
-import io.trino.sql.tree.ComparisonExpression;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.Node;
-import io.trino.sql.tree.SymbolReference;
+import io.trino.sql.ir.IrVisitor;
+import io.trino.sql.ir.SymbolReference;
 
 import java.util.List;
 import java.util.Optional;
@@ -30,8 +28,8 @@ import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
-import static io.trino.sql.tree.ComparisonExpression.Operator.GREATER_THAN_OR_EQUAL;
-import static io.trino.sql.tree.ComparisonExpression.Operator.LESS_THAN_OR_EQUAL;
+import static io.trino.sql.ir.ComparisonExpression.Operator.GREATER_THAN_OR_EQUAL;
+import static io.trino.sql.ir.ComparisonExpression.Operator.LESS_THAN_OR_EQUAL;
 import static java.util.Collections.singletonList;
 import static java.util.Comparator.comparing;
 import static java.util.function.Function.identity;
@@ -60,13 +58,13 @@ public final class SortExpressionExtractor
      */
     private SortExpressionExtractor() {}
 
-    public static Optional<SortExpressionContext> extractSortExpression(Metadata metadata, Set<Symbol> buildSymbols, Expression filter)
+    public static Optional<SortExpressionContext> extractSortExpression(Set<Symbol> buildSymbols, Expression filter)
     {
         List<Expression> filterConjuncts = IrUtils.extractConjuncts(filter);
         SortExpressionVisitor visitor = new SortExpressionVisitor(buildSymbols);
 
         List<SortExpressionContext> sortExpressionCandidates = ImmutableList.copyOf(filterConjuncts.stream()
-                .filter(expression -> DeterminismEvaluator.isDeterministic(expression, metadata))
+                .filter(expression -> DeterminismEvaluator.isDeterministic(expression))
                 .map(visitor::process)
                 .filter(Optional::isPresent)
                 .map(Optional::get)
@@ -90,7 +88,7 @@ public final class SortExpressionExtractor
     }
 
     private static class SortExpressionVisitor
-            extends AstVisitor<Optional<SortExpressionContext>, Void>
+            extends IrVisitor<Optional<SortExpressionContext>, Void>
     {
         private final Set<Symbol> buildSymbols;
 
@@ -153,7 +151,7 @@ public final class SortExpressionExtractor
     }
 
     private static class BuildSymbolReferenceFinder
-            extends AstVisitor<Boolean, Void>
+            extends IrVisitor<Boolean, Void>
     {
         private final Set<String> buildSymbols;
 
@@ -165,9 +163,9 @@ public final class SortExpressionExtractor
         }
 
         @Override
-        protected Boolean visitNode(Node node, Void context)
+        protected Boolean visitExpression(Expression node, Void context)
         {
-            for (Node child : node.getChildren()) {
+            for (Expression child : node.getChildren()) {
                 if (process(child, context)) {
                     return true;
                 }

@@ -14,27 +14,28 @@
 package io.trino.sql.planner.assertions;
 
 import com.google.common.collect.ImmutableList;
-import io.trino.sql.tree.BetweenPredicate;
-import io.trino.sql.tree.Cast;
-import io.trino.sql.tree.ComparisonExpression;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.GenericLiteral;
-import io.trino.sql.tree.LogicalExpression;
-import io.trino.sql.tree.LongLiteral;
-import io.trino.sql.tree.NotExpression;
-import io.trino.sql.tree.StringLiteral;
-import io.trino.sql.tree.SymbolReference;
+import io.airlift.slice.Slices;
+import io.trino.sql.ir.BetweenPredicate;
+import io.trino.sql.ir.Cast;
+import io.trino.sql.ir.ComparisonExpression;
+import io.trino.sql.ir.Constant;
+import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.LogicalExpression;
+import io.trino.sql.ir.NotExpression;
+import io.trino.sql.ir.SymbolReference;
 import org.junit.jupiter.api.Test;
 
-import static io.trino.sql.planner.assertions.PlanMatchPattern.dataType;
-import static io.trino.sql.tree.ComparisonExpression.Operator.EQUAL;
-import static io.trino.sql.tree.ComparisonExpression.Operator.GREATER_THAN;
-import static io.trino.sql.tree.ComparisonExpression.Operator.GREATER_THAN_OR_EQUAL;
-import static io.trino.sql.tree.ComparisonExpression.Operator.IS_DISTINCT_FROM;
-import static io.trino.sql.tree.ComparisonExpression.Operator.LESS_THAN;
-import static io.trino.sql.tree.ComparisonExpression.Operator.LESS_THAN_OR_EQUAL;
-import static io.trino.sql.tree.ComparisonExpression.Operator.NOT_EQUAL;
-import static io.trino.sql.tree.LogicalExpression.Operator.AND;
+import static io.trino.spi.type.BigintType.BIGINT;
+import static io.trino.spi.type.IntegerType.INTEGER;
+import static io.trino.spi.type.VarcharType.VARCHAR;
+import static io.trino.sql.ir.ComparisonExpression.Operator.EQUAL;
+import static io.trino.sql.ir.ComparisonExpression.Operator.GREATER_THAN;
+import static io.trino.sql.ir.ComparisonExpression.Operator.GREATER_THAN_OR_EQUAL;
+import static io.trino.sql.ir.ComparisonExpression.Operator.IS_DISTINCT_FROM;
+import static io.trino.sql.ir.ComparisonExpression.Operator.LESS_THAN;
+import static io.trino.sql.ir.ComparisonExpression.Operator.LESS_THAN_OR_EQUAL;
+import static io.trino.sql.ir.ComparisonExpression.Operator.NOT_EQUAL;
+import static io.trino.sql.ir.LogicalExpression.Operator.AND;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -43,7 +44,7 @@ public class TestExpressionVerifier
     @Test
     public void test()
     {
-        Expression actual = new NotExpression(new LogicalExpression(AND, ImmutableList.of(new ComparisonExpression(EQUAL, new SymbolReference("orderkey"), new LongLiteral("3")), new ComparisonExpression(EQUAL, new SymbolReference("custkey"), new LongLiteral("3")), new ComparisonExpression(LESS_THAN, new SymbolReference("orderkey"), new LongLiteral("10")))));
+        Expression actual = new NotExpression(new LogicalExpression(AND, ImmutableList.of(new ComparisonExpression(EQUAL, new SymbolReference("orderkey"), new Constant(INTEGER, 3L)), new ComparisonExpression(EQUAL, new SymbolReference("custkey"), new Constant(INTEGER, 3L)), new ComparisonExpression(LESS_THAN, new SymbolReference("orderkey"), new Constant(INTEGER, 10L)))));
 
         SymbolAliases symbolAliases = SymbolAliases.builder()
                 .put("X", new SymbolReference("orderkey"))
@@ -52,11 +53,11 @@ public class TestExpressionVerifier
 
         ExpressionVerifier verifier = new ExpressionVerifier(symbolAliases);
 
-        assertThat(verifier.process(actual, new NotExpression(new LogicalExpression(AND, ImmutableList.of(new ComparisonExpression(EQUAL, new SymbolReference("X"), new LongLiteral("3")), new ComparisonExpression(EQUAL, new SymbolReference("Y"), new LongLiteral("3")), new ComparisonExpression(LESS_THAN, new SymbolReference("X"), new LongLiteral("10"))))))).isTrue();
-        assertThatThrownBy(() -> verifier.process(actual, new NotExpression(new LogicalExpression(AND, ImmutableList.of(new ComparisonExpression(EQUAL, new SymbolReference("X"), new LongLiteral("3")), new ComparisonExpression(EQUAL, new SymbolReference("Y"), new LongLiteral("3")), new ComparisonExpression(LESS_THAN, new SymbolReference("Z"), new LongLiteral("10")))))))
+        assertThat(verifier.process(actual, new NotExpression(new LogicalExpression(AND, ImmutableList.of(new ComparisonExpression(EQUAL, new SymbolReference("X"), new Constant(INTEGER, 3L)), new ComparisonExpression(EQUAL, new SymbolReference("Y"), new Constant(INTEGER, 3L)), new ComparisonExpression(LESS_THAN, new SymbolReference("X"), new Constant(INTEGER, 10L))))))).isTrue();
+        assertThatThrownBy(() -> verifier.process(actual, new NotExpression(new LogicalExpression(AND, ImmutableList.of(new ComparisonExpression(EQUAL, new SymbolReference("X"), new Constant(INTEGER, 3L)), new ComparisonExpression(EQUAL, new SymbolReference("Y"), new Constant(INTEGER, 3L)), new ComparisonExpression(LESS_THAN, new SymbolReference("Z"), new Constant(INTEGER, 10L)))))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("missing expression for alias Z");
-        assertThat(verifier.process(actual, new NotExpression(new LogicalExpression(AND, ImmutableList.of(new ComparisonExpression(EQUAL, new SymbolReference("X"), new LongLiteral("3")), new ComparisonExpression(EQUAL, new SymbolReference("X"), new LongLiteral("3")), new ComparisonExpression(LESS_THAN, new SymbolReference("X"), new LongLiteral("10"))))))).isFalse();
+        assertThat(verifier.process(actual, new NotExpression(new LogicalExpression(AND, ImmutableList.of(new ComparisonExpression(EQUAL, new SymbolReference("X"), new Constant(INTEGER, 3L)), new ComparisonExpression(EQUAL, new SymbolReference("X"), new Constant(INTEGER, 3L)), new ComparisonExpression(LESS_THAN, new SymbolReference("X"), new Constant(INTEGER, 10L))))))).isFalse();
     }
 
     @Test
@@ -67,9 +68,9 @@ public class TestExpressionVerifier
                 .build();
 
         ExpressionVerifier verifier = new ExpressionVerifier(aliases);
-        assertThat(verifier.process(new GenericLiteral("VARCHAR", "2"), new GenericLiteral("VARCHAR", "2"))).isTrue();
-        assertThat(verifier.process(new GenericLiteral("VARCHAR", "2"), new Cast(new StringLiteral("2"), dataType("bigint")))).isFalse();
-        assertThat(verifier.process(new Cast(new SymbolReference("orderkey"), dataType("varchar")), new Cast(new SymbolReference("X"), dataType("varchar")))).isTrue();
+        assertThat(verifier.process(new Constant(VARCHAR, Slices.utf8Slice("2")), new Constant(VARCHAR, Slices.utf8Slice("2")))).isTrue();
+        assertThat(verifier.process(new Constant(VARCHAR, Slices.utf8Slice("2")), new Cast(new Constant(VARCHAR, Slices.utf8Slice("2")), BIGINT))).isFalse();
+        assertThat(verifier.process(new Cast(new SymbolReference("orderkey"), VARCHAR), new Cast(new SymbolReference("X"), VARCHAR))).isTrue();
     }
 
     @Test
@@ -82,14 +83,14 @@ public class TestExpressionVerifier
 
         ExpressionVerifier verifier = new ExpressionVerifier(symbolAliases);
         // Complete match
-        assertThat(verifier.process(new BetweenPredicate(new SymbolReference("orderkey"), new LongLiteral("1"), new LongLiteral("2")), new BetweenPredicate(new SymbolReference("X"), new LongLiteral("1"), new LongLiteral("2")))).isTrue();
+        assertThat(verifier.process(new BetweenPredicate(new SymbolReference("orderkey"), new Constant(INTEGER, 1L), new Constant(INTEGER, 2L)), new BetweenPredicate(new SymbolReference("X"), new Constant(INTEGER, 1L), new Constant(INTEGER, 2L)))).isTrue();
         // Different value
-        assertThat(verifier.process(new BetweenPredicate(new SymbolReference("orderkey"), new LongLiteral("1"), new LongLiteral("2")), new BetweenPredicate(new SymbolReference("Y"), new LongLiteral("1"), new LongLiteral("2")))).isFalse();
-        assertThat(verifier.process(new BetweenPredicate(new SymbolReference("custkey"), new LongLiteral("1"), new LongLiteral("2")), new BetweenPredicate(new SymbolReference("X"), new LongLiteral("1"), new LongLiteral("2")))).isFalse();
+        assertThat(verifier.process(new BetweenPredicate(new SymbolReference("orderkey"), new Constant(INTEGER, 1L), new Constant(INTEGER, 2L)), new BetweenPredicate(new SymbolReference("Y"), new Constant(INTEGER, 1L), new Constant(INTEGER, 2L)))).isFalse();
+        assertThat(verifier.process(new BetweenPredicate(new SymbolReference("custkey"), new Constant(INTEGER, 1L), new Constant(INTEGER, 2L)), new BetweenPredicate(new SymbolReference("X"), new Constant(INTEGER, 1L), new Constant(INTEGER, 2L)))).isFalse();
         // Different min or max
-        assertThat(verifier.process(new BetweenPredicate(new SymbolReference("orderkey"), new LongLiteral("2"), new LongLiteral("4")), new BetweenPredicate(new SymbolReference("X"), new LongLiteral("1"), new LongLiteral("2")))).isFalse();
-        assertThat(verifier.process(new BetweenPredicate(new SymbolReference("orderkey"), new LongLiteral("1"), new LongLiteral("2")), new BetweenPredicate(new SymbolReference("X"), new StringLiteral("1"), new StringLiteral("2")))).isFalse();
-        assertThat(verifier.process(new BetweenPredicate(new SymbolReference("orderkey"), new LongLiteral("1"), new LongLiteral("2")), new BetweenPredicate(new SymbolReference("X"), new LongLiteral("4"), new LongLiteral("7")))).isFalse();
+        assertThat(verifier.process(new BetweenPredicate(new SymbolReference("orderkey"), new Constant(INTEGER, 2L), new Constant(INTEGER, 4L)), new BetweenPredicate(new SymbolReference("X"), new Constant(INTEGER, 1L), new Constant(INTEGER, 2L)))).isFalse();
+        assertThat(verifier.process(new BetweenPredicate(new SymbolReference("orderkey"), new Constant(INTEGER, 1L), new Constant(INTEGER, 2L)), new BetweenPredicate(new SymbolReference("X"), new Constant(VARCHAR, Slices.utf8Slice("1")), new Constant(VARCHAR, Slices.utf8Slice("2"))))).isFalse();
+        assertThat(verifier.process(new BetweenPredicate(new SymbolReference("orderkey"), new Constant(INTEGER, 1L), new Constant(INTEGER, 2L)), new BetweenPredicate(new SymbolReference("X"), new Constant(INTEGER, 4L), new Constant(INTEGER, 7L)))).isFalse();
     }
 
     @Test

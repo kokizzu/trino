@@ -14,6 +14,7 @@
 package io.trino.plugin.deltalake;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.inject.Inject;
 import io.airlift.units.DataSize;
 import io.trino.filesystem.Location;
@@ -44,7 +45,6 @@ import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.type.TypeManager;
 
 import java.net.URI;
-import java.net.URLDecoder;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -70,7 +70,6 @@ import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.ex
 import static io.trino.plugin.deltalake.transactionlog.TransactionLogParser.deserializePartitionValue;
 import static io.trino.spi.connector.FixedSplitSource.emptySplitSource;
 import static java.lang.Math.clamp;
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
 
@@ -164,7 +163,7 @@ public class DeltaLakeSplitManager
                 tableHandle.getMetadataEntry(),
                 tableHandle.getProtocolEntry(),
                 tableHandle.getEnforcedPartitionConstraint(),
-                tableHandle.getProjectedColumns());
+                tableHandle.getProjectedColumns().orElse(ImmutableSet.of()));
         TupleDomain<DeltaLakeColumnHandle> enforcedPartitionConstraint = tableHandle.getEnforcedPartitionConstraint();
         TupleDomain<DeltaLakeColumnHandle> nonPartitionConstraint = tableHandle.getNonPartitionConstraint();
         Domain pathDomain = getPathDomain(nonPartitionConstraint);
@@ -375,15 +374,6 @@ public class DeltaLakeSplitManager
         // paths are relative to the table location and are RFC 2396 URIs
         // https://github.com/delta-io/delta/blob/master/PROTOCOL.md#add-file-and-remove-file
         URI uri = URI.create(addAction.getPath());
-        String path = uri.getPath();
-
-        // org.apache.hadoop.fs.azurebfs.AzureBlobFileSystem encodes the path as URL when opening files
-        // https://issues.apache.org/jira/browse/HADOOP-18580
-        Optional<String> scheme = tableLocation.scheme();
-        if (scheme.isPresent() && (scheme.get().equals("abfs") || scheme.get().equals("abfss"))) {
-            // Replace '+' with '%2B' beforehand. Otherwise, the character becomes a space ' ' by URL decode.
-            path = URLDecoder.decode(path.replace("+", "%2B"), UTF_8);
-        }
-        return tableLocation.appendPath(path);
+        return tableLocation.appendPath(uri.getPath());
     }
 }

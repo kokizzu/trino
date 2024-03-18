@@ -15,12 +15,11 @@ package io.trino.sql.planner;
 
 import com.google.common.collect.HashMultiset;
 import com.google.common.collect.Multiset;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.ExpressionRewriter;
-import io.trino.sql.tree.ExpressionTreeRewriter;
-import io.trino.sql.tree.LambdaArgumentDeclaration;
-import io.trino.sql.tree.LambdaExpression;
-import io.trino.sql.tree.SymbolReference;
+import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.ExpressionRewriter;
+import io.trino.sql.ir.ExpressionTreeRewriter;
+import io.trino.sql.ir.LambdaExpression;
+import io.trino.sql.ir.SymbolReference;
 
 import java.util.Map;
 import java.util.function.Function;
@@ -72,12 +71,10 @@ public final class ExpressionSymbolInliner
         @Override
         public Expression rewriteLambdaExpression(LambdaExpression node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
         {
-            for (LambdaArgumentDeclaration argument : node.getArguments()) {
-                excludedNames.add(argument.getName().getValue());
-            }
+            excludedNames.addAll(node.getArguments());
             Expression result = treeRewriter.defaultRewrite(node, context);
-            for (LambdaArgumentDeclaration argument : node.getArguments()) {
-                verify(excludedNames.remove(argument.getName().getValue()));
+            for (String argument : node.getArguments()) {
+                verify(excludedNames.remove(argument));
             }
             return result;
         }

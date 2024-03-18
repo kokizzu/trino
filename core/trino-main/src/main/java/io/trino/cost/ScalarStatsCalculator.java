@@ -22,30 +22,26 @@ import io.trino.spi.type.SmallintType;
 import io.trino.spi.type.TinyintType;
 import io.trino.spi.type.Type;
 import io.trino.sql.PlannerContext;
+import io.trino.sql.ir.ArithmeticBinaryExpression;
+import io.trino.sql.ir.ArithmeticNegation;
+import io.trino.sql.ir.Cast;
+import io.trino.sql.ir.CoalesceExpression;
+import io.trino.sql.ir.Constant;
+import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.FunctionCall;
+import io.trino.sql.ir.IrVisitor;
+import io.trino.sql.ir.NodeRef;
+import io.trino.sql.ir.SymbolReference;
 import io.trino.sql.planner.IrExpressionInterpreter;
 import io.trino.sql.planner.IrTypeAnalyzer;
-import io.trino.sql.planner.LiteralInterpreter;
 import io.trino.sql.planner.NoOpSymbolResolver;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.TypeProvider;
-import io.trino.sql.tree.ArithmeticBinaryExpression;
-import io.trino.sql.tree.ArithmeticUnaryExpression;
-import io.trino.sql.tree.AstVisitor;
-import io.trino.sql.tree.Cast;
-import io.trino.sql.tree.CoalesceExpression;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.FunctionCall;
-import io.trino.sql.tree.Literal;
-import io.trino.sql.tree.Node;
-import io.trino.sql.tree.NodeRef;
-import io.trino.sql.tree.NullLiteral;
-import io.trino.sql.tree.SymbolReference;
 
 import java.util.Map;
 import java.util.OptionalDouble;
 
 import static io.trino.spi.statistics.StatsUtil.toStatsRepresentation;
-import static io.trino.sql.ir.IrUtils.isEffectivelyLiteral;
 import static io.trino.util.MoreMath.max;
 import static io.trino.util.MoreMath.min;
 import static java.lang.Double.NaN;
@@ -72,23 +68,21 @@ public class ScalarStatsCalculator
     }
 
     private class Visitor
-            extends AstVisitor<SymbolStatsEstimate, Void>
+            extends IrVisitor<SymbolStatsEstimate, Void>
     {
         private final PlanNodeStatsEstimate input;
         private final Session session;
-        private final LiteralInterpreter literalInterpreter;
         private final TypeProvider types;
 
         Visitor(PlanNodeStatsEstimate input, Session session, TypeProvider types)
         {
             this.input = input;
             this.session = session;
-            this.literalInterpreter = new LiteralInterpreter(plannerContext, session);
             this.types = types;
         }
 
         @Override
-        protected SymbolStatsEstimate visitNode(Node node, Void context)
+        protected SymbolStatsEstimate visitExpression(Expression node, Void context)
         {
             return SymbolStatsEstimate.unknown();
         }
@@ -100,16 +94,13 @@ public class ScalarStatsCalculator
         }
 
         @Override
-        protected SymbolStatsEstimate visitNullLiteral(NullLiteral node, Void context)
+        protected SymbolStatsEstimate visitConstant(Constant node, Void context)
         {
-            return nullStatsEstimate();
-        }
-
-        @Override
-        protected SymbolStatsEstimate visitLiteral(Literal node, Void context)
-        {
-            Type type = typeAnalyzer.getType(session, TypeProvider.empty(), node);
-            Object value = literalInterpreter.evaluate(node, type);
+            Type type = node.getType();
+            Object value = node.getValue();
+            if (value == null) {
+                return nullStatsEstimate();
+            }
 
             OptionalDouble doubleValue = toStatsRepresentation(type, value);
             SymbolStatsEstimate.Builder estimate = SymbolStatsEstimate.builder()
@@ -126,15 +117,15 @@ public class ScalarStatsCalculator
         @Override
         protected SymbolStatsEstimate visitFunctionCall(FunctionCall node, Void context)
         {
-            Map<NodeRef<Expression>, Type> expressionTypes = typeAnalyzer.getTypes(session, types, node);
+            Map<NodeRef<Expression>, Type> expressionTypes = typeAnalyzer.getTypes(types, node);
             IrExpressionInterpreter interpreter = new IrExpressionInterpreter(node, plannerContext, session, expressionTypes);
             Object value = interpreter.optimize(NoOpSymbolResolver.INSTANCE);
 
-            if (value == null || value instanceof NullLiteral) {
+            if (value == null) {
                 return nullStatsEstimate();
             }
 
-            if (value instanceof Expression && !isEffectivelyLiteral(plannerContext, session, (Expression) value)) {
+            if (value instanceof Expression) {
                 // value is not a constant
                 return SymbolStatsEstimate.unknown();
             }
@@ -156,7 +147,7 @@ public class ScalarStatsCalculator
             double lowValue = sourceStats.getLowValue();
             double highValue = sourceStats.getHighValue();
 
-            if (isIntegralType(typeAnalyzer.getType(session, types, node))) {
+            if (isIntegralType(typeAnalyzer.getType(types, node))) {
                 // todo handle low/high value changes if range gets narrower due to cast (e.g. BIGINT -> SMALLINT)
                 if (isFinite(lowValue)) {
                     lowValue = Math.round(lowValue);
@@ -194,19 +185,13 @@ public class ScalarStatsCalculator
         }
 
         @Override
-        protected SymbolStatsEstimate visitArithmeticUnary(ArithmeticUnaryExpression node, Void context)
+        protected SymbolStatsEstimate visitArithmeticNegation(ArithmeticNegation node, Void context)
         {
             SymbolStatsEstimate stats = process(node.getValue());
-            switch (node.getSign()) {
-                case PLUS:
-                    return stats;
-                case MINUS:
-                    return SymbolStatsEstimate.buildFrom(stats)
-                            .setLowValue(-stats.getHighValue())
-                            .setHighValue(-stats.getLowValue())
-                            .build();
-            }
-            throw new IllegalStateException("Unexpected sign: " + node.getSign());
+            return SymbolStatsEstimate.buildFrom(stats)
+                    .setLowValue(-stats.getHighValue())
+                    .setHighValue(-stats.getLowValue())
+                    .build();
         }
 
         @Override

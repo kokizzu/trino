@@ -15,45 +15,43 @@ package io.trino.sql;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import io.airlift.slice.Slices;
 import io.trino.metadata.ResolvedFunction;
 import io.trino.metadata.TestingFunctionResolution;
+import io.trino.spi.function.OperatorType;
 import io.trino.spi.type.Type;
+import io.trino.sql.ir.ArithmeticBinaryExpression;
+import io.trino.sql.ir.ArithmeticNegation;
+import io.trino.sql.ir.BetweenPredicate;
+import io.trino.sql.ir.Cast;
+import io.trino.sql.ir.CoalesceExpression;
+import io.trino.sql.ir.ComparisonExpression;
+import io.trino.sql.ir.Constant;
+import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.FunctionCall;
+import io.trino.sql.ir.InPredicate;
+import io.trino.sql.ir.IsNullPredicate;
+import io.trino.sql.ir.LogicalExpression;
+import io.trino.sql.ir.NodeRef;
+import io.trino.sql.ir.NotExpression;
+import io.trino.sql.ir.NullIfExpression;
+import io.trino.sql.ir.Row;
+import io.trino.sql.ir.SearchedCaseExpression;
+import io.trino.sql.ir.SimpleCaseExpression;
+import io.trino.sql.ir.SubscriptExpression;
+import io.trino.sql.ir.SymbolReference;
+import io.trino.sql.ir.WhenClause;
 import io.trino.sql.planner.IrExpressionInterpreter;
 import io.trino.sql.planner.IrTypeAnalyzer;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.SymbolResolver;
 import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.planner.assertions.SymbolAliases;
-import io.trino.sql.tree.ArithmeticBinaryExpression;
-import io.trino.sql.tree.ArithmeticUnaryExpression;
-import io.trino.sql.tree.BetweenPredicate;
-import io.trino.sql.tree.Cast;
-import io.trino.sql.tree.CoalesceExpression;
-import io.trino.sql.tree.ComparisonExpression;
-import io.trino.sql.tree.DoubleLiteral;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.FunctionCall;
-import io.trino.sql.tree.IfExpression;
-import io.trino.sql.tree.InListExpression;
-import io.trino.sql.tree.InPredicate;
-import io.trino.sql.tree.IsNotNullPredicate;
-import io.trino.sql.tree.IsNullPredicate;
-import io.trino.sql.tree.LogicalExpression;
-import io.trino.sql.tree.LongLiteral;
-import io.trino.sql.tree.NodeRef;
-import io.trino.sql.tree.NotExpression;
-import io.trino.sql.tree.NullIfExpression;
-import io.trino.sql.tree.NullLiteral;
-import io.trino.sql.tree.Row;
-import io.trino.sql.tree.SearchedCaseExpression;
-import io.trino.sql.tree.SimpleCaseExpression;
-import io.trino.sql.tree.StringLiteral;
-import io.trino.sql.tree.SubscriptExpression;
-import io.trino.sql.tree.SymbolReference;
-import io.trino.sql.tree.WhenClause;
 import io.trino.transaction.TestingTransactionManager;
+import io.trino.type.UnknownType;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Optional;
 
@@ -61,22 +59,24 @@ import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.SessionTestUtils.TEST_SESSION;
 import static io.trino.spi.StandardErrorCode.DIVISION_BY_ZERO;
 import static io.trino.spi.type.BigintType.BIGINT;
+import static io.trino.spi.type.BooleanType.BOOLEAN;
+import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.spi.type.IntegerType.INTEGER;
+import static io.trino.spi.type.VarcharType.VARCHAR;
 import static io.trino.sql.ExpressionTestUtils.assertExpressionEquals;
 import static io.trino.sql.analyzer.TypeSignatureProvider.fromTypes;
+import static io.trino.sql.ir.ArithmeticBinaryExpression.Operator.ADD;
+import static io.trino.sql.ir.ArithmeticBinaryExpression.Operator.DIVIDE;
+import static io.trino.sql.ir.ArithmeticBinaryExpression.Operator.MULTIPLY;
+import static io.trino.sql.ir.ArithmeticBinaryExpression.Operator.SUBTRACT;
+import static io.trino.sql.ir.BooleanLiteral.FALSE_LITERAL;
+import static io.trino.sql.ir.BooleanLiteral.TRUE_LITERAL;
+import static io.trino.sql.ir.ComparisonExpression.Operator.EQUAL;
+import static io.trino.sql.ir.ComparisonExpression.Operator.IS_DISTINCT_FROM;
+import static io.trino.sql.ir.IrExpressions.ifExpression;
+import static io.trino.sql.ir.LogicalExpression.Operator.AND;
+import static io.trino.sql.ir.LogicalExpression.Operator.OR;
 import static io.trino.sql.planner.TestingPlannerContext.plannerContextBuilder;
-import static io.trino.sql.planner.assertions.PlanMatchPattern.dataType;
-import static io.trino.sql.tree.ArithmeticBinaryExpression.Operator.ADD;
-import static io.trino.sql.tree.ArithmeticBinaryExpression.Operator.DIVIDE;
-import static io.trino.sql.tree.ArithmeticBinaryExpression.Operator.MULTIPLY;
-import static io.trino.sql.tree.ArithmeticBinaryExpression.Operator.SUBTRACT;
-import static io.trino.sql.tree.ArithmeticUnaryExpression.Sign.MINUS;
-import static io.trino.sql.tree.BooleanLiteral.FALSE_LITERAL;
-import static io.trino.sql.tree.BooleanLiteral.TRUE_LITERAL;
-import static io.trino.sql.tree.ComparisonExpression.Operator.EQUAL;
-import static io.trino.sql.tree.ComparisonExpression.Operator.IS_DISTINCT_FROM;
-import static io.trino.sql.tree.LogicalExpression.Operator.AND;
-import static io.trino.sql.tree.LogicalExpression.Operator.OR;
 import static io.trino.testing.assertions.TrinoExceptionAssert.assertTrinoExceptionThrownBy;
 import static java.util.Locale.ENGLISH;
 import static java.util.function.Function.identity;
@@ -105,6 +105,10 @@ public class TestExpressionInterpreter
     private static final TestingFunctionResolution FUNCTIONS = new TestingFunctionResolution();
     private static final ResolvedFunction ABS = FUNCTIONS.resolveFunction("abs", fromTypes(BIGINT));
     private static final ResolvedFunction RANDOM = FUNCTIONS.resolveFunction("random", fromTypes());
+    private static final ResolvedFunction ADD_INTEGER = FUNCTIONS.resolveOperator(OperatorType.ADD, ImmutableList.of(INTEGER, INTEGER));
+    private static final ResolvedFunction SUBTRACT_INTEGER = FUNCTIONS.resolveOperator(OperatorType.SUBTRACT, ImmutableList.of(INTEGER, INTEGER));
+    private static final ResolvedFunction MULTIPLY_INTEGER = FUNCTIONS.resolveOperator(OperatorType.MULTIPLY, ImmutableList.of(INTEGER, INTEGER));
+    private static final ResolvedFunction DIVIDE_INTEGER = FUNCTIONS.resolveOperator(OperatorType.DIVIDE, ImmutableList.of(INTEGER, INTEGER));
 
     @Test
     public void testAnd()
@@ -120,20 +124,20 @@ public class TestExpressionInterpreter
                 FALSE_LITERAL);
 
         assertOptimizedEquals(
-                new LogicalExpression(AND, ImmutableList.of(TRUE_LITERAL, new NullLiteral())),
-                new NullLiteral());
+                new LogicalExpression(AND, ImmutableList.of(TRUE_LITERAL, new Constant(UnknownType.UNKNOWN, null))),
+                new Constant(UnknownType.UNKNOWN, null));
         assertOptimizedEquals(
-                new LogicalExpression(AND, ImmutableList.of(FALSE_LITERAL, new NullLiteral())),
+                new LogicalExpression(AND, ImmutableList.of(FALSE_LITERAL, new Constant(UnknownType.UNKNOWN, null))),
                 FALSE_LITERAL);
         assertOptimizedEquals(
-                new LogicalExpression(AND, ImmutableList.of(new NullLiteral(), TRUE_LITERAL)),
-                new NullLiteral());
+                new LogicalExpression(AND, ImmutableList.of(new Constant(UnknownType.UNKNOWN, null), TRUE_LITERAL)),
+                new Constant(UnknownType.UNKNOWN, null));
         assertOptimizedEquals(
-                new LogicalExpression(AND, ImmutableList.of(new NullLiteral(), FALSE_LITERAL)),
+                new LogicalExpression(AND, ImmutableList.of(new Constant(UnknownType.UNKNOWN, null), FALSE_LITERAL)),
                 FALSE_LITERAL);
         assertOptimizedEquals(
-                new LogicalExpression(AND, ImmutableList.of(new NullLiteral(), new NullLiteral())),
-                new NullLiteral());
+                new LogicalExpression(AND, ImmutableList.of(new Constant(UnknownType.UNKNOWN, null), new Constant(UnknownType.UNKNOWN, null))),
+                new Constant(UnknownType.UNKNOWN, null));
     }
 
     @Test
@@ -153,47 +157,47 @@ public class TestExpressionInterpreter
                 FALSE_LITERAL);
 
         assertOptimizedEquals(
-                new LogicalExpression(OR, ImmutableList.of(TRUE_LITERAL, new NullLiteral())),
+                new LogicalExpression(OR, ImmutableList.of(TRUE_LITERAL, new Constant(UnknownType.UNKNOWN, null))),
                 TRUE_LITERAL);
         assertOptimizedEquals(
-                new LogicalExpression(OR, ImmutableList.of(new NullLiteral(), TRUE_LITERAL)),
+                new LogicalExpression(OR, ImmutableList.of(new Constant(UnknownType.UNKNOWN, null), TRUE_LITERAL)),
                 TRUE_LITERAL);
         assertOptimizedEquals(
-                new LogicalExpression(OR, ImmutableList.of(new NullLiteral(), new NullLiteral())),
-                new NullLiteral());
+                new LogicalExpression(OR, ImmutableList.of(new Constant(UnknownType.UNKNOWN, null), new Constant(UnknownType.UNKNOWN, null))),
+                new Constant(UnknownType.UNKNOWN, null));
 
         assertOptimizedEquals(
-                new LogicalExpression(OR, ImmutableList.of(FALSE_LITERAL, new NullLiteral())),
-                new NullLiteral());
+                new LogicalExpression(OR, ImmutableList.of(FALSE_LITERAL, new Constant(UnknownType.UNKNOWN, null))),
+                new Constant(UnknownType.UNKNOWN, null));
         assertOptimizedEquals(
-                new LogicalExpression(OR, ImmutableList.of(new NullLiteral(), FALSE_LITERAL)),
-                new NullLiteral());
+                new LogicalExpression(OR, ImmutableList.of(new Constant(UnknownType.UNKNOWN, null), FALSE_LITERAL)),
+                new Constant(UnknownType.UNKNOWN, null));
     }
 
     @Test
     public void testComparison()
     {
         assertOptimizedEquals(
-                new ComparisonExpression(EQUAL, new NullLiteral(), new NullLiteral()),
-                new NullLiteral());
+                new ComparisonExpression(EQUAL, new Constant(UnknownType.UNKNOWN, null), new Constant(UnknownType.UNKNOWN, null)),
+                new Constant(UnknownType.UNKNOWN, null));
 
         assertOptimizedEquals(
-                new ComparisonExpression(EQUAL, new StringLiteral("a"), new StringLiteral("b")),
+                new ComparisonExpression(EQUAL, new Constant(VARCHAR, Slices.utf8Slice("a")), new Constant(VARCHAR, Slices.utf8Slice("b"))),
                 FALSE_LITERAL);
         assertOptimizedEquals(
-                new ComparisonExpression(EQUAL, new StringLiteral("a"), new StringLiteral("a")),
+                new ComparisonExpression(EQUAL, new Constant(VARCHAR, Slices.utf8Slice("a")), new Constant(VARCHAR, Slices.utf8Slice("a"))),
                 TRUE_LITERAL);
         assertOptimizedEquals(
-                new ComparisonExpression(EQUAL, new StringLiteral("a"), new NullLiteral()),
-                new NullLiteral());
+                new ComparisonExpression(EQUAL, new Constant(VARCHAR, Slices.utf8Slice("a")), new Constant(UnknownType.UNKNOWN, null)),
+                new Constant(UnknownType.UNKNOWN, null));
         assertOptimizedEquals(
-                new ComparisonExpression(EQUAL, new NullLiteral(), new StringLiteral("a")),
-                new NullLiteral());
+                new ComparisonExpression(EQUAL, new Constant(UnknownType.UNKNOWN, null), new Constant(VARCHAR, Slices.utf8Slice("a"))),
+                new Constant(UnknownType.UNKNOWN, null));
         assertOptimizedEquals(
-                new ComparisonExpression(EQUAL, new SymbolReference("bound_value"), new LongLiteral("1234")),
+                new ComparisonExpression(EQUAL, new SymbolReference("bound_value"), new Constant(INTEGER, 1234L)),
                 TRUE_LITERAL);
         assertOptimizedEquals(
-                new ComparisonExpression(EQUAL, new SymbolReference("bound_value"), new LongLiteral("1")),
+                new ComparisonExpression(EQUAL, new SymbolReference("bound_value"), new Constant(INTEGER, 1L)),
                 FALSE_LITERAL);
     }
 
@@ -201,44 +205,44 @@ public class TestExpressionInterpreter
     public void testIsDistinctFrom()
     {
         assertOptimizedEquals(
-                new ComparisonExpression(IS_DISTINCT_FROM, new NullLiteral(), new NullLiteral()),
+                new ComparisonExpression(IS_DISTINCT_FROM, new Constant(UnknownType.UNKNOWN, null), new Constant(UnknownType.UNKNOWN, null)),
                 FALSE_LITERAL);
 
         assertOptimizedEquals(
-                new ComparisonExpression(IS_DISTINCT_FROM, new LongLiteral("3"), new LongLiteral("4")),
+                new ComparisonExpression(IS_DISTINCT_FROM, new Constant(INTEGER, 3L), new Constant(INTEGER, 4L)),
                 TRUE_LITERAL);
         assertOptimizedEquals(
-                new ComparisonExpression(IS_DISTINCT_FROM, new LongLiteral("3"), new LongLiteral("3")),
+                new ComparisonExpression(IS_DISTINCT_FROM, new Constant(INTEGER, 3L), new Constant(INTEGER, 3L)),
                 FALSE_LITERAL);
         assertOptimizedEquals(
-                new ComparisonExpression(IS_DISTINCT_FROM, new LongLiteral("3"), new NullLiteral()),
+                new ComparisonExpression(IS_DISTINCT_FROM, new Constant(INTEGER, 3L), new Constant(UnknownType.UNKNOWN, null)),
                 TRUE_LITERAL);
         assertOptimizedEquals(
-                new ComparisonExpression(IS_DISTINCT_FROM, new NullLiteral(), new LongLiteral("3")),
+                new ComparisonExpression(IS_DISTINCT_FROM, new Constant(UnknownType.UNKNOWN, null), new Constant(INTEGER, 3L)),
                 TRUE_LITERAL);
 
         assertOptimizedMatches(
-                new ComparisonExpression(IS_DISTINCT_FROM, new SymbolReference("unbound_value"), new LongLiteral("1")),
-                new ComparisonExpression(IS_DISTINCT_FROM, new SymbolReference("unbound_value"), new LongLiteral("1")));
+                new ComparisonExpression(IS_DISTINCT_FROM, new SymbolReference("unbound_value"), new Constant(INTEGER, 1L)),
+                new ComparisonExpression(IS_DISTINCT_FROM, new SymbolReference("unbound_value"), new Constant(INTEGER, 1L)));
         assertOptimizedMatches(
-                new ComparisonExpression(IS_DISTINCT_FROM, new SymbolReference("unbound_value"), new NullLiteral()),
-                new IsNotNullPredicate(new SymbolReference("unbound_value")));
+                new ComparisonExpression(IS_DISTINCT_FROM, new SymbolReference("unbound_value"), new Constant(UnknownType.UNKNOWN, null)),
+                new NotExpression(new IsNullPredicate(new SymbolReference("unbound_value"))));
         assertOptimizedMatches(
-                new ComparisonExpression(IS_DISTINCT_FROM, new NullLiteral(), new SymbolReference("unbound_value")),
-                new IsNotNullPredicate(new SymbolReference("unbound_value")));
+                new ComparisonExpression(IS_DISTINCT_FROM, new Constant(UnknownType.UNKNOWN, null), new SymbolReference("unbound_value")),
+                new NotExpression(new IsNullPredicate(new SymbolReference("unbound_value"))));
     }
 
     @Test
     public void testIsNull()
     {
         assertOptimizedEquals(
-                new IsNullPredicate(new NullLiteral()),
+                new IsNullPredicate(new Constant(UnknownType.UNKNOWN, null)),
                 TRUE_LITERAL);
         assertOptimizedEquals(
-                new IsNullPredicate(new LongLiteral("1")),
+                new IsNullPredicate(new Constant(INTEGER, 1L)),
                 FALSE_LITERAL);
         assertOptimizedEquals(
-                new IsNullPredicate(new ArithmeticBinaryExpression(ADD, new NullLiteral(), new LongLiteral("1"))),
+                new IsNullPredicate(new ArithmeticBinaryExpression(ADD_INTEGER, ADD, new Constant(INTEGER, null), new Constant(INTEGER, 1L))),
                 TRUE_LITERAL);
     }
 
@@ -246,13 +250,13 @@ public class TestExpressionInterpreter
     public void testIsNotNull()
     {
         assertOptimizedEquals(
-                new IsNotNullPredicate(new NullLiteral()),
+                new NotExpression(new IsNullPredicate(new Constant(UnknownType.UNKNOWN, null))),
                 FALSE_LITERAL);
         assertOptimizedEquals(
-                new IsNotNullPredicate(new LongLiteral("1")),
+                new NotExpression(new IsNullPredicate(new Constant(INTEGER, 1L))),
                 TRUE_LITERAL);
         assertOptimizedEquals(
-                new IsNotNullPredicate(new ArithmeticBinaryExpression(ADD, new NullLiteral(), new LongLiteral("1"))),
+                new NotExpression(new IsNullPredicate(new ArithmeticBinaryExpression(ADD_INTEGER, ADD, new Constant(INTEGER, null), new Constant(INTEGER, 1L)))),
                 FALSE_LITERAL);
     }
 
@@ -260,31 +264,31 @@ public class TestExpressionInterpreter
     public void testNullIf()
     {
         assertOptimizedEquals(
-                new NullIfExpression(new StringLiteral("a"), new StringLiteral("a")),
-                new NullLiteral());
+                new NullIfExpression(new Constant(VARCHAR, Slices.utf8Slice("a")), new Constant(VARCHAR, Slices.utf8Slice("a"))),
+                new Constant(UnknownType.UNKNOWN, null));
         assertOptimizedEquals(
-                new NullIfExpression(new StringLiteral("a"), new StringLiteral("b")),
-                new StringLiteral("a"));
+                new NullIfExpression(new Constant(VARCHAR, Slices.utf8Slice("a")), new Constant(VARCHAR, Slices.utf8Slice("b"))),
+                new Constant(VARCHAR, Slices.utf8Slice("a")));
         assertOptimizedEquals(
-                new NullIfExpression(new NullLiteral(), new StringLiteral("b")),
-                new NullLiteral());
+                new NullIfExpression(new Constant(UnknownType.UNKNOWN, null), new Constant(VARCHAR, Slices.utf8Slice("b"))),
+                new Constant(UnknownType.UNKNOWN, null));
         assertOptimizedEquals(
-                new NullIfExpression(new StringLiteral("a"), new NullLiteral()),
-                new StringLiteral("a"));
+                new NullIfExpression(new Constant(VARCHAR, Slices.utf8Slice("a")), new Constant(UnknownType.UNKNOWN, null)),
+                new Constant(VARCHAR, Slices.utf8Slice("a")));
         assertOptimizedEquals(
-                new NullIfExpression(new SymbolReference("unbound_value"), new LongLiteral("1")),
-                new NullIfExpression(new SymbolReference("unbound_value"), new LongLiteral("1")));
+                new NullIfExpression(new SymbolReference("unbound_value"), new Constant(INTEGER, 1L)),
+                new NullIfExpression(new SymbolReference("unbound_value"), new Constant(INTEGER, 1L)));
     }
 
     @Test
     public void testNegative()
     {
         assertOptimizedEquals(
-                new ArithmeticUnaryExpression(MINUS, new LongLiteral("1")),
-                new LongLiteral("-1"));
+                new ArithmeticNegation(new Constant(INTEGER, 1L)),
+                new Constant(INTEGER, -1L));
         assertOptimizedEquals(
-                new ArithmeticUnaryExpression(MINUS, new ArithmeticBinaryExpression(ADD, new SymbolReference("unbound_value"), new LongLiteral("1"))),
-                new ArithmeticUnaryExpression(MINUS, new ArithmeticBinaryExpression(ADD, new SymbolReference("unbound_value"), new LongLiteral("1"))));
+                new ArithmeticNegation(new ArithmeticBinaryExpression(ADD_INTEGER, ADD, new SymbolReference("unbound_value"), new Constant(INTEGER, 1L))),
+                new ArithmeticNegation(new ArithmeticBinaryExpression(ADD_INTEGER, ADD, new SymbolReference("unbound_value"), new Constant(INTEGER, 1L))));
     }
 
     @Test
@@ -297,62 +301,62 @@ public class TestExpressionInterpreter
                 new NotExpression(FALSE_LITERAL),
                 TRUE_LITERAL);
         assertOptimizedEquals(
-                new NotExpression(new NullLiteral()),
-                new NullLiteral());
+                new NotExpression(new Constant(UnknownType.UNKNOWN, null)),
+                new Constant(UnknownType.UNKNOWN, null));
         assertOptimizedEquals(
-                new NotExpression(new ComparisonExpression(EQUAL, new SymbolReference("unbound_value"), new LongLiteral("1"))),
-                new NotExpression(new ComparisonExpression(EQUAL, new SymbolReference("unbound_value"), new LongLiteral("1"))));
+                new NotExpression(new ComparisonExpression(EQUAL, new SymbolReference("unbound_value"), new Constant(INTEGER, 1L))),
+                new NotExpression(new ComparisonExpression(EQUAL, new SymbolReference("unbound_value"), new Constant(INTEGER, 1L))));
     }
 
     @Test
     public void testFunctionCall()
     {
         assertOptimizedEquals(
-                new FunctionCall(ABS.toQualifiedName(), ImmutableList.of(new LongLiteral("-5"))),
-                new LongLiteral("5"));
+                new FunctionCall(ABS, ImmutableList.of(new Constant(INTEGER, 5L))),
+                new Constant(INTEGER, 5L));
         assertOptimizedEquals(
-                new FunctionCall(ABS.toQualifiedName(), ImmutableList.of(new SymbolReference("unbound_value"))),
-                new FunctionCall(ABS.toQualifiedName(), ImmutableList.of(new SymbolReference("unbound_value"))));
+                new FunctionCall(ABS, ImmutableList.of(new SymbolReference("unbound_value"))),
+                new FunctionCall(ABS, ImmutableList.of(new SymbolReference("unbound_value"))));
     }
 
     @Test
     public void testNonDeterministicFunctionCall()
     {
         assertOptimizedEquals(
-                new FunctionCall(RANDOM.toQualifiedName(), ImmutableList.of()),
-                new FunctionCall(RANDOM.toQualifiedName(), ImmutableList.of()));
+                new FunctionCall(RANDOM, ImmutableList.of()),
+                new FunctionCall(RANDOM, ImmutableList.of()));
     }
 
     @Test
     public void testBetween()
     {
         assertOptimizedEquals(
-                new BetweenPredicate(new LongLiteral("3"), new LongLiteral("2"), new LongLiteral("4")),
+                new BetweenPredicate(new Constant(INTEGER, 3L), new Constant(INTEGER, 2L), new Constant(INTEGER, 4L)),
                 TRUE_LITERAL);
         assertOptimizedEquals(
-                new BetweenPredicate(new LongLiteral("2"), new LongLiteral("3"), new LongLiteral("4")),
+                new BetweenPredicate(new Constant(INTEGER, 2L), new Constant(INTEGER, 3L), new Constant(INTEGER, 4L)),
                 FALSE_LITERAL);
         assertOptimizedEquals(
-                new BetweenPredicate(new NullLiteral(), new LongLiteral("2"), new LongLiteral("4")),
-                new NullLiteral());
+                new BetweenPredicate(new Constant(UnknownType.UNKNOWN, null), new Constant(INTEGER, 2L), new Constant(INTEGER, 4L)),
+                new Constant(UnknownType.UNKNOWN, null));
         assertOptimizedEquals(
-                new BetweenPredicate(new LongLiteral("3"), new NullLiteral(), new LongLiteral("4")),
-                new NullLiteral());
+                new BetweenPredicate(new Constant(INTEGER, 3L), new Constant(UnknownType.UNKNOWN, null), new Constant(INTEGER, 4L)),
+                new Constant(UnknownType.UNKNOWN, null));
         assertOptimizedEquals(
-                new BetweenPredicate(new LongLiteral("3"), new LongLiteral("2"), new NullLiteral()),
-                new NullLiteral());
+                new BetweenPredicate(new Constant(INTEGER, 3L), new Constant(INTEGER, 2L), new Constant(UnknownType.UNKNOWN, null)),
+                new Constant(UnknownType.UNKNOWN, null));
         assertOptimizedEquals(
-                new BetweenPredicate(new LongLiteral("2"), new LongLiteral("3"), new NullLiteral()),
+                new BetweenPredicate(new Constant(INTEGER, 2L), new Constant(INTEGER, 3L), new Constant(UnknownType.UNKNOWN, null)),
                 FALSE_LITERAL);
         assertOptimizedEquals(
-                new BetweenPredicate(new LongLiteral("8"), new NullLiteral(), new LongLiteral("6")),
+                new BetweenPredicate(new Constant(INTEGER, 8L), new Constant(UnknownType.UNKNOWN, null), new Constant(INTEGER, 6L)),
                 FALSE_LITERAL);
 
         assertOptimizedEquals(
-                new BetweenPredicate(new SymbolReference("bound_value"), new LongLiteral("1000"), new LongLiteral("2000")),
+                new BetweenPredicate(new SymbolReference("bound_value"), new Constant(INTEGER, 1000L), new Constant(INTEGER, 2000L)),
                 TRUE_LITERAL);
         assertOptimizedEquals(
-                new BetweenPredicate(new SymbolReference("bound_value"), new LongLiteral("3"), new LongLiteral("4")),
+                new BetweenPredicate(new SymbolReference("bound_value"), new Constant(INTEGER, 3L), new Constant(INTEGER, 4L)),
                 FALSE_LITERAL);
     }
 
@@ -360,79 +364,79 @@ public class TestExpressionInterpreter
     public void testIn()
     {
         assertOptimizedEquals(
-                new InPredicate(new LongLiteral("3"), new InListExpression(ImmutableList.of(new LongLiteral("2"), new LongLiteral("4"), new LongLiteral("3"), new LongLiteral("5")))),
+                new InPredicate(new Constant(INTEGER, 3L), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, 4L), new Constant(INTEGER, 3L), new Constant(INTEGER, 5L))),
                 TRUE_LITERAL);
         assertOptimizedEquals(
-                new InPredicate(new LongLiteral("3"), new InListExpression(ImmutableList.of(new LongLiteral("2"), new LongLiteral("4"), new LongLiteral("9"), new LongLiteral("5")))),
+                new InPredicate(new Constant(INTEGER, 3L), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, 4L), new Constant(INTEGER, 9L), new Constant(INTEGER, 5L))),
                 FALSE_LITERAL);
         assertOptimizedEquals(
-                new InPredicate(new LongLiteral("3"), new InListExpression(ImmutableList.of(new LongLiteral("2"), new Cast(new NullLiteral(), dataType("integer")), new LongLiteral("3"), new LongLiteral("5")))),
+                new InPredicate(new Constant(INTEGER, 3L), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, null), new Constant(INTEGER, 3L), new Constant(INTEGER, 5L))),
                 TRUE_LITERAL);
 
         assertOptimizedEquals(
-                new InPredicate(new Cast(new NullLiteral(), dataType("integer")), new InListExpression(ImmutableList.of(new LongLiteral("2"), new Cast(new NullLiteral(), dataType("integer")), new LongLiteral("3"), new LongLiteral("5")))),
-                new NullLiteral());
+                new InPredicate(new Constant(INTEGER, null), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, null), new Constant(INTEGER, 3L), new Constant(INTEGER, 5L))),
+                new Constant(UnknownType.UNKNOWN, null));
         assertOptimizedEquals(
-                new InPredicate(new LongLiteral("3"), new InListExpression(ImmutableList.of(new LongLiteral("2"), new Cast(new NullLiteral(), dataType("integer"))))),
-                new NullLiteral());
+                new InPredicate(new Constant(INTEGER, 3L), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, null))),
+                new Constant(UnknownType.UNKNOWN, null));
 
         assertOptimizedEquals(
-                new InPredicate(new SymbolReference("bound_value"), new InListExpression(ImmutableList.of(new LongLiteral("2"), new LongLiteral("1234"), new LongLiteral("3"), new LongLiteral("5")))),
+                new InPredicate(new SymbolReference("bound_value"), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, 1234L), new Constant(INTEGER, 3L), new Constant(INTEGER, 5L))),
                 TRUE_LITERAL);
         assertOptimizedEquals(
-                new InPredicate(new SymbolReference("bound_value"), new InListExpression(ImmutableList.of(new LongLiteral("2"), new LongLiteral("4"), new LongLiteral("3"), new LongLiteral("5")))),
+                new InPredicate(new SymbolReference("bound_value"), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, 4L), new Constant(INTEGER, 3L), new Constant(INTEGER, 5L))),
                 FALSE_LITERAL);
         assertOptimizedEquals(
-                new InPredicate(new LongLiteral("1234"), new InListExpression(ImmutableList.of(new LongLiteral("2"), new SymbolReference("bound_value"), new LongLiteral("3"), new LongLiteral("5")))),
+                new InPredicate(new Constant(INTEGER, 1234L), ImmutableList.of(new Constant(INTEGER, 2L), new SymbolReference("bound_value"), new Constant(INTEGER, 3L), new Constant(INTEGER, 5L))),
                 TRUE_LITERAL);
         assertOptimizedEquals(
-                new InPredicate(new LongLiteral("99"), new InListExpression(ImmutableList.of(new LongLiteral("2"), new SymbolReference("bound_value"), new LongLiteral("3"), new LongLiteral("5")))),
+                new InPredicate(new Constant(INTEGER, 99L), ImmutableList.of(new Constant(INTEGER, 2L), new SymbolReference("bound_value"), new Constant(INTEGER, 3L), new Constant(INTEGER, 5L))),
                 FALSE_LITERAL);
         assertOptimizedEquals(
-                new InPredicate(new SymbolReference("bound_value"), new InListExpression(ImmutableList.of(new LongLiteral("2"), new SymbolReference("bound_value"), new LongLiteral("3"), new LongLiteral("5")))),
+                new InPredicate(new SymbolReference("bound_value"), ImmutableList.of(new Constant(INTEGER, 2L), new SymbolReference("bound_value"), new Constant(INTEGER, 3L), new Constant(INTEGER, 5L))),
                 TRUE_LITERAL);
 
         assertOptimizedEquals(
-                new InPredicate(new SymbolReference("unbound_value"), new InListExpression(ImmutableList.of(new LongLiteral("1")))),
-                new ComparisonExpression(EQUAL, new SymbolReference("unbound_value"), new LongLiteral("1")));
+                new InPredicate(new SymbolReference("unbound_value"), ImmutableList.of(new Constant(INTEGER, 1L))),
+                new ComparisonExpression(EQUAL, new SymbolReference("unbound_value"), new Constant(INTEGER, 1L)));
 
         assertOptimizedEquals(
-                new InPredicate(new LongLiteral("3"), new InListExpression(ImmutableList.of(new LongLiteral("2"), new LongLiteral("4"), new LongLiteral("3"), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("5"), new LongLiteral("0"))))),
-                new InPredicate(new LongLiteral("3"), new InListExpression(ImmutableList.of(new LongLiteral("2"), new LongLiteral("4"), new LongLiteral("3"), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("5"), new LongLiteral("0"))))));
+                new InPredicate(new Constant(INTEGER, 3L), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, 4L), new Constant(INTEGER, 3L), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 5L), new Constant(INTEGER, 0L)))),
+                new InPredicate(new Constant(INTEGER, 3L), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, 4L), new Constant(INTEGER, 3L), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 5L), new Constant(INTEGER, 0L)))));
         assertOptimizedEquals(
-                new InPredicate(new Cast(new NullLiteral(), dataType("integer")), new InListExpression(ImmutableList.of(new LongLiteral("2"), new LongLiteral("4"), new LongLiteral("3"), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("5"), new LongLiteral("0"))))),
-                new InPredicate(new Cast(new NullLiteral(), dataType("integer")), new InListExpression(ImmutableList.of(new LongLiteral("2"), new LongLiteral("4"), new LongLiteral("3"), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("5"), new LongLiteral("0"))))));
+                new InPredicate(new Constant(INTEGER, null), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, 4L), new Constant(INTEGER, 3L), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 5L), new Constant(INTEGER, 0L)))),
+                new InPredicate(new Constant(INTEGER, null), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, 4L), new Constant(INTEGER, 3L), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 5L), new Constant(INTEGER, 0L)))));
         assertOptimizedEquals(
-                new InPredicate(new LongLiteral("3"), new InListExpression(ImmutableList.of(new LongLiteral("2"), new LongLiteral("4"), new LongLiteral("3"), new Cast(new NullLiteral(), dataType("integer")), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("5"), new LongLiteral("0"))))),
-                new InPredicate(new LongLiteral("3"), new InListExpression(ImmutableList.of(new LongLiteral("2"), new LongLiteral("4"), new LongLiteral("3"), new Cast(new NullLiteral(), dataType("integer")), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("5"), new LongLiteral("0"))))));
+                new InPredicate(new Constant(INTEGER, 3L), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, 4L), new Constant(INTEGER, 3L), new Constant(INTEGER, null), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 5L), new Constant(INTEGER, 0L)))),
+                new InPredicate(new Constant(INTEGER, 3L), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, 4L), new Constant(INTEGER, 3L), new Constant(INTEGER, null), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 5L), new Constant(INTEGER, 0L)))));
         assertOptimizedEquals(
-                new InPredicate(new Cast(new NullLiteral(), dataType("integer")), new InListExpression(ImmutableList.of(new LongLiteral("2"), new LongLiteral("4"), new Cast(new NullLiteral(), dataType("integer")), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("5"), new LongLiteral("0"))))),
-                new InPredicate(new Cast(new NullLiteral(), dataType("integer")), new InListExpression(ImmutableList.of(new LongLiteral("2"), new LongLiteral("4"), new Cast(new NullLiteral(), dataType("integer")), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("5"), new LongLiteral("0"))))));
+                new InPredicate(new Constant(INTEGER, null), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, 4L), new Constant(INTEGER, null), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 5L), new Constant(INTEGER, 0L)))),
+                new InPredicate(new Constant(INTEGER, null), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, 4L), new Constant(INTEGER, null), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 5L), new Constant(INTEGER, 0L)))));
         assertOptimizedEquals(
-                new InPredicate(new LongLiteral("3"), new InListExpression(ImmutableList.of(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("5"), new LongLiteral("0")), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("5"), new LongLiteral("0"))))),
-                new InPredicate(new LongLiteral("3"), new InListExpression(ImmutableList.of(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("5"), new LongLiteral("0")), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("5"), new LongLiteral("0"))))));
-        assertTrinoExceptionThrownBy(() -> evaluate(new InPredicate(new LongLiteral("3"), new InListExpression(ImmutableList.of(new LongLiteral("2"), new LongLiteral("4"), new LongLiteral("3"), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("5"), new LongLiteral("0")))))))
+                new InPredicate(new Constant(INTEGER, 3L), ImmutableList.of(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 5L), new Constant(INTEGER, 0L)), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 5L), new Constant(INTEGER, 0L)))),
+                new InPredicate(new Constant(INTEGER, 3L), ImmutableList.of(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 5L), new Constant(INTEGER, 0L)), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 5L), new Constant(INTEGER, 0L)))));
+        assertTrinoExceptionThrownBy(() -> evaluate(new InPredicate(new Constant(INTEGER, 3L), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, 4L), new Constant(INTEGER, 3L), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 5L), new Constant(INTEGER, 0L))))))
                 .hasErrorCode(DIVISION_BY_ZERO);
 
         assertOptimizedEquals(
-                new InPredicate(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new InListExpression(ImmutableList.of(new LongLiteral("2"), new LongLiteral("4"), new LongLiteral("3"), new LongLiteral("5")))),
-                new InPredicate(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new InListExpression(ImmutableList.of(new LongLiteral("2"), new LongLiteral("4"), new LongLiteral("3"), new LongLiteral("5")))));
+                new InPredicate(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, 4L), new Constant(INTEGER, 3L), new Constant(INTEGER, 5L))),
+                new InPredicate(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, 4L), new Constant(INTEGER, 3L), new Constant(INTEGER, 5L))));
         assertOptimizedEquals(
-                new InPredicate(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new InListExpression(ImmutableList.of(new LongLiteral("2"), new LongLiteral("4"), new LongLiteral("2"), new LongLiteral("4")))),
-                new InPredicate(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new InListExpression(ImmutableList.of(new LongLiteral("2"), new LongLiteral("4")))));
+                new InPredicate(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, 4L), new Constant(INTEGER, 2L), new Constant(INTEGER, 4L))),
+                new InPredicate(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, 4L))));
         assertOptimizedEquals(
-                new InPredicate(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new InListExpression(ImmutableList.of(new LongLiteral("2"), new LongLiteral("2")))),
-                new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("2")));
+                new InPredicate(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, 2L))),
+                new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 2L)));
     }
 
     @Test
     public void testCastOptimization()
     {
         assertOptimizedEquals(
-                new Cast(new SymbolReference("bound_value"), dataType("varchar")),
-                new StringLiteral("1234"));
+                new Cast(new SymbolReference("bound_value"), VARCHAR),
+                new Constant(VARCHAR, Slices.utf8Slice("1234")));
         assertOptimizedMatches(
-                new Cast(new SymbolReference("unbound_value"), dataType("integer")),
+                new Cast(new SymbolReference("unbound_value"), INTEGER),
                 new SymbolReference("unbound_value"));
     }
 
@@ -440,17 +444,17 @@ public class TestExpressionInterpreter
     public void testTryCast()
     {
         assertOptimizedEquals(
-                new Cast(new NullLiteral(), dataType("bigint"), true),
-                new NullLiteral());
+                new Cast(new Constant(UnknownType.UNKNOWN, null), BIGINT, true),
+                new Constant(UnknownType.UNKNOWN, null));
         assertOptimizedEquals(
-                new Cast(new LongLiteral("123"), dataType("bigint"), true),
-                new LongLiteral("123"));
+                new Cast(new Constant(INTEGER, 123L), BIGINT, true),
+                new Constant(INTEGER, 123L));
         assertOptimizedEquals(
-                new Cast(new NullLiteral(), dataType("integer"), true),
-                new NullLiteral());
+                new Cast(new Constant(UnknownType.UNKNOWN, null), INTEGER, true),
+                new Constant(UnknownType.UNKNOWN, null));
         assertOptimizedEquals(
-                new Cast(new LongLiteral("123"), dataType("integer"), true),
-                new LongLiteral("123"));
+                new Cast(new Constant(INTEGER, 123L), INTEGER, true),
+                new Constant(INTEGER, 123L));
     }
 
     @Test
@@ -458,94 +462,94 @@ public class TestExpressionInterpreter
     {
         assertOptimizedEquals(
                 new SearchedCaseExpression(ImmutableList.of(
-                        new WhenClause(TRUE_LITERAL, new LongLiteral("33"))),
+                        new WhenClause(TRUE_LITERAL, new Constant(INTEGER, 33L))),
                         Optional.empty()),
-                new LongLiteral("33"));
+                new Constant(INTEGER, 33L));
         assertOptimizedEquals(
                 new SearchedCaseExpression(ImmutableList.of(
-                        new WhenClause(FALSE_LITERAL, new LongLiteral("1"))),
-                        Optional.of(new LongLiteral("33"))),
-                new LongLiteral("33"));
+                        new WhenClause(FALSE_LITERAL, new Constant(INTEGER, 1L))),
+                        Optional.of(new Constant(INTEGER, 33L))),
+                new Constant(INTEGER, 33L));
 
         assertOptimizedEquals(
                 new SearchedCaseExpression(ImmutableList.of(
-                        new WhenClause(new ComparisonExpression(EQUAL, new SymbolReference("bound_value"), new LongLiteral("1234")), new LongLiteral("33"))),
+                        new WhenClause(new ComparisonExpression(EQUAL, new SymbolReference("bound_value"), new Constant(INTEGER, 1234L)), new Constant(INTEGER, 33L))),
                         Optional.empty()),
-                new LongLiteral("33"));
+                new Constant(INTEGER, 33L));
         assertOptimizedEquals(
                 new SearchedCaseExpression(ImmutableList.of(
                         new WhenClause(TRUE_LITERAL, new SymbolReference("bound_value"))),
                         Optional.empty()),
-                new LongLiteral("1234"));
+                new Constant(INTEGER, 1234L));
         assertOptimizedEquals(
                 new SearchedCaseExpression(ImmutableList.of(
-                        new WhenClause(FALSE_LITERAL, new LongLiteral("1"))),
+                        new WhenClause(FALSE_LITERAL, new Constant(INTEGER, 1L))),
                         Optional.of(new SymbolReference("bound_value"))),
-                new LongLiteral("1234"));
+                new Constant(INTEGER, 1234L));
 
         assertOptimizedEquals(
                 new SearchedCaseExpression(ImmutableList.of(
-                        new WhenClause(new ComparisonExpression(EQUAL, new SymbolReference("bound_value"), new LongLiteral("1234")), new LongLiteral("33"))),
+                        new WhenClause(new ComparisonExpression(EQUAL, new SymbolReference("bound_value"), new Constant(INTEGER, 1234L)), new Constant(INTEGER, 33L))),
                         Optional.of(new SymbolReference("unbound_value"))),
-                new LongLiteral("33"));
+                new Constant(INTEGER, 33L));
 
         assertOptimizedMatches(
                 new SearchedCaseExpression(ImmutableList.of(
-                        new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("0")), new LongLiteral("1"))),
+                        new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 0L)), new Constant(INTEGER, 1L))),
                         Optional.empty()),
                 new SearchedCaseExpression(ImmutableList.of(
-                        new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("0")), new LongLiteral("1"))),
+                        new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 0L)), new Constant(INTEGER, 1L))),
                         Optional.empty()));
 
         assertOptimizedEquals(
                 new SearchedCaseExpression(ImmutableList.of(
-                        new WhenClause(TRUE_LITERAL, new StringLiteral("a")), new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("0")), new StringLiteral("b"))),
-                        Optional.of(new StringLiteral("c"))),
-                new StringLiteral("a"));
+                        new WhenClause(TRUE_LITERAL, new Constant(VARCHAR, Slices.utf8Slice("a"))), new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 0L)), new Constant(VARCHAR, Slices.utf8Slice("b")))),
+                        Optional.of(new Constant(VARCHAR, Slices.utf8Slice("c")))),
+                new Constant(VARCHAR, Slices.utf8Slice("a")));
         assertOptimizedEquals(
                 new SearchedCaseExpression(ImmutableList.of(
-                        new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("0")), new StringLiteral("a")), new WhenClause(TRUE_LITERAL, new StringLiteral("b"))),
-                        Optional.of(new StringLiteral("c"))),
+                        new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 0L)), new Constant(VARCHAR, Slices.utf8Slice("a"))), new WhenClause(TRUE_LITERAL, new Constant(VARCHAR, Slices.utf8Slice("b")))),
+                        Optional.of(new Constant(VARCHAR, Slices.utf8Slice("c")))),
                 new SearchedCaseExpression(ImmutableList.of(
-                        new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("0")), new StringLiteral("a"))),
-                        Optional.of(new StringLiteral("b"))));
+                        new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 0L)), new Constant(VARCHAR, Slices.utf8Slice("a")))),
+                        Optional.of(new Constant(VARCHAR, Slices.utf8Slice("b")))));
         assertOptimizedEquals(
                 new SearchedCaseExpression(ImmutableList.of(
-                        new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("0")), new StringLiteral("a")), new WhenClause(FALSE_LITERAL, new StringLiteral("b"))),
-                        Optional.of(new StringLiteral("c"))),
+                        new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 0L)), new Constant(VARCHAR, Slices.utf8Slice("a"))), new WhenClause(FALSE_LITERAL, new Constant(VARCHAR, Slices.utf8Slice("b")))),
+                        Optional.of(new Constant(VARCHAR, Slices.utf8Slice("c")))),
                 new SearchedCaseExpression(ImmutableList.of(
-                        new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("0")), new StringLiteral("a"))),
-                        Optional.of(new StringLiteral("c"))));
+                        new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 0L)), new Constant(VARCHAR, Slices.utf8Slice("a")))),
+                        Optional.of(new Constant(VARCHAR, Slices.utf8Slice("c")))));
         assertOptimizedEquals(
                 new SearchedCaseExpression(ImmutableList.of(
-                        new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("0")), new StringLiteral("a")),
-                        new WhenClause(FALSE_LITERAL, new StringLiteral("b"))),
+                        new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 0L)), new Constant(VARCHAR, Slices.utf8Slice("a"))),
+                        new WhenClause(FALSE_LITERAL, new Constant(VARCHAR, Slices.utf8Slice("b")))),
                         Optional.empty()),
                 new SearchedCaseExpression(ImmutableList.of(
-                        new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("0")), new StringLiteral("a"))),
+                        new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 0L)), new Constant(VARCHAR, Slices.utf8Slice("a")))),
                         Optional.empty()));
         assertOptimizedEquals(
                 new SearchedCaseExpression(ImmutableList.of(
-                        new WhenClause(TRUE_LITERAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0"))),
-                        new WhenClause(FALSE_LITERAL, new LongLiteral("1"))),
+                        new WhenClause(TRUE_LITERAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L))),
+                        new WhenClause(FALSE_LITERAL, new Constant(INTEGER, 1L))),
                         Optional.empty()),
-                new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")));
+                new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)));
         assertOptimizedEquals(
                 new SearchedCaseExpression(ImmutableList.of(
-                        new WhenClause(FALSE_LITERAL, new LongLiteral("1")), new WhenClause(FALSE_LITERAL, new LongLiteral("2"))),
-                        Optional.of(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")))),
-                new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")));
+                        new WhenClause(FALSE_LITERAL, new Constant(INTEGER, 1L)), new WhenClause(FALSE_LITERAL, new Constant(INTEGER, 2L))),
+                        Optional.of(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)))),
+                new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)));
 
         assertEvaluatedEquals(
                 new SearchedCaseExpression(ImmutableList.of(
-                        new WhenClause(FALSE_LITERAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0"))), new WhenClause(TRUE_LITERAL, new LongLiteral("1"))),
-                        Optional.of(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")))),
-                new LongLiteral("1"));
+                        new WhenClause(FALSE_LITERAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L))), new WhenClause(TRUE_LITERAL, new Constant(INTEGER, 1L))),
+                        Optional.of(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)))),
+                new Constant(INTEGER, 1L));
         assertEvaluatedEquals(
                 new SearchedCaseExpression(ImmutableList.of(
-                        new WhenClause(TRUE_LITERAL, new LongLiteral("1")), new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("0")), new LongLiteral("2"))),
-                        Optional.of(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")))),
-                new LongLiteral("1"));
+                        new WhenClause(TRUE_LITERAL, new Constant(INTEGER, 1L)), new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 0L)), new Constant(INTEGER, 2L))),
+                        Optional.of(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)))),
+                new Constant(INTEGER, 1L));
     }
 
     @Test
@@ -553,236 +557,232 @@ public class TestExpressionInterpreter
     {
         assertOptimizedEquals(
                 new SimpleCaseExpression(
-                        new LongLiteral("1"),
+                        new Constant(INTEGER, 1L),
                         ImmutableList.of(
-                                new WhenClause(new LongLiteral("1"), new LongLiteral("33")),
-                                new WhenClause(new LongLiteral("1"), new LongLiteral("34"))),
+                                new WhenClause(new Constant(INTEGER, 1L), new Constant(INTEGER, 33L)),
+                                new WhenClause(new Constant(INTEGER, 1L), new Constant(INTEGER, 34L))),
                         Optional.empty()),
-                new LongLiteral("33"));
+                new Constant(INTEGER, 33L));
 
         assertOptimizedEquals(
                 new SimpleCaseExpression(
-                        new Cast(new NullLiteral(), dataType("boolean")),
+                        new Constant(BOOLEAN, null),
                         ImmutableList.of(
-                                new WhenClause(TRUE_LITERAL, new LongLiteral("33"))),
+                                new WhenClause(TRUE_LITERAL, new Constant(INTEGER, 33L))),
                         Optional.empty()),
-                new NullLiteral());
-        assertOptimizedEquals(
-                new SimpleCaseExpression(
-                        new Cast(new NullLiteral(), dataType("boolean")),
+                new Constant(UnknownType.UNKNOWN, null));
+        for (SimpleCaseExpression simpleCaseExpression : Arrays.asList(new SimpleCaseExpression(
+                        new Constant(BOOLEAN, null),
                         ImmutableList.of(
-                                new WhenClause(TRUE_LITERAL, new LongLiteral("33"))),
-                        Optional.of(new LongLiteral("33"))),
-                new LongLiteral("33"));
-        assertOptimizedEquals(
+                                new WhenClause(TRUE_LITERAL, new Constant(INTEGER, 33L))),
+                        Optional.of(new Constant(INTEGER, 33L))),
                 new SimpleCaseExpression(
-                        new LongLiteral("33"),
+                        new Constant(INTEGER, 33L),
                         ImmutableList.of(
-                                new WhenClause(new Cast(new NullLiteral(), dataType("integer")), new LongLiteral("1"))),
-                        Optional.of(new LongLiteral("33"))),
-                new LongLiteral("33"));
-
-        assertOptimizedEquals(
+                                new WhenClause(new Constant(INTEGER, null), new Constant(INTEGER, 1L))),
+                        Optional.of(new Constant(INTEGER, 33L))),
                 new SimpleCaseExpression(
                         new SymbolReference("bound_value"),
                         ImmutableList.of(
-                                new WhenClause(new LongLiteral("1234"), new LongLiteral("33"))),
+                                new WhenClause(new Constant(INTEGER, 1234L), new Constant(INTEGER, 33L))),
                         Optional.empty()),
-                new LongLiteral("33"));
-        assertOptimizedEquals(
                 new SimpleCaseExpression(
-                        new LongLiteral("1234"),
+                        new Constant(INTEGER, 1234L),
                         ImmutableList.of(
-                                new WhenClause(new SymbolReference("bound_value"), new LongLiteral("33"))),
-                        Optional.empty()),
-                new LongLiteral("33"));
+                                new WhenClause(new SymbolReference("bound_value"), new Constant(INTEGER, 33L))),
+                        Optional.empty()))) {
+            assertOptimizedEquals(
+                    simpleCaseExpression,
+                    new Constant(INTEGER, 33L));
+        }
+
         assertOptimizedEquals(
                 new SimpleCaseExpression(
                         TRUE_LITERAL,
                         ImmutableList.of(
                                 new WhenClause(TRUE_LITERAL, new SymbolReference("bound_value"))),
                         Optional.empty()),
-                new LongLiteral("1234"));
+                new Constant(INTEGER, 1234L));
         assertOptimizedEquals(
                 new SimpleCaseExpression(
                         TRUE_LITERAL,
                         ImmutableList.of(
-                                new WhenClause(FALSE_LITERAL, new LongLiteral("1"))),
+                                new WhenClause(FALSE_LITERAL, new Constant(INTEGER, 1L))),
                         Optional.of(new SymbolReference("bound_value"))),
-                new LongLiteral("1234"));
+                new Constant(INTEGER, 1234L));
 
         assertOptimizedEquals(
                 new SimpleCaseExpression(
                         TRUE_LITERAL,
                         ImmutableList.of(
-                                new WhenClause(new ComparisonExpression(EQUAL, new SymbolReference("unbound_value"), new LongLiteral("1")), new LongLiteral("1")),
-                                new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("0")), new LongLiteral("2"))),
-                        Optional.of(new LongLiteral("33"))),
+                                new WhenClause(new ComparisonExpression(EQUAL, new SymbolReference("unbound_value"), new Constant(INTEGER, 1L)), new Constant(INTEGER, 1L)),
+                                new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 0L)), new Constant(INTEGER, 2L))),
+                        Optional.of(new Constant(INTEGER, 33L))),
                 new SimpleCaseExpression(
                         TRUE_LITERAL,
                         ImmutableList.of(
-                                new WhenClause(new ComparisonExpression(EQUAL, new SymbolReference("unbound_value"), new LongLiteral("1")), new LongLiteral("1")),
-                                new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("0")), new LongLiteral("2"))),
-                        Optional.of(new LongLiteral("33"))));
+                                new WhenClause(new ComparisonExpression(EQUAL, new SymbolReference("unbound_value"), new Constant(INTEGER, 1L)), new Constant(INTEGER, 1L)),
+                                new WhenClause(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 0L)), new Constant(INTEGER, 2L))),
+                        Optional.of(new Constant(INTEGER, 33L))));
 
         assertOptimizedMatches(
                 new SimpleCaseExpression(
-                        new LongLiteral("1"),
+                        new Constant(INTEGER, 1L),
                         ImmutableList.of(
-                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("1")),
-                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("2"))),
-                        Optional.of(new LongLiteral("1"))),
+                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 1L)),
+                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 2L))),
+                        Optional.of(new Constant(INTEGER, 1L))),
                 new SimpleCaseExpression(
-                        new LongLiteral("1"),
+                        new Constant(INTEGER, 1L),
                         ImmutableList.of(
-                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("1")),
-                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("2"))),
-                        Optional.of(new LongLiteral("1"))));
+                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 1L)),
+                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 2L))),
+                        Optional.of(new Constant(INTEGER, 1L))));
 
         assertOptimizedEquals(
                 new SimpleCaseExpression(
-                        new Cast(new NullLiteral(), dataType("integer")),
+                        new Constant(INTEGER, null),
                         ImmutableList.of(
-                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")))),
-                        Optional.of(new LongLiteral("1"))),
-                new LongLiteral("1"));
+                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)))),
+                        Optional.of(new Constant(INTEGER, 1L))),
+                new Constant(INTEGER, 1L));
         assertOptimizedEquals(
                 new SimpleCaseExpression(
-                        new Cast(new NullLiteral(), dataType("integer")),
+                        new Constant(INTEGER, null),
                         ImmutableList.of(
-                                new WhenClause(new LongLiteral("1"), new LongLiteral("2"))),
-                        Optional.of(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")))),
-                new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")));
+                                new WhenClause(new Constant(INTEGER, 1L), new Constant(INTEGER, 2L))),
+                        Optional.of(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)))),
+                new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)));
         assertOptimizedEquals(
                 new SimpleCaseExpression(
-                        new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")),
+                        new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)),
                         ImmutableList.of(
-                                new WhenClause(new LongLiteral("1"), new LongLiteral("2"))),
-                        Optional.of(new LongLiteral("3"))),
+                                new WhenClause(new Constant(INTEGER, 1L), new Constant(INTEGER, 2L))),
+                        Optional.of(new Constant(INTEGER, 3L))),
                 new SimpleCaseExpression(
-                        new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")),
+                        new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)),
                         ImmutableList.of(
-                                new WhenClause(new LongLiteral("1"), new LongLiteral("2"))),
-                        Optional.of(new LongLiteral("3"))));
+                                new WhenClause(new Constant(INTEGER, 1L), new Constant(INTEGER, 2L))),
+                        Optional.of(new Constant(INTEGER, 3L))));
         assertOptimizedEquals(
                 new SimpleCaseExpression(
-                        new LongLiteral("1"),
+                        new Constant(INTEGER, 1L),
                         ImmutableList.of(
-                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("2"))),
-                        Optional.of(new LongLiteral("3"))),
+                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 2L))),
+                        Optional.of(new Constant(INTEGER, 3L))),
                 new SimpleCaseExpression(
-                        new LongLiteral("1"),
+                        new Constant(INTEGER, 1L),
                         ImmutableList.of(
-                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("2"))),
-                        Optional.of(new LongLiteral("3"))));
+                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 2L))),
+                        Optional.of(new Constant(INTEGER, 3L))));
         assertOptimizedEquals(
                 new SimpleCaseExpression(
-                        new LongLiteral("1"),
+                        new Constant(INTEGER, 1L),
                         ImmutableList.of(
-                                new WhenClause(new LongLiteral("2"), new LongLiteral("2")),
-                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("3"))),
-                        Optional.of(new LongLiteral("4"))),
+                                new WhenClause(new Constant(INTEGER, 2L), new Constant(INTEGER, 2L)),
+                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 3L))),
+                        Optional.of(new Constant(INTEGER, 4L))),
                 new SimpleCaseExpression(
-                        new LongLiteral("1"),
+                        new Constant(INTEGER, 1L),
                         ImmutableList.of(
-                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("3"))),
-                        Optional.of(new LongLiteral("4"))));
+                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 3L))),
+                        Optional.of(new Constant(INTEGER, 4L))));
         assertOptimizedEquals(
                 new SimpleCaseExpression(
-                        new LongLiteral("1"),
+                        new Constant(INTEGER, 1L),
                         ImmutableList.of(
-                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("2"))),
+                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 2L))),
                         Optional.empty()),
                 new SimpleCaseExpression(
-                        new LongLiteral("1"),
+                        new Constant(INTEGER, 1L),
                         ImmutableList.of(
-                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("2"))),
+                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 2L))),
                         Optional.empty()));
         assertOptimizedEquals(
                 new SimpleCaseExpression(
-                        new LongLiteral("1"),
+                        new Constant(INTEGER, 1L),
                         ImmutableList.of(
-                                new WhenClause(new LongLiteral("2"), new LongLiteral("2")),
-                                new WhenClause(new LongLiteral("3"), new LongLiteral("3"))),
+                                new WhenClause(new Constant(INTEGER, 2L), new Constant(INTEGER, 2L)),
+                                new WhenClause(new Constant(INTEGER, 3L), new Constant(INTEGER, 3L))),
                         Optional.empty()),
-                new NullLiteral());
+                new Constant(UnknownType.UNKNOWN, null));
 
         assertEvaluatedEquals(
                 new SimpleCaseExpression(
-                        new Cast(new NullLiteral(), dataType("integer")),
+                        new Constant(INTEGER, null),
                         ImmutableList.of(
-                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")))),
-                        Optional.of(new LongLiteral("1"))),
-                new LongLiteral("1"));
+                                new WhenClause(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)))),
+                        Optional.of(new Constant(INTEGER, 1L))),
+                new Constant(INTEGER, 1L));
         assertEvaluatedEquals(
                 new SimpleCaseExpression(
-                        new LongLiteral("1"),
+                        new Constant(INTEGER, 1L),
                         ImmutableList.of(
-                                new WhenClause(new LongLiteral("2"), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")))),
-                        Optional.of(new LongLiteral("3"))),
-                new LongLiteral("3"));
+                                new WhenClause(new Constant(INTEGER, 2L), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)))),
+                        Optional.of(new Constant(INTEGER, 3L))),
+                new Constant(INTEGER, 3L));
         assertEvaluatedEquals(
                 new SimpleCaseExpression(
-                        new LongLiteral("1"),
+                        new Constant(INTEGER, 1L),
                         ImmutableList.of(
-                                new WhenClause(new LongLiteral("1"), new LongLiteral("2")),
-                                new WhenClause(new LongLiteral("1"), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")))),
+                                new WhenClause(new Constant(INTEGER, 1L), new Constant(INTEGER, 2L)),
+                                new WhenClause(new Constant(INTEGER, 1L), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)))),
                         Optional.empty()),
-                new LongLiteral("2"));
+                new Constant(INTEGER, 2L));
         assertEvaluatedEquals(
                 new SimpleCaseExpression(
-                        new LongLiteral("1"),
+                        new Constant(INTEGER, 1L),
                         ImmutableList.of(
-                                new WhenClause(new LongLiteral("1"), new LongLiteral("2"))),
-                        Optional.of(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")))),
-                new LongLiteral("2"));
+                                new WhenClause(new Constant(INTEGER, 1L), new Constant(INTEGER, 2L))),
+                        Optional.of(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)))),
+                new Constant(INTEGER, 2L));
     }
 
     @Test
     public void testCoalesce()
     {
         assertOptimizedEquals(
-                new CoalesceExpression(new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("unbound_value"), new ArithmeticBinaryExpression(MULTIPLY, new LongLiteral("2"), new LongLiteral("3"))), new ArithmeticBinaryExpression(SUBTRACT, new LongLiteral("1"), new LongLiteral("1")), new Cast(new NullLiteral(), dataType("integer"))),
-                new CoalesceExpression(new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("unbound_value"), new LongLiteral("6")), new LongLiteral("0")));
+                new CoalesceExpression(new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("unbound_value"), new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new Constant(INTEGER, 2L), new Constant(INTEGER, 3L))), new ArithmeticBinaryExpression(SUBTRACT_INTEGER, SUBTRACT, new Constant(INTEGER, 1L), new Constant(INTEGER, 1L)), new Constant(INTEGER, null)),
+                new CoalesceExpression(new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("unbound_value"), new Constant(INTEGER, 6L)), new Constant(INTEGER, 0L)));
         assertOptimizedMatches(
                 new CoalesceExpression(new SymbolReference("unbound_value"), new SymbolReference("unbound_value")),
                 new SymbolReference("unbound_value"));
         assertOptimizedEquals(
-                new CoalesceExpression(new LongLiteral("6"), new SymbolReference("unbound_value")),
-                new LongLiteral("6"));
+                new CoalesceExpression(new Constant(INTEGER, 6L), new SymbolReference("unbound_value")),
+                new Constant(INTEGER, 6L));
         assertOptimizedMatches(
-                new CoalesceExpression(new FunctionCall(RANDOM.toQualifiedName(), ImmutableList.of()), new FunctionCall(RANDOM.toQualifiedName(), ImmutableList.of()), new DoubleLiteral("5.0")),
-                new CoalesceExpression(new FunctionCall(RANDOM.toQualifiedName(), ImmutableList.of()), new FunctionCall(RANDOM.toQualifiedName(), ImmutableList.of()), new DoubleLiteral("5.0")));
+                new CoalesceExpression(new FunctionCall(RANDOM, ImmutableList.of()), new FunctionCall(RANDOM, ImmutableList.of()), new Constant(DOUBLE, 5.0)),
+                new CoalesceExpression(new FunctionCall(RANDOM, ImmutableList.of()), new FunctionCall(RANDOM, ImmutableList.of()), new Constant(DOUBLE, 5.0)));
 
         assertOptimizedEquals(
-                new CoalesceExpression(new NullLiteral(), new CoalesceExpression(new NullLiteral(), new NullLiteral())),
-                new NullLiteral());
+                new CoalesceExpression(new Constant(UnknownType.UNKNOWN, null), new CoalesceExpression(new Constant(UnknownType.UNKNOWN, null), new Constant(UnknownType.UNKNOWN, null))),
+                new Constant(UnknownType.UNKNOWN, null));
         assertOptimizedEquals(
-                new CoalesceExpression(new Cast(new NullLiteral(), dataType("integer")), new CoalesceExpression(new Cast(new NullLiteral(), dataType("integer")), new CoalesceExpression(new Cast(new NullLiteral(), dataType("integer")), new Cast(new NullLiteral(), dataType("integer")), new LongLiteral("1")))),
-                new LongLiteral("1"));
+                new CoalesceExpression(new Constant(INTEGER, null), new CoalesceExpression(new Constant(INTEGER, null), new CoalesceExpression(new Constant(INTEGER, null), new Constant(INTEGER, null), new Constant(INTEGER, 1L)))),
+                new Constant(INTEGER, 1L));
         assertOptimizedEquals(
-                new CoalesceExpression(new LongLiteral("1"), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0"))),
-                new LongLiteral("1"));
+                new CoalesceExpression(new Constant(INTEGER, 1L), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L))),
+                new Constant(INTEGER, 1L));
         assertOptimizedEquals(
-                new CoalesceExpression(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("1")),
-                new CoalesceExpression(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("1")));
+                new CoalesceExpression(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 1L)),
+                new CoalesceExpression(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 1L)));
         assertOptimizedEquals(
-                new CoalesceExpression(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("1"), new Cast(new NullLiteral(), dataType("integer"))),
-                new CoalesceExpression(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("1")));
+                new CoalesceExpression(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 1L), new Constant(INTEGER, null)),
+                new CoalesceExpression(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 1L)));
         assertOptimizedEquals(
-                new CoalesceExpression(new LongLiteral("1"), new CoalesceExpression(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("2"))),
-                new LongLiteral("1"));
+                new CoalesceExpression(new Constant(INTEGER, 1L), new CoalesceExpression(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 2L))),
+                new Constant(INTEGER, 1L));
         assertOptimizedEquals(
-                new CoalesceExpression(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new Cast(new NullLiteral(), dataType("integer")), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("1"), new LongLiteral("0")), new Cast(new NullLiteral(), dataType("integer")), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0"))),
-                new CoalesceExpression(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("1"), new LongLiteral("0"))));
+                new CoalesceExpression(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, null), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 1L), new Constant(INTEGER, 0L)), new Constant(INTEGER, null), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L))),
+                new CoalesceExpression(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 1L), new Constant(INTEGER, 0L))));
         assertOptimizedEquals(
-                new CoalesceExpression(new FunctionCall(RANDOM.toQualifiedName(), ImmutableList.of()), new FunctionCall(RANDOM.toQualifiedName(), ImmutableList.of()), new DoubleLiteral("1.0"), new FunctionCall(RANDOM.toQualifiedName(), ImmutableList.of())),
-                new CoalesceExpression(new FunctionCall(RANDOM.toQualifiedName(), ImmutableList.of()), new FunctionCall(RANDOM.toQualifiedName(), ImmutableList.of()), new DoubleLiteral("1.0")));
+                new CoalesceExpression(new FunctionCall(RANDOM, ImmutableList.of()), new FunctionCall(RANDOM, ImmutableList.of()), new Constant(DOUBLE, 1.0), new FunctionCall(RANDOM, ImmutableList.of())),
+                new CoalesceExpression(new FunctionCall(RANDOM, ImmutableList.of()), new FunctionCall(RANDOM, ImmutableList.of()), new Constant(DOUBLE, 1.0)));
 
         assertEvaluatedEquals(
-                new CoalesceExpression(new LongLiteral("1"), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0"))),
-                new LongLiteral("1"));
-        assertTrinoExceptionThrownBy(() -> evaluate(new CoalesceExpression(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("1"))))
+                new CoalesceExpression(new Constant(INTEGER, 1L), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L))),
+                new Constant(INTEGER, 1L));
+        assertTrinoExceptionThrownBy(() -> evaluate(new CoalesceExpression(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 1L))))
                 .hasErrorCode(DIVISION_BY_ZERO);
     }
 
@@ -790,64 +790,64 @@ public class TestExpressionInterpreter
     public void testIf()
     {
         assertOptimizedEquals(
-                new IfExpression(new ComparisonExpression(EQUAL, new LongLiteral("2"), new LongLiteral("2")), new LongLiteral("3"), new LongLiteral("4")),
-                new LongLiteral("3"));
+                ifExpression(new ComparisonExpression(EQUAL, new Constant(INTEGER, 2L), new Constant(INTEGER, 2L)), new Constant(INTEGER, 3L), new Constant(INTEGER, 4L)),
+                new Constant(INTEGER, 3L));
         assertOptimizedEquals(
-                new IfExpression(new ComparisonExpression(EQUAL, new LongLiteral("1"), new LongLiteral("2")), new LongLiteral("3"), new LongLiteral("4")),
-                new LongLiteral("4"));
+                ifExpression(new ComparisonExpression(EQUAL, new Constant(INTEGER, 1L), new Constant(INTEGER, 2L)), new Constant(INTEGER, 3L), new Constant(INTEGER, 4L)),
+                new Constant(INTEGER, 4L));
 
         assertOptimizedEquals(
-                new IfExpression(TRUE_LITERAL, new LongLiteral("3"), new LongLiteral("4")),
-                new LongLiteral("3"));
+                ifExpression(TRUE_LITERAL, new Constant(INTEGER, 3L), new Constant(INTEGER, 4L)),
+                new Constant(INTEGER, 3L));
         assertOptimizedEquals(
-                new IfExpression(FALSE_LITERAL, new LongLiteral("3"), new LongLiteral("4")),
-                new LongLiteral("4"));
+                ifExpression(FALSE_LITERAL, new Constant(INTEGER, 3L), new Constant(INTEGER, 4L)),
+                new Constant(INTEGER, 4L));
         assertOptimizedEquals(
-                new IfExpression(new Cast(new NullLiteral(), dataType("boolean")), new LongLiteral("3"), new LongLiteral("4")),
-                new LongLiteral("4"));
+                ifExpression(new Constant(BOOLEAN, null), new Constant(INTEGER, 3L), new Constant(INTEGER, 4L)),
+                new Constant(INTEGER, 4L));
 
         assertOptimizedEquals(
-                new IfExpression(TRUE_LITERAL, new LongLiteral("3"), new Cast(new NullLiteral(), dataType("integer"))),
-                new LongLiteral("3"));
+                ifExpression(TRUE_LITERAL, new Constant(INTEGER, 3L), new Constant(INTEGER, null)),
+                new Constant(INTEGER, 3L));
         assertOptimizedEquals(
-                new IfExpression(FALSE_LITERAL, new LongLiteral("3"), new Cast(new NullLiteral(), dataType("integer"))),
-                new NullLiteral());
+                ifExpression(FALSE_LITERAL, new Constant(INTEGER, 3L), new Constant(INTEGER, null)),
+                new Constant(UnknownType.UNKNOWN, null));
         assertOptimizedEquals(
-                new IfExpression(TRUE_LITERAL, new Cast(new NullLiteral(), dataType("integer")), new LongLiteral("4")),
-                new NullLiteral());
+                ifExpression(TRUE_LITERAL, new Constant(INTEGER, null), new Constant(INTEGER, 4L)),
+                new Constant(UnknownType.UNKNOWN, null));
         assertOptimizedEquals(
-                new IfExpression(FALSE_LITERAL, new Cast(new NullLiteral(), dataType("integer")), new LongLiteral("4")),
-                new LongLiteral("4"));
+                ifExpression(FALSE_LITERAL, new Constant(INTEGER, null), new Constant(INTEGER, 4L)),
+                new Constant(INTEGER, 4L));
         assertOptimizedEquals(
-                new IfExpression(TRUE_LITERAL, new Cast(new NullLiteral(), dataType("integer")), new Cast(new NullLiteral(), dataType("integer"))),
-                new NullLiteral());
+                ifExpression(TRUE_LITERAL, new Constant(INTEGER, null), new Constant(INTEGER, null)),
+                new Constant(UnknownType.UNKNOWN, null));
         assertOptimizedEquals(
-                new IfExpression(FALSE_LITERAL, new Cast(new NullLiteral(), dataType("integer")), new Cast(new NullLiteral(), dataType("integer"))),
-                new NullLiteral());
+                ifExpression(FALSE_LITERAL, new Constant(INTEGER, null), new Constant(INTEGER, null)),
+                new Constant(UnknownType.UNKNOWN, null));
 
         assertOptimizedEquals(
-                new IfExpression(TRUE_LITERAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0"))),
-                new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")));
+                ifExpression(TRUE_LITERAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L))),
+                new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)));
         assertOptimizedEquals(
-                new IfExpression(TRUE_LITERAL, new LongLiteral("1"), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0"))),
-                new LongLiteral("1"));
+                ifExpression(TRUE_LITERAL, new Constant(INTEGER, 1L), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L))),
+                new Constant(INTEGER, 1L));
         assertOptimizedEquals(
-                new IfExpression(FALSE_LITERAL, new LongLiteral("1"), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0"))),
-                new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")));
+                ifExpression(FALSE_LITERAL, new Constant(INTEGER, 1L), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L))),
+                new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)));
         assertOptimizedEquals(
-                new IfExpression(FALSE_LITERAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("1")),
-                new LongLiteral("1"));
+                ifExpression(FALSE_LITERAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 1L)),
+                new Constant(INTEGER, 1L));
         assertOptimizedEquals(
-                new IfExpression(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("0")), new LongLiteral("1"), new LongLiteral("2")),
-                new IfExpression(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("0")), new LongLiteral("1"), new LongLiteral("2")));
+                ifExpression(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 0L)), new Constant(INTEGER, 1L), new Constant(INTEGER, 2L)),
+                ifExpression(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 0L)), new Constant(INTEGER, 1L), new Constant(INTEGER, 2L)));
 
         assertEvaluatedEquals(
-                new IfExpression(TRUE_LITERAL, new LongLiteral("1"), new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0"))),
-                new LongLiteral("1"));
+                ifExpression(TRUE_LITERAL, new Constant(INTEGER, 1L), new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L))),
+                new Constant(INTEGER, 1L));
         assertEvaluatedEquals(
-                new IfExpression(FALSE_LITERAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("1")),
-                new LongLiteral("1"));
-        assertTrinoExceptionThrownBy(() -> evaluate(new IfExpression(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("0")), new LongLiteral("1"), new LongLiteral("2"))))
+                ifExpression(FALSE_LITERAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 1L)),
+                new Constant(INTEGER, 1L));
+        assertTrinoExceptionThrownBy(() -> evaluate(ifExpression(new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 0L)), new Constant(INTEGER, 1L), new Constant(INTEGER, 2L))))
                 .hasErrorCode(DIVISION_BY_ZERO);
     }
 
@@ -855,10 +855,10 @@ public class TestExpressionInterpreter
     public void testOptimizeDivideByZero()
     {
         assertOptimizedEquals(
-                new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")),
-                new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")));
+                new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)),
+                new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)));
 
-        assertTrinoExceptionThrownBy(() -> evaluate(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0"))))
+        assertTrinoExceptionThrownBy(() -> evaluate(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L))))
                 .hasErrorCode(DIVISION_BY_ZERO);
     }
 
@@ -866,25 +866,25 @@ public class TestExpressionInterpreter
     public void testRowSubscript()
     {
         assertOptimizedEquals(
-                new SubscriptExpression(new Row(ImmutableList.of(new LongLiteral("1"), new StringLiteral("a"), TRUE_LITERAL)), new LongLiteral("3")),
+                new SubscriptExpression(new Row(ImmutableList.of(new Constant(INTEGER, 1L), new Constant(VARCHAR, Slices.utf8Slice("a")), TRUE_LITERAL)), new Constant(INTEGER, 3L)),
                 TRUE_LITERAL);
         assertOptimizedEquals(
-                new SubscriptExpression(new SubscriptExpression(new SubscriptExpression(new Row(ImmutableList.of(new LongLiteral("1"), new StringLiteral("a"), new Row(ImmutableList.of(new LongLiteral("2"), new StringLiteral("b"), new Row(ImmutableList.of(new LongLiteral("3"), new StringLiteral("c"))))))), new LongLiteral("3")), new LongLiteral("3")), new LongLiteral("2")),
-                new StringLiteral("c"));
+                new SubscriptExpression(new SubscriptExpression(new SubscriptExpression(new Row(ImmutableList.of(new Constant(INTEGER, 1L), new Constant(VARCHAR, Slices.utf8Slice("a")), new Row(ImmutableList.of(new Constant(INTEGER, 2L), new Constant(VARCHAR, Slices.utf8Slice("b")), new Row(ImmutableList.of(new Constant(INTEGER, 3L), new Constant(VARCHAR, Slices.utf8Slice("c")))))))), new Constant(INTEGER, 3L)), new Constant(INTEGER, 3L)), new Constant(INTEGER, 2L)),
+                new Constant(VARCHAR, Slices.utf8Slice("c")));
 
         assertOptimizedEquals(
-                new SubscriptExpression(new Row(ImmutableList.of(new LongLiteral("1"), new NullLiteral())), new LongLiteral("2")),
-                new NullLiteral());
+                new SubscriptExpression(new Row(ImmutableList.of(new Constant(INTEGER, 1L), new Constant(UnknownType.UNKNOWN, null))), new Constant(INTEGER, 2L)),
+                new Constant(UnknownType.UNKNOWN, null));
         assertOptimizedEquals(
-                new SubscriptExpression(new Row(ImmutableList.of(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("1"))), new LongLiteral("1")),
-                new SubscriptExpression(new Row(ImmutableList.of(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("1"))), new LongLiteral("1")));
+                new SubscriptExpression(new Row(ImmutableList.of(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 1L))), new Constant(INTEGER, 1L)),
+                new SubscriptExpression(new Row(ImmutableList.of(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 1L))), new Constant(INTEGER, 1L)));
         assertOptimizedEquals(
-                new SubscriptExpression(new Row(ImmutableList.of(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("1"))), new LongLiteral("2")),
-                new SubscriptExpression(new Row(ImmutableList.of(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("1"))), new LongLiteral("2")));
+                new SubscriptExpression(new Row(ImmutableList.of(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 1L))), new Constant(INTEGER, 2L)),
+                new SubscriptExpression(new Row(ImmutableList.of(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 1L))), new Constant(INTEGER, 2L)));
 
-        assertTrinoExceptionThrownBy(() -> evaluate(new SubscriptExpression(new Row(ImmutableList.of(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("1"))), new LongLiteral("2"))))
+        assertTrinoExceptionThrownBy(() -> evaluate(new SubscriptExpression(new Row(ImmutableList.of(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 1L))), new Constant(INTEGER, 2L))))
                 .hasErrorCode(DIVISION_BY_ZERO);
-        assertTrinoExceptionThrownBy(() -> evaluate(new SubscriptExpression(new Row(ImmutableList.of(new ArithmeticBinaryExpression(DIVIDE, new LongLiteral("0"), new LongLiteral("0")), new LongLiteral("1"))), new LongLiteral("2"))))
+        assertTrinoExceptionThrownBy(() -> evaluate(new SubscriptExpression(new Row(ImmutableList.of(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 0L), new Constant(INTEGER, 0L)), new Constant(INTEGER, 1L))), new Constant(INTEGER, 2L))))
                 .hasErrorCode(DIVISION_BY_ZERO);
     }
 
@@ -907,7 +907,7 @@ public class TestExpressionInterpreter
 
     static Object optimize(Expression parsedExpression)
     {
-        Map<NodeRef<Expression>, Type> expressionTypes = new IrTypeAnalyzer(PLANNER_CONTEXT).getTypes(TEST_SESSION, SYMBOL_TYPES, parsedExpression);
+        Map<NodeRef<Expression>, Type> expressionTypes = new IrTypeAnalyzer(PLANNER_CONTEXT).getTypes(SYMBOL_TYPES, parsedExpression);
         IrExpressionInterpreter interpreter = new IrExpressionInterpreter(parsedExpression, PLANNER_CONTEXT, TEST_SESSION, expressionTypes);
         return interpreter.optimize(INPUTS);
     }
@@ -919,7 +919,7 @@ public class TestExpressionInterpreter
 
     private static Object evaluate(Expression expression)
     {
-        Map<NodeRef<Expression>, Type> expressionTypes = new IrTypeAnalyzer(PLANNER_CONTEXT).getTypes(TEST_SESSION, SYMBOL_TYPES, expression);
+        Map<NodeRef<Expression>, Type> expressionTypes = new IrTypeAnalyzer(PLANNER_CONTEXT).getTypes(SYMBOL_TYPES, expression);
         IrExpressionInterpreter interpreter = new IrExpressionInterpreter(expression, PLANNER_CONTEXT, TEST_SESSION, expressionTypes);
 
         return interpreter.evaluate(INPUTS);

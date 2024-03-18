@@ -16,12 +16,10 @@ package io.trino.sql.planner.assertions;
 import com.google.common.collect.ImmutableList;
 import io.trino.Session;
 import io.trino.metadata.Metadata;
+import io.trino.sql.ir.Expression;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.ProjectNode;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.InPredicate;
-import io.trino.sql.tree.SymbolReference;
 
 import java.util.List;
 import java.util.Map;
@@ -40,11 +38,6 @@ public class ExpressionMatcher
     {
         this.expression = requireNonNull(expression, "expression is null");
         this.sql = expression.toString();
-    }
-
-    public static ExpressionMatcher inPredicate(SymbolReference value, SymbolReference valueList)
-    {
-        return new ExpressionMatcher(new InPredicate(value, valueList));
     }
 
     @Override

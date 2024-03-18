@@ -18,15 +18,14 @@ import com.google.common.collect.Sets;
 import io.trino.matching.Capture;
 import io.trino.matching.Captures;
 import io.trino.matching.Pattern;
-import io.trino.metadata.Metadata;
+import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.SymbolReference;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.SymbolsExtractor;
 import io.trino.sql.planner.iterative.Rule;
 import io.trino.sql.planner.plan.Assignments;
 import io.trino.sql.planner.plan.FilterNode;
 import io.trino.sql.planner.plan.ProjectNode;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.SymbolReference;
 
 import java.util.HashMap;
 import java.util.List;
@@ -36,12 +35,12 @@ import java.util.stream.Collectors;
 
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.trino.matching.Capture.newCapture;
+import static io.trino.sql.ir.BooleanLiteral.TRUE_LITERAL;
 import static io.trino.sql.ir.IrUtils.combineConjuncts;
 import static io.trino.sql.ir.IrUtils.extractConjuncts;
 import static io.trino.sql.planner.plan.Patterns.filter;
 import static io.trino.sql.planner.plan.Patterns.project;
 import static io.trino.sql.planner.plan.Patterns.source;
-import static io.trino.sql.tree.BooleanLiteral.TRUE_LITERAL;
 import static java.util.function.Function.identity;
 import static java.util.stream.Collectors.counting;
 import static java.util.stream.Collectors.partitioningBy;
@@ -94,13 +93,6 @@ public class InlineProjectIntoFilter
 
     private static final Pattern<FilterNode> PATTERN = filter()
             .with(source().matching(project().capturedAs(PROJECTION)));
-
-    private final Metadata metadata;
-
-    public InlineProjectIntoFilter(Metadata metadata)
-    {
-        this.metadata = metadata;
-    }
 
     @Override
     public Pattern<FilterNode> getPattern()
@@ -184,7 +176,7 @@ public class InlineProjectIntoFilter
                                 projectNode.getId(),
                                 projectNode.getSource(),
                                 newAssignments.build()),
-                        combineConjuncts(metadata, newConjuncts.build())),
+                        combineConjuncts(newConjuncts.build())),
                 Assignments.builder()
                         .putAll(outputAssignments)
                         .build()));

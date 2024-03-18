@@ -15,16 +15,21 @@ package io.trino.sql.planner.iterative.rule;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import io.trino.metadata.ResolvedFunction;
+import io.trino.metadata.TestingFunctionResolution;
 import io.trino.spi.connector.SortOrder;
+import io.trino.spi.function.OperatorType;
+import io.trino.sql.ir.ArithmeticBinaryExpression;
+import io.trino.sql.ir.Constant;
+import io.trino.sql.ir.SymbolReference;
 import io.trino.sql.planner.OrderingScheme;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.iterative.rule.test.BaseRuleTest;
 import io.trino.sql.planner.plan.Assignments;
-import io.trino.sql.tree.ArithmeticBinaryExpression;
-import io.trino.sql.tree.LongLiteral;
-import io.trino.sql.tree.SymbolReference;
 import org.junit.jupiter.api.Test;
 
+import static io.trino.spi.type.IntegerType.INTEGER;
+import static io.trino.sql.ir.ArithmeticBinaryExpression.Operator.MULTIPLY;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.exchange;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.expression;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.project;
@@ -33,20 +38,22 @@ import static io.trino.sql.planner.assertions.PlanMatchPattern.strictProject;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.values;
 import static io.trino.sql.planner.plan.ExchangeNode.Scope.REMOTE;
 import static io.trino.sql.planner.plan.ExchangeNode.Type.GATHER;
-import static io.trino.sql.tree.ArithmeticBinaryExpression.Operator.MULTIPLY;
 import static io.trino.sql.tree.SortItem.NullOrdering.FIRST;
 import static io.trino.sql.tree.SortItem.Ordering.ASCENDING;
 
 public class TestPushProjectionThroughExchange
         extends BaseRuleTest
 {
+    private static final TestingFunctionResolution FUNCTIONS = new TestingFunctionResolution();
+    private static final ResolvedFunction MULTIPLY_INTEGER = FUNCTIONS.resolveOperator(OperatorType.MULTIPLY, ImmutableList.of(INTEGER, INTEGER));
+
     @Test
     public void testDoesNotFireNoExchange()
     {
         tester().assertThat(new PushProjectionThroughExchange())
                 .on(p ->
                         p.project(
-                                Assignments.of(p.symbol("x"), new LongLiteral("3")),
+                                Assignments.of(p.symbol("x"), new Constant(INTEGER, 3L)),
                                 p.values(p.symbol("a"))))
                 .doesNotFire();
     }
@@ -85,7 +92,7 @@ public class TestPushProjectionThroughExchange
                     Symbol x = p.symbol("x");
                     return p.project(
                             Assignments.of(
-                                    x, new LongLiteral("3"),
+                                    x, new Constant(INTEGER, 3L),
                                     c2, new SymbolReference("c")),
                             p.exchange(e -> e
                                     .addSource(
@@ -100,10 +107,10 @@ public class TestPushProjectionThroughExchange
                         exchange(
                                 project(
                                         values(ImmutableList.of("a")))
-                                        .withAlias("x1", expression(new LongLiteral("3"))),
+                                        .withAlias("x1", expression(new Constant(INTEGER, 3L))),
                                 project(
                                         values(ImmutableList.of("b")))
-                                        .withAlias("x2", expression(new LongLiteral("3"))))
+                                        .withAlias("x2", expression(new Constant(INTEGER, 3L))))
                                 // verify that data originally on symbols aliased as x1 and x2 is part of exchange output
                                 .withAlias("x1")
                                 .withAlias("x2"));
@@ -121,7 +128,7 @@ public class TestPushProjectionThroughExchange
                     Symbol cTimes5 = p.symbol("c_times_5");
                     return p.project(
                             Assignments.of(
-                                    cTimes5, new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("c"), new LongLiteral("5"))),
+                                    cTimes5, new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("c"), new Constant(INTEGER, 5L))),
                             p.exchange(e -> e
                                     .addSource(
                                             p.values(a, h1))
@@ -138,7 +145,7 @@ public class TestPushProjectionThroughExchange
                                                 ImmutableMap.of(
                                                         "a", expression(new SymbolReference("a")),
                                                         "h_1", expression(new SymbolReference("h_1")),
-                                                        "a_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("a"), new LongLiteral("5")))),
+                                                        "a_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("a"), new Constant(INTEGER, 5L)))),
                                                 values(ImmutableList.of("a", "h_1"))))));
     }
 
@@ -157,7 +164,7 @@ public class TestPushProjectionThroughExchange
                     Symbol aTimes5 = p.symbol("a_times_5");
                     return p.project(
                             Assignments.of(
-                                    aTimes5, new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("a"), new LongLiteral("5")),
+                                    aTimes5, new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("a"), new Constant(INTEGER, 5L)),
                                     a, a.toSymbolReference()),
                             p.exchange(e -> e
                                     .addSource(p.values(a))
@@ -167,7 +174,7 @@ public class TestPushProjectionThroughExchange
                 .matches(
                         exchange(
                                 strictProject(
-                                        ImmutableMap.of("a_0", expression(new SymbolReference("a")), "a_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("a"), new LongLiteral("5")))),
+                                        ImmutableMap.of("a_0", expression(new SymbolReference("a")), "a_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("a"), new Constant(INTEGER, 5L)))),
                                         values(ImmutableList.of("a")))));
 
         // In the following example, the Projection over Exchange has got an identity assignment (b -> b).
@@ -183,7 +190,7 @@ public class TestPushProjectionThroughExchange
                     Symbol b = p.symbol("b");
                     return p.project(
                             Assignments.of(
-                                    bTimes5, new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("b"), new LongLiteral("5")),
+                                    bTimes5, new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("b"), new Constant(INTEGER, 5L)),
                                     b, b.toSymbolReference()),
                             p.exchange(e -> e
                                     .addSource(p.values(a))
@@ -193,7 +200,7 @@ public class TestPushProjectionThroughExchange
                 .matches(
                         exchange(
                                 strictProject(
-                                        ImmutableMap.of("a_0", expression(new SymbolReference("a")), "a_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("a"), new LongLiteral("5")))),
+                                        ImmutableMap.of("a_0", expression(new SymbolReference("a")), "a_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("a"), new Constant(INTEGER, 5L)))),
                                         values(ImmutableList.of("a")))));
     }
 
@@ -212,7 +219,7 @@ public class TestPushProjectionThroughExchange
                     Symbol aTimes5 = p.symbol("a_times_5");
                     return p.project(
                             Assignments.of(
-                                    aTimes5, new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("a"), new LongLiteral("5")),
+                                    aTimes5, new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("a"), new Constant(INTEGER, 5L)),
                                     a, a.toSymbolReference()),
                             p.exchange(e -> e
                                     .addSource(p.values(a))
@@ -222,7 +229,7 @@ public class TestPushProjectionThroughExchange
                 .matches(
                         exchange(
                                 strictProject(
-                                        ImmutableMap.of("a_0", expression(new SymbolReference("a")), "a_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("a"), new LongLiteral("5")))),
+                                        ImmutableMap.of("a_0", expression(new SymbolReference("a")), "a_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("a"), new Constant(INTEGER, 5L)))),
                                         values(ImmutableList.of("a")))));
 
         // In the following example, the Projection over Exchange has got an identity assignment (b -> b).
@@ -238,7 +245,7 @@ public class TestPushProjectionThroughExchange
                     Symbol b = p.symbol("b");
                     return p.project(
                             Assignments.of(
-                                    bTimes5, new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("b"), new LongLiteral("5")),
+                                    bTimes5, new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("b"), new Constant(INTEGER, 5L)),
                                     b, b.toSymbolReference()),
                             p.exchange(e -> e
                                     .addSource(p.values(a))
@@ -250,7 +257,7 @@ public class TestPushProjectionThroughExchange
                                 strictProject(
                                         ImmutableMap.of(
                                                 "a_0", expression(new SymbolReference("a")),
-                                                "a_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("a"), new LongLiteral("5")))),
+                                                "a_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("a"), new Constant(INTEGER, 5L)))),
                                         values(ImmutableList.of("a")))));
     }
 
@@ -267,9 +274,9 @@ public class TestPushProjectionThroughExchange
                     Symbol hTimes5 = p.symbol("h_times_5");
                     return p.project(
                             Assignments.builder()
-                                    .put(aTimes5, new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("a"), new LongLiteral("5")))
-                                    .put(bTimes5, new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("b"), new LongLiteral("5")))
-                                    .put(hTimes5, new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("h"), new LongLiteral("5")))
+                                    .put(aTimes5, new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("a"), new Constant(INTEGER, 5L)))
+                                    .put(bTimes5, new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("b"), new Constant(INTEGER, 5L)))
+                                    .put(hTimes5, new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("h"), new Constant(INTEGER, 5L)))
                                     .build(),
                             p.exchange(e -> e
                                     .addSource(
@@ -289,9 +296,9 @@ public class TestPushProjectionThroughExchange
                                         ).withNumberOfOutputColumns(5)
                                                 .withAlias("b", expression(new SymbolReference("b")))
                                                 .withAlias("h", expression(new SymbolReference("h")))
-                                                .withAlias("a_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("a"), new LongLiteral("5"))))
-                                                .withAlias("b_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("b"), new LongLiteral("5"))))
-                                                .withAlias("h_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("h"), new LongLiteral("5")))))
+                                                .withAlias("a_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("a"), new Constant(INTEGER, 5L))))
+                                                .withAlias("b_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("b"), new Constant(INTEGER, 5L))))
+                                                .withAlias("h_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("h"), new Constant(INTEGER, 5L)))))
                         ).withNumberOfOutputColumns(3)
                                 .withExactOutputs("a_times_5", "b_times_5", "h_times_5"));
     }
@@ -311,9 +318,9 @@ public class TestPushProjectionThroughExchange
                     OrderingScheme orderingScheme = new OrderingScheme(ImmutableList.of(sortSymbol), ImmutableMap.of(sortSymbol, SortOrder.ASC_NULLS_FIRST));
                     return p.project(
                             Assignments.builder()
-                                    .put(aTimes5, new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("a"), new LongLiteral("5")))
-                                    .put(bTimes5, new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("b"), new LongLiteral("5")))
-                                    .put(hTimes5, new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("h"), new LongLiteral("5")))
+                                    .put(aTimes5, new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("a"), new Constant(INTEGER, 5L)))
+                                    .put(bTimes5, new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("b"), new Constant(INTEGER, 5L)))
+                                    .put(hTimes5, new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("h"), new Constant(INTEGER, 5L)))
                                     .build(),
                             p.exchange(e -> e
                                     .addSource(
@@ -330,9 +337,9 @@ public class TestPushProjectionThroughExchange
                                                 values(
                                                         ImmutableList.of("a", "b", "h", "sortSymbol")))
                                                 .withNumberOfOutputColumns(4)
-                                                .withAlias("a_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("a"), new LongLiteral("5"))))
-                                                .withAlias("b_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("b"), new LongLiteral("5"))))
-                                                .withAlias("h_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY, new SymbolReference("h"), new LongLiteral("5"))))
+                                                .withAlias("a_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("a"), new Constant(INTEGER, 5L))))
+                                                .withAlias("b_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("b"), new Constant(INTEGER, 5L))))
+                                                .withAlias("h_times_5", expression(new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("h"), new Constant(INTEGER, 5L))))
                                                 .withAlias("sortSymbol", expression(new SymbolReference("sortSymbol"))))
                         ).withNumberOfOutputColumns(3)
                                 .withExactOutputs("a_times_5", "b_times_5", "h_times_5"));

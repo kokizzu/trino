@@ -290,6 +290,16 @@ jobs:
           if [ "${AWS_ACCESS_KEY_ID}" != "" ] && ( [ ! -f gib-impacted.log ] || grep -q plugin/trino-hive gib-impacted.log ); then
             $MAVEN test ${MAVEN_TEST} -pl :trino-hive -P aws-tests
           fi
+      - name: Run Hive Unity Tests
+        id: test-unity
+        env:
+          DATABRICKS_HOST: ${{ vars.TRINO_DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.TRINO_DATABRICKS_TOKEN }}
+          DATABRICKS_UNITY_CATALOG_NAME: ${{ vars.TRINO_DATABRICKS_UNITY_CATALOG_NAME }}
+        run: |
+          if [ "${DATABRICKS_TOKEN}" != "" ] && ( [ ! -f gib-impacted.log ] || grep -q plugin/trino-hive gib-impacted.log ); then
+            $MAVEN test ${MAVEN_TEST} -pl :trino-hive -P unity-tests
+          fi
       - name: Upload test results
         uses: ./.github/actions/process-test-results
         if: always()
@@ -759,6 +769,7 @@ jobs:
               || steps.tests-bq-smoke.outcome == 'failure'
               || steps.tests-iceberg.outcome == 'failure'
               || steps.tests-redshift.outcome == 'failure'
+              || steps.tests-snowflake.outcome == 'failure'
             }}
           upload-heap-dump: ${{ env.SECRETS_PRESENT == '' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       - name: Update PR check

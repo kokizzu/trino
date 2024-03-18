@@ -361,7 +361,7 @@ public class PlanOptimizers
                 statsCalculator,
                 costCalculator,
                 ImmutableSet.of(
-                        new InlineProjections(plannerContext, typeAnalyzer),
+                        new InlineProjections(typeAnalyzer),
                         new RemoveRedundantIdentityProjections()));
 
         Set<Rule<?>> simplifyOptimizerRules = ImmutableSet.<Rule<?>>builder()
@@ -371,7 +371,7 @@ public class PlanOptimizers
                 .addAll(new UnwrapCastInComparison(plannerContext, typeAnalyzer).rules())
                 .addAll(new UnwrapDateTruncInComparison(plannerContext, typeAnalyzer).rules())
                 .addAll(new UnwrapYearInComparison(plannerContext, typeAnalyzer).rules())
-                .addAll(new RemoveDuplicateConditions(metadata).rules())
+                .addAll(new RemoveDuplicateConditions().rules())
                 .addAll(new CanonicalizeExpressions(plannerContext, typeAnalyzer).rules())
                 .addAll(new RemoveRedundantDateTrunc(plannerContext, typeAnalyzer).rules())
                 .addAll(new ArraySortAfterArrayDistinct(plannerContext).rules())
@@ -418,6 +418,7 @@ public class PlanOptimizers
                         ImmutableSet.<Rule<?>>builder()
                                 .addAll(columnPruningRules)
                                 .addAll(projectionPushdownRules)
+                                .addAll(simplifyOptimizerRules)
                                 .addAll(new UnwrapRowSubscript().rules())
                                 .addAll(new PushCastIntoRow().rules())
                                 .addAll(ImmutableSet.of(
@@ -426,8 +427,8 @@ public class PlanOptimizers
                                         new RemoveEmptyUnionBranches(),
                                         new EvaluateEmptyIntersect(),
                                         new RemoveEmptyExceptBranches(),
-                                        new MergeFilters(metadata),
-                                        new InlineProjections(plannerContext, typeAnalyzer),
+                                        new MergeFilters(),
+                                        new InlineProjections(typeAnalyzer),
                                         new RemoveRedundantIdentityProjections(),
                                         new RemoveFullSample(),
                                         new EvaluateZeroSample(),
@@ -451,7 +452,7 @@ public class PlanOptimizers
                                         new RemoveRedundantEnforceSingleRowNode(),
                                         new RemoveRedundantExists(),
                                         new RemoveRedundantWindow(),
-                                        new ImplementFilteredAggregations(metadata),
+                                        new ImplementFilteredAggregations(),
                                         new SingleDistinctAggregationToGroupBy(),
                                         new MergeLimitWithDistinct(),
                                         new PruneCountAggregationOverScalar(metadata),
@@ -474,13 +475,13 @@ public class PlanOptimizers
                                 .addAll(ImmutableSet.of(
                                         new MergeUnion(),
                                         new RemoveEmptyUnionBranches(),
-                                        new MergeFilters(metadata),
+                                        new MergeFilters(),
                                         new RemoveTrivialFilters(),
                                         new MergeLimits(),
                                         new MergeLimitWithSort(),
                                         new MergeLimitOverProjectWithSort(),
                                         new MergeLimitWithTopN(),
-                                        new InlineProjections(plannerContext, typeAnalyzer),
+                                        new InlineProjections(typeAnalyzer),
                                         new RemoveRedundantIdentityProjections()))
                                 .build()),
                 new IterativeOptimizer(
@@ -490,7 +491,7 @@ public class PlanOptimizers
                         costCalculator,
                         ImmutableSet.of(new ImplementOffset())),
                 simplifyOptimizer,
-                new UnaliasSymbolReferences(metadata),
+                new UnaliasSymbolReferences(),
                 new IterativeOptimizer(
                         plannerContext,
                         ruleStats,
@@ -564,19 +565,19 @@ public class PlanOptimizers
                                 new TransformCorrelatedInPredicateToJoin(metadata), // must be run after columnPruningOptimizer
                                 new TransformCorrelatedScalarSubquery(metadata), // must be run after TransformCorrelatedAggregation rules
                                 new TransformCorrelatedJoinToJoin(plannerContext),
-                                new ImplementFilteredAggregations(metadata))),
+                                new ImplementFilteredAggregations())),
                 new IterativeOptimizer(
                         plannerContext,
                         ruleStats,
                         statsCalculator,
                         costCalculator,
                         ImmutableSet.of(
-                                new InlineProjections(plannerContext, typeAnalyzer),
+                                new InlineProjections(typeAnalyzer),
                                 new RemoveRedundantIdentityProjections(),
                                 new TransformCorrelatedSingleRowSubqueryToProject(),
                                 new RemoveAggregationInSemiJoin(),
-                                new MergeProjectWithValues(metadata),
-                                new ReplaceJoinOverConstantWithProject(metadata))),
+                                new MergeProjectWithValues(),
+                                new ReplaceJoinOverConstantWithProject())),
                 new CheckSubqueryNodesAreRewritten(),
                 simplifyOptimizer, // Should run after MergeProjectWithValues
                 new StatsRecordingPlanOptimizer(
@@ -598,10 +599,10 @@ public class PlanOptimizers
                         statsCalculator,
                         costCalculator,
                         ImmutableSet.<Rule<?>>builder()
-                                .add(new InlineProjectIntoFilter(metadata))
-                                .add(new SimplifyFilterPredicate(metadata))
+                                .add(new InlineProjectIntoFilter())
+                                .add(new SimplifyFilterPredicate())
                                 .addAll(columnPruningRules)
-                                .add(new InlineProjections(plannerContext, typeAnalyzer))
+                                .add(new InlineProjections(typeAnalyzer))
                                 .addAll(new PushFilterThroughCountAggregation(plannerContext).rules()) // must run after PredicatePushDown and after TransformFilteringSemiJoinToInnerJoin
                                 .build()));
 
@@ -643,7 +644,7 @@ public class PlanOptimizers
                 costCalculator,
                 pushIntoTableScanRulesExceptJoins);
         builder.add(pushIntoTableScanOptimizer);
-        builder.add(new UnaliasSymbolReferences(metadata));
+        builder.add(new UnaliasSymbolReferences());
         builder.add(pushIntoTableScanOptimizer); // TODO (https://github.com/trinodb/trino/issues/811) merge with the above after migrating UnaliasSymbolReferences to rules
 
         IterativeOptimizer pushProjectionIntoTableScanOptimizer = new IterativeOptimizer(
@@ -695,7 +696,7 @@ public class PlanOptimizers
                                 .addAll(simplifyOptimizerRules) // Should be always run after PredicatePushDown
                                 .add(new PushPredicateIntoTableScan(plannerContext, typeAnalyzer, false))
                                 .build()),
-                new UnaliasSymbolReferences(metadata), // Run again because predicate pushdown and projection pushdown might add more projections
+                new UnaliasSymbolReferences(), // Run again because predicate pushdown and projection pushdown might add more projections
                 columnPruningOptimizer, // Make sure to run this before index join. Filtered projections may not have all the columns.
                 new IndexJoinOptimizer(plannerContext), // Run this after projections and filters have been fully simplified and pushed down
                 new LimitPushDown(), // Run LimitPushDown before WindowFilterPushDown
@@ -746,7 +747,7 @@ public class PlanOptimizers
                         statsCalculator,
                         costCalculator,
                         ImmutableSet.of(
-                                new EliminateCrossJoins(plannerContext, typeAnalyzer), // This can pull up Filter and Project nodes from between Joins, so we need to push them down again
+                                new EliminateCrossJoins(typeAnalyzer), // This can pull up Filter and Project nodes from between Joins, so we need to push them down again
                                 new RemoveRedundantJoin())),
                 new StatsRecordingPlanOptimizer(
                         optimizerStats,
@@ -790,7 +791,7 @@ public class PlanOptimizers
                         ruleStats,
                         statsCalculator,
                         costCalculator,
-                        ImmutableSet.of(new ReorderJoins(plannerContext, costComparator, typeAnalyzer))));
+                        ImmutableSet.of(new ReorderJoins(costComparator, typeAnalyzer))));
 
         builder.add(new OptimizeMixedDistinctAggregations(metadata));
         builder.add(new IterativeOptimizer(
@@ -812,7 +813,7 @@ public class PlanOptimizers
                 ImmutableSet.<Rule<?>>builder()
                         .add(new RemoveRedundantIdentityProjections())
                         .addAll(new ExtractSpatialJoins(plannerContext, splitManager, pageSourceManager, typeAnalyzer).rules())
-                        .add(new InlineProjections(plannerContext, typeAnalyzer))
+                        .add(new InlineProjections(typeAnalyzer))
                         .build()));
 
         builder.add(new IterativeOptimizer(
@@ -823,11 +824,11 @@ public class PlanOptimizers
                 ImmutableSet.of(
                         // Must run before AddExchanges
                         new PushMergeWriterDeleteIntoConnector(metadata),
-                        new PushMergeWriterUpdateIntoConnector(plannerContext, typeAnalyzer, metadata),
+                        new PushMergeWriterUpdateIntoConnector(typeAnalyzer, metadata),
                         new DetermineTableScanNodePartitioning(metadata, nodePartitioningManager, taskCountEstimator),
                         // Must run after join reordering because join reordering creates
                         // new join nodes without JoinNode.maySkipOutputDuplicates flag set
-                        new OptimizeDuplicateInsensitiveJoins(metadata))));
+                        new OptimizeDuplicateInsensitiveJoins())));
 
         // Previous invocations of PushPredicateIntoTableScan do not prune using predicate expression. The invocation in AddExchanges
         // does this pruning - and we may end up with empty union branches after that. We invoke PushPredicateIntoTableScan
@@ -880,7 +881,7 @@ public class PlanOptimizers
                             ImmutableSet.of(new PushTableWriteThroughUnion()))); // Must run before AddExchanges
             // unalias symbols before adding exchanges to use same partitioning symbols in joins, aggregations and other
             // operators that require node partitioning
-            builder.add(new UnaliasSymbolReferences(metadata));
+            builder.add(new UnaliasSymbolReferences());
             builder.add(new StatsRecordingPlanOptimizer(optimizerStats, new AddExchanges(plannerContext, typeAnalyzer, statsCalculator, taskCountEstimator)));
             // It can only run after AddExchanges since it estimates the hash partition count for all remote exchanges
             builder.add(new StatsRecordingPlanOptimizer(optimizerStats, new DeterminePartitionCount(statsCalculator, taskCountEstimator)));
@@ -920,7 +921,7 @@ public class PlanOptimizers
                 ruleStats,
                 statsCalculator,
                 costCalculator,
-                ImmutableSet.copyOf(new PushInequalityFilterExpressionBelowJoinRuleSet(metadata, typeAnalyzer).rules())));
+                ImmutableSet.copyOf(new PushInequalityFilterExpressionBelowJoinRuleSet(typeAnalyzer).rules())));
         // Projection pushdown rules may push reducing projections (e.g. dereferences) below filters for potential
         // pushdown into the connectors. Invoke PredicatePushdown and PushPredicateIntoTableScan after this
         // to leverage predicate pushdown on projected columns and to pushdown dynamic filters.
@@ -939,7 +940,7 @@ public class PlanOptimizers
         // PushPredicateIntoTableScan and RemoveRedundantPredicateAboveTableScan due to those rules replacing table scans with empty ValuesNode
         builder.add(new RemoveUnsupportedDynamicFilters(plannerContext));
         builder.add(inlineProjections);
-        builder.add(new UnaliasSymbolReferences(metadata)); // Run unalias after merging projections to simplify projections more efficiently
+        builder.add(new UnaliasSymbolReferences()); // Run unalias after merging projections to simplify projections more efficiently
         builder.add(columnPruningOptimizer);
 
         builder.add(new IterativeOptimizer(
@@ -950,7 +951,7 @@ public class PlanOptimizers
                 ImmutableSet.<Rule<?>>builder()
                         .add(new RemoveRedundantIdentityProjections())
                         .add(new PushRemoteExchangeThroughAssignUniqueId())
-                        .add(new InlineProjections(plannerContext, typeAnalyzer))
+                        .add(new InlineProjections(typeAnalyzer))
                         .build()));
 
         // Optimizers above this don't understand local exchanges, so be careful moving this.

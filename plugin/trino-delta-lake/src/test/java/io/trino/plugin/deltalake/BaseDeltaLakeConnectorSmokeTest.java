@@ -55,7 +55,6 @@ import java.util.function.BiConsumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static com.google.common.base.Strings.repeat;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
@@ -203,7 +202,6 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
                     ImmutableMap.<String, String>builder()
                             .put("hive.metastore", "thrift")
                             .put("hive.metastore.uri", hiveHadoop.getHiveMetastoreEndpoint().toString())
-                            .put("hive.allow-drop-table", "true")
                             .putAll(hiveStorageConfiguration())
                             .buildOrThrow());
 
@@ -331,9 +329,22 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
         String tableName = "test_uri_table_" + randomNameSuffix();
         registerTableFromResources(tableName, "deltalake/uri", getQueryRunner());
 
-        assertQuery("SELECT * FROM " + tableName, "VALUES ('a=equal', 1), ('a:colon', 2), ('a+plus', 3), ('a space', 4), ('a%percent', 5)");
+        assertQuery("SELECT * FROM " + tableName, "VALUES ('a=equal', 1), ('a:colon', 2), ('a+plus', 3), ('a space', 4), ('a%percent', 5), ('a/forwardslash', 6)");
         String firstFilePath = (String) computeScalar("SELECT \"$path\" FROM " + tableName + " WHERE y = 1");
         assertQuery("SELECT * FROM " + tableName + " WHERE \"$path\" = '" + firstFilePath + "'", "VALUES ('a=equal', 1)");
+
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    @Test
+    public void testPathUriEncoding()
+    {
+        String tableName = "test_uri_table_encoding_" + randomNameSuffix();
+        assertUpdate("CREATE TABLE " + tableName + " (part varchar, data integer) " +
+                "WITH (location = '" + getLocationForTable(bucketName, tableName) + "', partitioned_by = ARRAY['part'])");
+
+        assertUpdate("INSERT INTO " + tableName + " VALUES ('a=equal', 1), ('a:colon', 2), ('a+plus', 3), ('a space', 4), ('a%percent', 5), ('a/forwardslash', 6)", 6);
+        assertQuery("SELECT * FROM " + tableName, "VALUES ('a=equal', 1), ('a:colon', 2), ('a+plus', 3), ('a space', 4), ('a%percent', 5), ('a/forwardslash', 6)");
 
         assertUpdate("DROP TABLE " + tableName);
     }
@@ -408,8 +419,8 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
             // Adds a small file of size < 1 kB
             assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'one')", 1);
             // Adds other "large" files of size greater than 1 kB
-            assertUpdate("INSERT INTO " + tableName + " VALUES (2, '" + repeat("two", 1000) + "')", 1);
-            assertUpdate("INSERT INTO " + tableName + " VALUES (3, '" + repeat("three", 1000) + "')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (2, '" + "two".repeat(1000) + "')", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (3, '" + "three".repeat(1000) + "')", 1);
 
             Set<String> initialFiles = getActiveFiles(tableName);
             assertThat(initialFiles).hasSize(3);
@@ -422,7 +433,7 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
             }
             assertQuery(
                     "SELECT * FROM " + tableName,
-                    "VALUES (1, 'one'), (2, '%s'), (3, '%s')".formatted(repeat("two", 1000), repeat("three", 1000)));
+                    "VALUES (1, 'one'), (2, '%s'), (3, '%s')".formatted("two".repeat(1000), "three".repeat(1000)));
         }
         finally {
             assertUpdate("DROP TABLE " + tableName);

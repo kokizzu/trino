@@ -28,7 +28,9 @@ import io.trino.spi.predicate.NullableValue;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.type.Type;
 import io.trino.sql.PlannerContext;
-import io.trino.sql.planner.LiteralEncoder;
+import io.trino.sql.ir.Constant;
+import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.Row;
 import io.trino.sql.planner.PlanNodeIdAllocator;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.plan.AggregationNode;
@@ -43,8 +45,6 @@ import io.trino.sql.planner.plan.SortNode;
 import io.trino.sql.planner.plan.TableScanNode;
 import io.trino.sql.planner.plan.TopNNode;
 import io.trino.sql.planner.plan.ValuesNode;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.Row;
 
 import java.util.List;
 import java.util.Map;
@@ -90,13 +90,11 @@ public class MetadataQueryOptimizer
         private final PlanNodeIdAllocator idAllocator;
         private final Session session;
         private final PlannerContext plannerContext;
-        private final LiteralEncoder literalEncoder;
 
         private Optimizer(Session session, PlannerContext plannerContext, PlanNodeIdAllocator idAllocator)
         {
             this.session = session;
             this.plannerContext = plannerContext;
-            this.literalEncoder = new LiteralEncoder(plannerContext);
             this.idAllocator = idAllocator;
         }
 
@@ -164,7 +162,7 @@ public class MetadataQueryOptimizer
                             // partition key does not have a single value, so bail out to be safe
                             return context.defaultRewrite(node);
                         }
-                        rowBuilder.add(literalEncoder.toExpression(value.getValue(), type));
+                        rowBuilder.add(new Constant(type, value.getValue()));
                     }
                     rowsBuilder.add(new Row(rowBuilder.build()));
                 }
@@ -188,7 +186,7 @@ public class MetadataQueryOptimizer
                 }
                 else if (source instanceof ProjectNode project) {
                     // verify projections are deterministic
-                    if (!Iterables.all(project.getAssignments().getExpressions(), expression -> isDeterministic(expression, plannerContext.getMetadata()))) {
+                    if (!Iterables.all(project.getAssignments().getExpressions(), expression -> isDeterministic(expression))) {
                         return Optional.empty();
                     }
                     source = project.getSource();

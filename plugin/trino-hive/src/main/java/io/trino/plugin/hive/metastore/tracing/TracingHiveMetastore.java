@@ -16,7 +16,6 @@ package io.trino.plugin.hive.metastore.tracing;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import io.trino.hive.thrift.metastore.DataOperationType;
-import io.trino.plugin.hive.HiveColumnStatisticType;
 import io.trino.plugin.hive.HivePartition;
 import io.trino.plugin.hive.HiveType;
 import io.trino.plugin.hive.PartitionStatistics;
@@ -33,12 +32,11 @@ import io.trino.plugin.hive.metastore.PartitionWithStatistics;
 import io.trino.plugin.hive.metastore.PrincipalPrivileges;
 import io.trino.plugin.hive.metastore.StatisticsUpdateMode;
 import io.trino.plugin.hive.metastore.Table;
-import io.trino.spi.connector.RelationType;
+import io.trino.plugin.hive.metastore.TableInfo;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.function.LanguageFunction;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.security.RoleGrant;
-import io.trino.spi.type.Type;
 
 import java.util.Collection;
 import java.util.List;
@@ -104,13 +102,6 @@ public class TracingHiveMetastore
     }
 
     @Override
-    public Set<HiveColumnStatisticType> getSupportedColumnStatistics(Type type)
-    {
-        // Tracing is not necessary
-        return delegate.getSupportedColumnStatistics(type);
-    }
-
-    @Override
     public Map<String, HiveColumnStatistics> getTableColumnStatistics(String databaseName, String tableName, Set<String> columnNames)
     {
         Span span = tracer.spanBuilder("HiveMetastore.getTableColumnStatistics")
@@ -166,91 +157,15 @@ public class TracingHiveMetastore
     }
 
     @Override
-    public List<String> getTables(String databaseName)
+    public List<TableInfo> getTables(String databaseName)
     {
         Span span = tracer.spanBuilder("HiveMetastore.getTables")
                 .setAttribute(SCHEMA, databaseName)
                 .startSpan();
         return withTracing(span, () -> {
-            List<String> tables = delegate.getTables(databaseName);
+            List<TableInfo> tables = delegate.getTables(databaseName);
             span.setAttribute(TABLE_RESPONSE_COUNT, tables.size());
             return tables;
-        });
-    }
-
-    @Override
-    public Optional<List<SchemaTableName>> getAllTables()
-    {
-        Span span = tracer.spanBuilder("HiveMetastore.getAllTables")
-                .startSpan();
-        return withTracing(span, () -> {
-            Optional<List<SchemaTableName>> tables = delegate.getAllTables();
-            tables.ifPresent(list -> span.setAttribute(TABLE_RESPONSE_COUNT, list.size()));
-            return tables;
-        });
-    }
-
-    @Override
-    public Map<String, RelationType> getRelationTypes(String databaseName)
-    {
-        Span span = tracer.spanBuilder("HiveMetastore.getRelationTypes")
-                .setAttribute(SCHEMA, databaseName)
-                .startSpan();
-        return withTracing(span, () -> {
-            Map<String, RelationType> relationTypes = delegate.getRelationTypes(databaseName);
-            span.setAttribute(TABLE_RESPONSE_COUNT, relationTypes.size());
-            return relationTypes;
-        });
-    }
-
-    @Override
-    public Optional<Map<SchemaTableName, RelationType>> getAllRelationTypes()
-    {
-        Span span = tracer.spanBuilder("HiveMetastore.getAllRelationTypes")
-                .startSpan();
-        return withTracing(span, () -> {
-            Optional<Map<SchemaTableName, RelationType>> relationTypes = delegate.getAllRelationTypes();
-            relationTypes.ifPresent(map -> span.setAttribute(TABLE_RESPONSE_COUNT, map.size()));
-            return relationTypes;
-        });
-    }
-
-    @Override
-    public List<String> getTablesWithParameter(String databaseName, String parameterKey, String parameterValue)
-    {
-        Span span = tracer.spanBuilder("HiveMetastore.getTablesWithParameter")
-                .setAttribute(SCHEMA, databaseName)
-                .setAttribute(TABLE, parameterKey)
-                .startSpan();
-        return withTracing(span, () -> {
-            List<String> tables = delegate.getTablesWithParameter(databaseName, parameterKey, parameterValue);
-            span.setAttribute(TABLE_RESPONSE_COUNT, tables.size());
-            return tables;
-        });
-    }
-
-    @Override
-    public List<String> getViews(String databaseName)
-    {
-        Span span = tracer.spanBuilder("HiveMetastore.getViews")
-                .setAttribute(SCHEMA, databaseName)
-                .startSpan();
-        return withTracing(span, () -> {
-            List<String> views = delegate.getViews(databaseName);
-            span.setAttribute(TABLE_RESPONSE_COUNT, views.size());
-            return views;
-        });
-    }
-
-    @Override
-    public Optional<List<SchemaTableName>> getAllViews()
-    {
-        Span span = tracer.spanBuilder("HiveMetastore.getAllViews")
-                .startSpan();
-        return withTracing(span, () -> {
-            Optional<List<SchemaTableName>> views = delegate.getAllViews();
-            views.ifPresent(list -> span.setAttribute(TABLE_RESPONSE_COUNT, list.size()));
-            return views;
         });
     }
 

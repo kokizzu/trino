@@ -17,15 +17,15 @@ import com.google.common.collect.ImmutableSet;
 import io.trino.Session;
 import io.trino.spi.type.Type;
 import io.trino.sql.PlannerContext;
+import io.trino.sql.ir.Constant;
+import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.NodeRef;
+import io.trino.sql.ir.SymbolReference;
 import io.trino.sql.planner.IrExpressionInterpreter;
 import io.trino.sql.planner.IrTypeAnalyzer;
-import io.trino.sql.planner.LiteralEncoder;
 import io.trino.sql.planner.NoOpSymbolResolver;
 import io.trino.sql.planner.SymbolAllocator;
 import io.trino.sql.planner.iterative.Rule;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.NodeRef;
-import io.trino.sql.tree.SymbolReference;
 
 import java.util.Map;
 import java.util.Set;
@@ -45,14 +45,17 @@ public class SimplifyExpressions
         if (expression instanceof SymbolReference) {
             return expression;
         }
-        Map<NodeRef<Expression>, Type> expressionTypes = typeAnalyzer.getTypes(session, symbolAllocator.getTypes(), expression);
-        expression = pushDownNegations(plannerContext.getMetadata(), expression, expressionTypes);
-        expression = extractCommonPredicates(plannerContext.getMetadata(), expression);
+        Map<NodeRef<Expression>, Type> expressionTypes = typeAnalyzer.getTypes(symbolAllocator.getTypes(), expression);
+        expression = pushDownNegations(expression, expressionTypes);
+        expression = extractCommonPredicates(expression);
         expression = normalizeOrExpression(expression);
-        expressionTypes = typeAnalyzer.getTypes(session, symbolAllocator.getTypes(), expression);
+        expressionTypes = typeAnalyzer.getTypes(symbolAllocator.getTypes(), expression);
         IrExpressionInterpreter interpreter = new IrExpressionInterpreter(expression, plannerContext, session, expressionTypes);
         Object optimized = interpreter.optimize(NoOpSymbolResolver.INSTANCE);
-        return new LiteralEncoder(plannerContext).toExpression(optimized, expressionTypes.get(NodeRef.of(expression)));
+
+        return optimized instanceof Expression optimizedExpresion ?
+                optimizedExpresion :
+                new Constant(expressionTypes.get(NodeRef.of(expression)), optimized);
     }
 
     public SimplifyExpressions(PlannerContext plannerContext, IrTypeAnalyzer typeAnalyzer)

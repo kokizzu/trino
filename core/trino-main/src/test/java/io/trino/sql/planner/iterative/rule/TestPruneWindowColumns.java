@@ -21,16 +21,15 @@ import com.google.common.collect.Sets;
 import io.trino.metadata.ResolvedFunction;
 import io.trino.metadata.TestingFunctionResolution;
 import io.trino.spi.connector.SortOrder;
+import io.trino.sql.ir.SymbolReference;
 import io.trino.sql.planner.OrderingScheme;
 import io.trino.sql.planner.Symbol;
-import io.trino.sql.planner.assertions.ExpectedValueProvider;
 import io.trino.sql.planner.iterative.rule.test.BaseRuleTest;
 import io.trino.sql.planner.iterative.rule.test.PlanBuilder;
 import io.trino.sql.planner.plan.Assignments;
 import io.trino.sql.planner.plan.DataOrganizationSpecification;
 import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.WindowNode;
-import io.trino.sql.tree.SymbolReference;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -43,11 +42,10 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.sql.analyzer.TypeSignatureProvider.fromTypes;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.expression;
-import static io.trino.sql.planner.assertions.PlanMatchPattern.functionCall;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.strictProject;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.values;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.window;
-import static io.trino.sql.planner.assertions.PlanMatchPattern.windowFrame;
+import static io.trino.sql.planner.assertions.PlanMatchPattern.windowFunction;
 import static io.trino.sql.planner.plan.FrameBoundType.CURRENT_ROW;
 import static io.trino.sql.planner.plan.FrameBoundType.UNBOUNDED_PRECEDING;
 import static io.trino.sql.planner.plan.WindowFrameType.RANGE;
@@ -61,21 +59,23 @@ public class TestPruneWindowColumns
             ImmutableList.of("orderKey", "partitionKey", "hash", "startValue1", "startValue2", "endValue1", "endValue2", "input1", "input2", "unused");
     private static final Set<String> inputSymbolNameSet = ImmutableSet.copyOf(inputSymbolNameList);
 
-    private static final ExpectedValueProvider<WindowNode.Frame> frameProvider1 = windowFrame(
+    private static final WindowNode.Frame FRAME1 = new WindowNode.Frame(
             RANGE,
             UNBOUNDED_PRECEDING,
-            Optional.of("startValue1"),
+            Optional.of(new Symbol("startValue1")),
+            Optional.of(new Symbol("orderKey")),
             CURRENT_ROW,
-            Optional.of("endValue1"),
-            Optional.of("orderKey"));
+            Optional.of(new Symbol("endValue1")),
+            Optional.of(new Symbol("orderKey")));
 
-    private static final ExpectedValueProvider<WindowNode.Frame> frameProvider2 = windowFrame(
+    private static final WindowNode.Frame FRAME2 = new WindowNode.Frame(
             RANGE,
             UNBOUNDED_PRECEDING,
-            Optional.of("startValue2"),
+            Optional.of(new Symbol("startValue2")),
+            Optional.of(new Symbol("orderKey")),
             CURRENT_ROW,
-            Optional.of("endValue2"),
-            Optional.of("orderKey"));
+            Optional.of(new Symbol("endValue2")),
+            Optional.of(new Symbol("orderKey")));
 
     @Test
     public void testWindowNotNeeded()
@@ -107,11 +107,7 @@ public class TestPruneWindowColumns
                                                         ImmutableList.of("orderKey"),
                                                         ImmutableMap.of("orderKey", SortOrder.ASC_NULLS_FIRST))
                                                 .preSortedOrderPrefix(0)
-                                                .addFunction(
-                                                        "output2",
-                                                        functionCall("min", ImmutableList.of("input2")),
-                                                        MIN_FUNCTION,
-                                                        frameProvider2)
+                                                .addFunction("output2", windowFunction("min", ImmutableList.of("input2"), FRAME2))
                                                 .hashSymbol("hash"),
                                         strictProject(
                                                 Maps.asMap(
@@ -163,16 +159,8 @@ public class TestPruneWindowColumns
                                                         ImmutableList.of("orderKey"),
                                                         ImmutableMap.of("orderKey", SortOrder.ASC_NULLS_FIRST))
                                                 .preSortedOrderPrefix(0)
-                                                .addFunction(
-                                                        "output1",
-                                                        functionCall("min", ImmutableList.of("input1")),
-                                                        MIN_FUNCTION,
-                                                        frameProvider1)
-                                                .addFunction(
-                                                        "output2",
-                                                        functionCall("min", ImmutableList.of("input2")),
-                                                        MIN_FUNCTION,
-                                                        frameProvider2)
+                                                .addFunction("output1", windowFunction("min", ImmutableList.of("input1"), FRAME1))
+                                                .addFunction("output2", windowFunction("min", ImmutableList.of("input2"), FRAME2))
                                                 .hashSymbol("hash"),
                                         strictProject(
                                                 Maps.asMap(
@@ -224,9 +212,7 @@ public class TestPruneWindowColumns
                                                 Optional.of(orderKey),
                                                 CURRENT_ROW,
                                                 Optional.of(endValue1),
-                                                Optional.of(orderKey),
-                                                Optional.of(startValue1.toSymbolReference()),
-                                                Optional.of(endValue2.toSymbolReference())),
+                                                Optional.of(orderKey)),
                                         false),
                                 output2,
                                 new WindowNode.Function(
@@ -239,9 +225,7 @@ public class TestPruneWindowColumns
                                                 Optional.of(orderKey),
                                                 CURRENT_ROW,
                                                 Optional.of(endValue2),
-                                                Optional.of(orderKey),
-                                                Optional.of(startValue2.toSymbolReference()),
-                                                Optional.of(endValue2.toSymbolReference())),
+                                                Optional.of(orderKey)),
                                         false)),
                         hash,
                         p.values(

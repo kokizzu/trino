@@ -19,10 +19,8 @@ import com.google.common.primitives.Primitives;
 import io.trino.Session;
 import io.trino.metadata.Metadata;
 import io.trino.metadata.ResolvedFunction;
-import io.trino.operator.scalar.ArrayConstructor;
 import io.trino.operator.scalar.ArraySubscriptOperator;
 import io.trino.spi.TrinoException;
-import io.trino.spi.block.BlockBuilder;
 import io.trino.spi.block.SqlRow;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.function.CatalogSchemaFunctionName;
@@ -30,43 +28,36 @@ import io.trino.spi.function.FunctionNullability;
 import io.trino.spi.function.InvocationConvention;
 import io.trino.spi.function.OperatorType;
 import io.trino.spi.type.ArrayType;
+import io.trino.spi.type.MapType;
 import io.trino.spi.type.RowType;
 import io.trino.spi.type.Type;
 import io.trino.sql.InterpretedFunctionInvoker;
 import io.trino.sql.PlannerContext;
-import io.trino.sql.tree.ArithmeticBinaryExpression;
-import io.trino.sql.tree.ArithmeticUnaryExpression;
-import io.trino.sql.tree.Array;
-import io.trino.sql.tree.AstVisitor;
-import io.trino.sql.tree.BetweenPredicate;
-import io.trino.sql.tree.BindExpression;
-import io.trino.sql.tree.BooleanLiteral;
-import io.trino.sql.tree.Cast;
-import io.trino.sql.tree.CoalesceExpression;
-import io.trino.sql.tree.ComparisonExpression;
-import io.trino.sql.tree.ComparisonExpression.Operator;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.FunctionCall;
-import io.trino.sql.tree.Identifier;
-import io.trino.sql.tree.IfExpression;
-import io.trino.sql.tree.InListExpression;
-import io.trino.sql.tree.InPredicate;
-import io.trino.sql.tree.IsNotNullPredicate;
-import io.trino.sql.tree.IsNullPredicate;
-import io.trino.sql.tree.LambdaArgumentDeclaration;
-import io.trino.sql.tree.LambdaExpression;
-import io.trino.sql.tree.Literal;
-import io.trino.sql.tree.LogicalExpression;
-import io.trino.sql.tree.NodeRef;
-import io.trino.sql.tree.NotExpression;
-import io.trino.sql.tree.NullIfExpression;
-import io.trino.sql.tree.NullLiteral;
-import io.trino.sql.tree.Row;
-import io.trino.sql.tree.SearchedCaseExpression;
-import io.trino.sql.tree.SimpleCaseExpression;
-import io.trino.sql.tree.SubscriptExpression;
-import io.trino.sql.tree.SymbolReference;
-import io.trino.sql.tree.WhenClause;
+import io.trino.sql.ir.ArithmeticBinaryExpression;
+import io.trino.sql.ir.ArithmeticNegation;
+import io.trino.sql.ir.BetweenPredicate;
+import io.trino.sql.ir.BindExpression;
+import io.trino.sql.ir.Cast;
+import io.trino.sql.ir.CoalesceExpression;
+import io.trino.sql.ir.ComparisonExpression;
+import io.trino.sql.ir.ComparisonExpression.Operator;
+import io.trino.sql.ir.Constant;
+import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.FunctionCall;
+import io.trino.sql.ir.InPredicate;
+import io.trino.sql.ir.IrVisitor;
+import io.trino.sql.ir.IsNullPredicate;
+import io.trino.sql.ir.LambdaExpression;
+import io.trino.sql.ir.LogicalExpression;
+import io.trino.sql.ir.NodeRef;
+import io.trino.sql.ir.NotExpression;
+import io.trino.sql.ir.NullIfExpression;
+import io.trino.sql.ir.Row;
+import io.trino.sql.ir.SearchedCaseExpression;
+import io.trino.sql.ir.SimpleCaseExpression;
+import io.trino.sql.ir.SubscriptExpression;
+import io.trino.sql.ir.SymbolReference;
+import io.trino.sql.ir.WhenClause;
 import io.trino.type.FunctionType;
 import io.trino.type.TypeCoercion;
 import io.trino.util.FastutilSetHelper;
@@ -100,17 +91,12 @@ import static io.trino.spi.function.InvocationConvention.InvocationArgumentConve
 import static io.trino.spi.function.InvocationConvention.InvocationReturnConvention.FAIL_ON_NULL;
 import static io.trino.spi.function.InvocationConvention.InvocationReturnConvention.NULLABLE_RETURN;
 import static io.trino.spi.function.InvocationConvention.simpleConvention;
-import static io.trino.spi.function.OperatorType.EQUAL;
 import static io.trino.spi.function.OperatorType.HASH_CODE;
 import static io.trino.spi.type.TypeUtils.readNativeValue;
 import static io.trino.spi.type.TypeUtils.writeNativeValue;
 import static io.trino.sql.DynamicFilters.isDynamicFilter;
-import static io.trino.sql.analyzer.TypeSignatureTranslator.toTypeSignature;
 import static io.trino.sql.gen.VarArgsToMapAdapterGenerator.generateVarArgsToMapAdapter;
-import static io.trino.sql.ir.IrUtils.isEffectivelyLiteral;
 import static io.trino.sql.planner.DeterminismEvaluator.isDeterministic;
-import static io.trino.sql.tree.ArithmeticUnaryExpression.Sign.MINUS;
-import static io.trino.util.Failures.checkCondition;
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
@@ -122,24 +108,18 @@ public class IrExpressionInterpreter
     private final Expression expression;
     private final PlannerContext plannerContext;
     private final Metadata metadata;
-    private final LiteralInterpreter literalInterpreter;
-    private final LiteralEncoder literalEncoder;
-    private final Session session;
     private final ConnectorSession connectorSession;
     private final Map<NodeRef<Expression>, Type> expressionTypes;
     private final InterpretedFunctionInvoker functionInvoker;
     private final TypeCoercion typeCoercion;
 
-    private final IdentityHashMap<InListExpression, Set<?>> inListCache = new IdentityHashMap<>();
+    private final IdentityHashMap<List<Expression>, Set<?>> inListCache = new IdentityHashMap<>();
 
     public IrExpressionInterpreter(Expression expression, PlannerContext plannerContext, Session session, Map<NodeRef<Expression>, Type> expressionTypes)
     {
         this.expression = requireNonNull(expression, "expression is null");
         this.plannerContext = requireNonNull(plannerContext, "plannerContext is null");
         this.metadata = plannerContext.getMetadata();
-        this.literalInterpreter = new LiteralInterpreter(plannerContext, session);
-        this.literalEncoder = new LiteralEncoder(plannerContext);
-        this.session = requireNonNull(session, "session is null");
         this.connectorSession = session.toConnectorSession();
         this.expressionTypes = ImmutableMap.copyOf(requireNonNull(expressionTypes, "expressionTypes is null"));
         verify(expressionTypes.containsKey(NodeRef.of(expression)));
@@ -149,7 +129,7 @@ public class IrExpressionInterpreter
 
     public static Object evaluateConstantExpression(Expression expression, PlannerContext plannerContext, Session session)
     {
-        Map<NodeRef<Expression>, Type> types = new IrTypeAnalyzer(plannerContext).getTypes(session, TypeProvider.empty(), expression);
+        Map<NodeRef<Expression>, Type> types = new IrTypeAnalyzer(plannerContext).getTypes(TypeProvider.empty(), expression);
         return new IrExpressionInterpreter(expression, plannerContext, session, types).evaluate();
     }
 
@@ -173,7 +153,7 @@ public class IrExpressionInterpreter
     }
 
     private class Visitor
-            extends AstVisitor<Object, Object>
+            extends IrVisitor<Object, Object>
     {
         private final boolean optimize;
 
@@ -211,9 +191,9 @@ public class IrExpressionInterpreter
         }
 
         @Override
-        protected Object visitLiteral(Literal node, Object context)
+        protected Object visitConstant(Constant node, Object context)
         {
-            return literalInterpreter.evaluate(node, type(node));
+            return node.getValue();
         }
 
         @Override
@@ -226,18 +206,6 @@ public class IrExpressionInterpreter
             }
 
             return value == null;
-        }
-
-        @Override
-        protected Object visitIsNotNullPredicate(IsNotNullPredicate node, Object context)
-        {
-            Object value = processWithExceptionHandling(node.getValue(), context);
-
-            if (value instanceof Expression) {
-                return new IsNotNullPredicate(toExpression(value, type(node.getValue())));
-            }
-
-            return value != null;
         }
 
         @Override
@@ -278,25 +246,6 @@ public class IrExpressionInterpreter
 
             Expression defaultExpression = (defaultResult == null) ? null : toExpression(defaultResult, type(node));
             return new SearchedCaseExpression(whenClauses, Optional.ofNullable(defaultExpression));
-        }
-
-        @Override
-        protected Object visitIfExpression(IfExpression node, Object context)
-        {
-            Object condition = processWithExceptionHandling(node.getCondition(), context);
-
-            if (condition instanceof Expression) {
-                Object trueValue = processWithExceptionHandling(node.getTrueValue(), context);
-                Object falseValue = processWithExceptionHandling(node.getFalseValue().orElse(null), context);
-                return new IfExpression(
-                        toExpression(condition, type(node.getCondition())),
-                        toExpression(trueValue, type(node.getTrueValue())),
-                        (falseValue == null) ? null : toExpression(falseValue, type(node.getFalseValue().get())));
-            }
-            if (Boolean.TRUE.equals(condition)) {
-                return processWithExceptionHandling(node.getTrueValue(), context);
-            }
-            return processWithExceptionHandling(node.getFalseValue().orElse(null), context);
         }
 
         @Override
@@ -384,22 +333,18 @@ public class IrExpressionInterpreter
                     // The nested CoalesceExpression was recursively processed. It does not contain null.
                     for (Expression nestedOperand : ((CoalesceExpression) value).getOperands()) {
                         // Skip duplicates unless they are non-deterministic.
-                        if (!isDeterministic(nestedOperand, metadata) || uniqueNewOperands.add(nestedOperand)) {
+                        if (!isDeterministic(nestedOperand) || uniqueNewOperands.add(nestedOperand)) {
                             newOperands.add(nestedOperand);
                         }
                         // This operand can be evaluated to a non-null value. Remaining operands can be skipped.
-                        if (isEffectivelyLiteral(plannerContext, session, nestedOperand)) {
-                            verify(
-                                    !(nestedOperand instanceof NullLiteral) && !(nestedOperand instanceof Cast && ((Cast) nestedOperand).getExpression() instanceof NullLiteral),
-                                    "Null operand should have been removed by recursive coalesce processing");
+                        if (nestedOperand instanceof Constant constant && constant.getValue() != null) {
                             return newOperands;
                         }
                     }
                 }
                 else if (value instanceof Expression expression) {
-                    verify(!(value instanceof NullLiteral), "Null value is expected to be represented as null, not NullLiteral");
                     // Skip duplicates unless they are non-deterministic.
-                    if (!isDeterministic(expression, metadata) || uniqueNewOperands.add(expression)) {
+                    if (!isDeterministic(expression) || uniqueNewOperands.add(expression)) {
                         newOperands.add(expression);
                     }
                 }
@@ -417,28 +362,35 @@ public class IrExpressionInterpreter
         {
             Object value = processWithExceptionHandling(node.getValue(), context);
 
-            InListExpression valueList = (InListExpression) node.getValueList();
+            List<Expression> valueList = node.getValueList();
             // `NULL IN ()` would be false, but InListExpression cannot be empty by construction
             if (value == null) {
                 return null;
             }
 
-            if (!(value instanceof Expression)) {
+            Type type = type(node.getValue());
+            if (!(value instanceof Expression) &&
+                    !(type instanceof ArrayType) && // equals/hashcode doesn't work for complex types that may contain nulls
+                    !(type instanceof MapType) &&
+                    !(type instanceof RowType)) {
                 Set<?> set = inListCache.get(valueList);
 
                 // We use the presence of the node in the map to indicate that we've already done
                 // the analysis below. If the value is null, it means that we can't apply the HashSet
                 // optimization
                 if (!inListCache.containsKey(valueList)) {
-                    if (valueList.getValues().stream().allMatch(Literal.class::isInstance) &&
-                            valueList.getValues().stream().noneMatch(NullLiteral.class::isInstance)) {
-                        Set<Object> objectSet = valueList.getValues().stream().map(expression -> processWithExceptionHandling(expression, context)).collect(Collectors.toSet());
-                        Type type = type(node.getValue());
+                    boolean nonNullConstants = valueList.stream().allMatch(Constant.class::isInstance) &&
+                            valueList.stream()
+                                    .map(Constant.class::cast)
+                                    .map(Constant::getValue)
+                                    .noneMatch(Objects::isNull);
+                    if (nonNullConstants) {
+                        Set<Object> objectSet = valueList.stream().map(expression -> processWithExceptionHandling(expression, context)).collect(Collectors.toSet());
                         set = FastutilSetHelper.toFastutilHashSet(
                                 objectSet,
                                 type,
                                 plannerContext.getFunctionManager().getScalarFunctionImplementation(metadata.resolveOperator(HASH_CODE, ImmutableList.of(type)), simpleConvention(FAIL_ON_NULL, NEVER_NULL)).getMethodHandle(),
-                                plannerContext.getFunctionManager().getScalarFunctionImplementation(metadata.resolveOperator(EQUAL, ImmutableList.of(type, type)), simpleConvention(NULLABLE_RETURN, NEVER_NULL, NEVER_NULL)).getMethodHandle());
+                                plannerContext.getFunctionManager().getScalarFunctionImplementation(metadata.resolveOperator(OperatorType.EQUAL, ImmutableList.of(type, type)), simpleConvention(NULLABLE_RETURN, NEVER_NULL, NEVER_NULL)).getMethodHandle());
                     }
                     inListCache.put(valueList, set);
                 }
@@ -451,12 +403,12 @@ public class IrExpressionInterpreter
             boolean hasUnresolvedValue = value instanceof Expression;
             boolean hasNullValue = false;
             boolean found = false;
-            List<Object> values = new ArrayList<>(valueList.getValues().size());
-            List<Type> types = new ArrayList<>(valueList.getValues().size());
+            List<Object> values = new ArrayList<>(valueList.size());
+            List<Type> types = new ArrayList<>(valueList.size());
 
-            ResolvedFunction equalsOperator = metadata.resolveOperator(OperatorType.EQUAL, types(node.getValue(), valueList));
-            for (Expression expression : valueList.getValues()) {
-                if (value instanceof Expression && expression instanceof Literal) {
+            ResolvedFunction equalsOperator = metadata.resolveOperator(OperatorType.EQUAL, types(node.getValue(), node.getValue()));
+            for (Expression expression : valueList) {
+                if (value instanceof Expression && expression instanceof Constant) {
                     // skip interpreting of literal IN term since it cannot be compared
                     // with unresolved "value" and it cannot be simplified further
                     values.add(expression);
@@ -496,21 +448,20 @@ public class IrExpressionInterpreter
             }
 
             if (hasUnresolvedValue) {
-                Type type = type(node.getValue());
                 List<Expression> expressionValues = toExpressions(values, types);
                 List<Expression> simplifiedExpressionValues = Stream.concat(
                                 expressionValues.stream()
-                                        .filter(expression -> isDeterministic(expression, metadata))
+                                        .filter(expression -> isDeterministic(expression))
                                         .distinct(),
                                 expressionValues.stream()
-                                        .filter(expression -> !isDeterministic(expression, metadata)))
+                                        .filter(expression -> !isDeterministic(expression)))
                         .collect(toImmutableList());
 
                 if (simplifiedExpressionValues.size() == 1) {
-                    return new ComparisonExpression(ComparisonExpression.Operator.EQUAL, toExpression(value, type), simplifiedExpressionValues.get(0));
+                    return new ComparisonExpression(Operator.EQUAL, toExpression(value, type), simplifiedExpressionValues.get(0));
                 }
 
-                return new InPredicate(toExpression(value, type), new InListExpression(simplifiedExpressionValues));
+                return new InPredicate(toExpression(value, type), simplifiedExpressionValues);
             }
             if (hasNullValue) {
                 return null;
@@ -519,7 +470,7 @@ public class IrExpressionInterpreter
         }
 
         @Override
-        protected Object visitArithmeticUnary(ArithmeticUnaryExpression node, Object context)
+        protected Object visitArithmeticNegation(ArithmeticNegation node, Object context)
         {
             Object value = processWithExceptionHandling(node.getValue(), context);
             if (value == null) {
@@ -527,37 +478,27 @@ public class IrExpressionInterpreter
             }
             if (value instanceof Expression) {
                 Expression valueExpression = toExpression(value, type(node.getValue()));
-                return switch (node.getSign()) {
-                    case PLUS -> valueExpression;
-                    case MINUS -> {
-                        if (valueExpression instanceof ArithmeticUnaryExpression && ((ArithmeticUnaryExpression) valueExpression).getSign().equals(MINUS)) {
-                            yield ((ArithmeticUnaryExpression) valueExpression).getValue();
-                        }
-                        yield new ArithmeticUnaryExpression(MINUS, valueExpression);
-                    }
-                };
+                if (valueExpression instanceof ArithmeticNegation argument) {
+                    return argument.getValue();
+                }
+                return new ArithmeticNegation(valueExpression);
             }
 
-            return switch (node.getSign()) {
-                case PLUS -> value;
-                case MINUS -> {
-                    ResolvedFunction resolvedOperator = metadata.resolveOperator(OperatorType.NEGATION, types(node.getValue()));
-                    InvocationConvention invocationConvention = new InvocationConvention(ImmutableList.of(NEVER_NULL), FAIL_ON_NULL, true, false);
-                    MethodHandle handle = plannerContext.getFunctionManager().getScalarFunctionImplementation(resolvedOperator, invocationConvention).getMethodHandle();
+            ResolvedFunction resolvedOperator = metadata.resolveOperator(OperatorType.NEGATION, types(node.getValue()));
+            InvocationConvention invocationConvention = new InvocationConvention(ImmutableList.of(NEVER_NULL), FAIL_ON_NULL, true, false);
+            MethodHandle handle = plannerContext.getFunctionManager().getScalarFunctionImplementation(resolvedOperator, invocationConvention).getMethodHandle();
 
-                    if (handle.type().parameterCount() > 0 && handle.type().parameterType(0) == ConnectorSession.class) {
-                        handle = handle.bindTo(connectorSession);
-                    }
-                    try {
-                        yield handle.invokeWithArguments(value);
-                    }
-                    catch (Throwable throwable) {
-                        throwIfInstanceOf(throwable, RuntimeException.class);
-                        throwIfInstanceOf(throwable, Error.class);
-                        throw new RuntimeException(throwable.getMessage(), throwable);
-                    }
-                }
-            };
+            if (handle.type().parameterCount() > 0 && handle.type().parameterType(0) == ConnectorSession.class) {
+                handle = handle.bindTo(connectorSession);
+            }
+            try {
+                return handle.invokeWithArguments(value);
+            }
+            catch (Throwable throwable) {
+                throwIfInstanceOf(throwable, RuntimeException.class);
+                throwIfInstanceOf(throwable, Error.class);
+                throw new RuntimeException(throwable.getMessage(), throwable);
+            }
         }
 
         @Override
@@ -573,16 +514,16 @@ public class IrExpressionInterpreter
             }
 
             if (hasUnresolvedValue(left, right)) {
-                return new ArithmeticBinaryExpression(node.getOperator(), toExpression(left, type(node.getLeft())), toExpression(right, type(node.getRight())));
+                return new ArithmeticBinaryExpression(node.getFunction(), node.getOperator(), toExpression(left, type(node.getLeft())), toExpression(right, type(node.getRight())));
             }
 
-            return invokeOperator(OperatorType.valueOf(node.getOperator().name()), types(node.getLeft(), node.getRight()), ImmutableList.of(left, right));
+            return functionInvoker.invoke(node.getFunction(), connectorSession, ImmutableList.of(left, right));
         }
 
         @Override
         protected Object visitComparisonExpression(ComparisonExpression node, Object context)
         {
-            ComparisonExpression.Operator operator = node.getOperator();
+            Operator operator = node.getOperator();
             Expression left = node.getLeft();
             Expression right = node.getRight();
 
@@ -619,11 +560,11 @@ public class IrExpressionInterpreter
             Object right = processWithExceptionHandling(rightExpression, context);
 
             if (left == null && right instanceof Expression) {
-                return new IsNotNullPredicate((Expression) right);
+                return new NotExpression(new IsNullPredicate(((Expression) right)));
             }
 
             if (right == null && left instanceof Expression) {
-                return new IsNotNullPredicate((Expression) left);
+                return new NotExpression(new IsNullPredicate(((Expression) left)));
             }
 
             if (left instanceof Expression || right instanceof Expression) {
@@ -808,12 +749,6 @@ public class IrExpressionInterpreter
         }
 
         @Override
-        protected Object visitBooleanLiteral(BooleanLiteral node, Object context)
-        {
-            return node.equals(BooleanLiteral.TRUE_LITERAL);
-        }
-
-        @Override
         protected Object visitFunctionCall(FunctionCall node, Object context)
         {
             List<Type> argumentTypes = new ArrayList<>();
@@ -825,7 +760,7 @@ public class IrExpressionInterpreter
                 argumentTypes.add(type);
             }
 
-            ResolvedFunction resolvedFunction = metadata.decodeFunction(node.getName());
+            ResolvedFunction resolvedFunction = node.getFunction();
             FunctionNullability functionNullability = resolvedFunction.getFunctionNullability();
             for (int i = 0; i < argumentValues.size(); i++) {
                 Object value = argumentValues.get(i);
@@ -839,10 +774,6 @@ public class IrExpressionInterpreter
                     hasUnresolvedValue(argumentValues) ||
                     isDynamicFilter(node) ||
                     resolvedFunction.getSignature().getName().equals(FAIL_NAME))) {
-                verify(!node.isDistinct(), "distinct not supported");
-                verify(node.getOrderBy().isEmpty(), "order by not supported");
-                verify(node.getFilter().isEmpty(), "filter not supported");
-                verify(node.getWindow().isEmpty(), "window not supported");
                 return ResolvedFunctionCallBuilder.builder(resolvedFunction)
                         .setArguments(toExpressions(argumentValues, argumentTypes))
                         .build();
@@ -871,10 +802,7 @@ public class IrExpressionInterpreter
             }
 
             Expression body = node.getBody();
-            List<String> argumentNames = node.getArguments().stream()
-                    .map(LambdaArgumentDeclaration::getName)
-                    .map(Identifier::getValue)
-                    .collect(toImmutableList());
+            List<String> argumentNames = node.getArguments();
             FunctionType functionType = (FunctionType) expressionTypes.get(NodeRef.<Expression>of(node));
             checkArgument(argumentNames.size() == functionType.getArgumentTypes().size());
 
@@ -914,7 +842,7 @@ public class IrExpressionInterpreter
         public Object visitCast(Cast node, Object context)
         {
             Object value = processWithExceptionHandling(node.getExpression(), context);
-            Type targetType = plannerContext.getTypeManager().getType(toTypeSignature(node.getType()));
+            Type targetType = node.getType();
             Type sourceType = type(node.getExpression());
             if (value instanceof Expression) {
                 if (targetType.equals(sourceType)) {
@@ -939,29 +867,6 @@ public class IrExpressionInterpreter
                 }
                 throw e;
             }
-        }
-
-        @Override
-        protected Object visitArray(Array node, Object context)
-        {
-            Type elementType = ((ArrayType) type(node)).getElementType();
-            BlockBuilder arrayBlockBuilder = elementType.createBlockBuilder(null, node.getValues().size());
-
-            for (Expression expression : node.getValues()) {
-                Object value = processWithExceptionHandling(expression, context);
-                if (value instanceof Expression) {
-                    checkCondition(node.getValues().size() <= 254, NOT_SUPPORTED, "Too many arguments for array constructor");
-                    return visitFunctionCall(
-                            BuiltinFunctionCallBuilder.resolve(metadata)
-                                    .setName(ArrayConstructor.NAME)
-                                    .setArguments(types(node.getValues()), node.getValues())
-                                    .build(),
-                            context);
-                }
-                writeNativeValue(elementType, arrayBlockBuilder, value);
-            }
-
-            return arrayBlockBuilder.build();
         }
 
         @Override
@@ -1033,14 +938,6 @@ public class IrExpressionInterpreter
                     .collect(toImmutableList());
         }
 
-        private List<Type> types(List<Expression> expressions)
-        {
-            return expressions.stream()
-                    .map(NodeRef::of)
-                    .map(expressionTypes::get)
-                    .collect(toImmutableList());
-        }
-
         private boolean hasUnresolvedValue(Object... values)
         {
             return hasUnresolvedValue(ImmutableList.copyOf(values));
@@ -1059,12 +956,25 @@ public class IrExpressionInterpreter
 
         private Expression toExpression(Object base, Type type)
         {
-            return literalEncoder.toExpression(base, type);
+            if (base instanceof Expression expression) {
+                return expression;
+            }
+
+            return new Constant(type, base);
         }
 
         private List<Expression> toExpressions(List<Object> values, List<Type> types)
         {
-            return literalEncoder.toExpressions(values, types);
+            checkArgument(values.size() == types.size(), "values and types do not have the same size");
+
+            ImmutableList.Builder<Expression> expressions = ImmutableList.builder();
+            for (int i = 0; i < values.size(); i++) {
+                Object object = values.get(i);
+                expressions.add(object instanceof Expression expression ?
+                        expression :
+                        new Constant(types.get(i), object));
+            }
+            return expressions.build();
         }
     }
 

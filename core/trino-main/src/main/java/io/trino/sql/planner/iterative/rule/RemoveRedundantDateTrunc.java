@@ -19,23 +19,22 @@ import io.trino.spi.function.CatalogSchemaFunctionName;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.VarcharType;
 import io.trino.sql.PlannerContext;
+import io.trino.sql.ir.Constant;
+import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.ExpressionTreeRewriter;
+import io.trino.sql.ir.FunctionCall;
+import io.trino.sql.ir.NodeRef;
+import io.trino.sql.ir.SymbolReference;
 import io.trino.sql.planner.IrExpressionInterpreter;
 import io.trino.sql.planner.IrTypeAnalyzer;
 import io.trino.sql.planner.NoOpSymbolResolver;
 import io.trino.sql.planner.TypeProvider;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.ExpressionTreeRewriter;
-import io.trino.sql.tree.FunctionCall;
-import io.trino.sql.tree.NodeRef;
-import io.trino.sql.tree.SymbolReference;
 
 import java.util.Locale;
 import java.util.Map;
 
 import static io.trino.metadata.GlobalFunctionCatalog.builtinFunctionName;
-import static io.trino.metadata.ResolvedFunction.extractFunctionName;
 import static io.trino.spi.type.DateType.DATE;
-import static io.trino.sql.ir.IrUtils.isEffectivelyLiteral;
 import static java.util.Objects.requireNonNull;
 
 public class RemoveRedundantDateTrunc
@@ -58,7 +57,7 @@ public class RemoveRedundantDateTrunc
     }
 
     private static class Visitor
-            extends io.trino.sql.tree.ExpressionRewriter<Void>
+            extends io.trino.sql.ir.ExpressionRewriter<Void>
     {
         private final Session session;
         private final PlannerContext plannerContext;
@@ -76,12 +75,12 @@ public class RemoveRedundantDateTrunc
         @Override
         public Expression rewriteFunctionCall(FunctionCall node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
         {
-            CatalogSchemaFunctionName functionName = extractFunctionName(node.getName());
+            CatalogSchemaFunctionName functionName = node.getFunction().getName();
             if (functionName.equals(builtinFunctionName("date_trunc")) && node.getArguments().size() == 2) {
-                Map<NodeRef<Expression>, Type> expressionTypes = typeAnalyzer.getTypes(session, types, node);
+                Map<NodeRef<Expression>, Type> expressionTypes = typeAnalyzer.getTypes(types, node);
                 Expression unitExpression = node.getArguments().get(0);
                 Expression argument = node.getArguments().get(1);
-                if (expressionTypes.get(NodeRef.of(argument)) == DATE && expressionTypes.get(NodeRef.of(unitExpression)) instanceof VarcharType && isEffectivelyLiteral(plannerContext, session, unitExpression)) {
+                if (expressionTypes.get(NodeRef.of(argument)) == DATE && expressionTypes.get(NodeRef.of(unitExpression)) instanceof VarcharType && unitExpression instanceof Constant) {
                     Slice unitValue = (Slice) new IrExpressionInterpreter(unitExpression, plannerContext, session, expressionTypes)
                             .optimize(NoOpSymbolResolver.INSTANCE);
                     if (unitValue != null && "day".equals(unitValue.toStringUtf8().toLowerCase(Locale.ENGLISH))) {

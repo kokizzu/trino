@@ -13,63 +13,39 @@
  */
 package io.trino.sql.planner;
 
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.inject.Inject;
-import io.trino.Session;
-import io.trino.execution.warnings.WarningCollector;
-import io.trino.metadata.FunctionResolver;
-import io.trino.metadata.ResolvedFunction;
-import io.trino.security.AccessControl;
-import io.trino.security.AllowAllAccessControl;
 import io.trino.spi.function.BoundSignature;
 import io.trino.spi.function.OperatorType;
 import io.trino.spi.type.ArrayType;
-import io.trino.spi.type.CharType;
-import io.trino.spi.type.Decimals;
 import io.trino.spi.type.MapType;
 import io.trino.spi.type.RowType;
 import io.trino.spi.type.Type;
-import io.trino.spi.type.VarcharType;
 import io.trino.sql.PlannerContext;
-import io.trino.sql.tree.ArithmeticBinaryExpression;
-import io.trino.sql.tree.ArithmeticUnaryExpression;
-import io.trino.sql.tree.Array;
-import io.trino.sql.tree.AstVisitor;
-import io.trino.sql.tree.BetweenPredicate;
-import io.trino.sql.tree.BinaryLiteral;
-import io.trino.sql.tree.BindExpression;
-import io.trino.sql.tree.BooleanLiteral;
-import io.trino.sql.tree.Cast;
-import io.trino.sql.tree.CoalesceExpression;
-import io.trino.sql.tree.ComparisonExpression;
-import io.trino.sql.tree.DecimalLiteral;
-import io.trino.sql.tree.DoubleLiteral;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.FunctionCall;
-import io.trino.sql.tree.GenericLiteral;
-import io.trino.sql.tree.IfExpression;
-import io.trino.sql.tree.InListExpression;
-import io.trino.sql.tree.InPredicate;
-import io.trino.sql.tree.IntervalLiteral;
-import io.trino.sql.tree.IsNotNullPredicate;
-import io.trino.sql.tree.IsNullPredicate;
-import io.trino.sql.tree.LambdaExpression;
-import io.trino.sql.tree.LogicalExpression;
-import io.trino.sql.tree.LongLiteral;
-import io.trino.sql.tree.Node;
-import io.trino.sql.tree.NodeRef;
-import io.trino.sql.tree.NotExpression;
-import io.trino.sql.tree.NullIfExpression;
-import io.trino.sql.tree.NullLiteral;
-import io.trino.sql.tree.Row;
-import io.trino.sql.tree.SearchedCaseExpression;
-import io.trino.sql.tree.SimpleCaseExpression;
-import io.trino.sql.tree.StringLiteral;
-import io.trino.sql.tree.SubscriptExpression;
-import io.trino.sql.tree.SymbolReference;
+import io.trino.sql.ir.ArithmeticBinaryExpression;
+import io.trino.sql.ir.ArithmeticNegation;
+import io.trino.sql.ir.BetweenPredicate;
+import io.trino.sql.ir.BindExpression;
+import io.trino.sql.ir.Cast;
+import io.trino.sql.ir.CoalesceExpression;
+import io.trino.sql.ir.ComparisonExpression;
+import io.trino.sql.ir.Constant;
+import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.FunctionCall;
+import io.trino.sql.ir.InPredicate;
+import io.trino.sql.ir.IrVisitor;
+import io.trino.sql.ir.IsNullPredicate;
+import io.trino.sql.ir.LambdaExpression;
+import io.trino.sql.ir.LogicalExpression;
+import io.trino.sql.ir.NodeRef;
+import io.trino.sql.ir.NotExpression;
+import io.trino.sql.ir.NullIfExpression;
+import io.trino.sql.ir.Row;
+import io.trino.sql.ir.SearchedCaseExpression;
+import io.trino.sql.ir.SimpleCaseExpression;
+import io.trino.sql.ir.SubscriptExpression;
+import io.trino.sql.ir.SymbolReference;
 import io.trino.type.FunctionType;
 
 import java.util.ArrayList;
@@ -81,26 +57,7 @@ import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static io.trino.cache.CacheUtils.uncheckedCacheGet;
-import static io.trino.cache.SafeCaches.buildNonEvictableCache;
-import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
-import static io.trino.spi.type.DoubleType.DOUBLE;
-import static io.trino.spi.type.IntegerType.INTEGER;
-import static io.trino.spi.type.TimeType.createTimeType;
-import static io.trino.spi.type.TimeWithTimeZoneType.createTimeWithTimeZoneType;
-import static io.trino.spi.type.TimestampType.createTimestampType;
-import static io.trino.spi.type.TimestampWithTimeZoneType.createTimestampWithTimeZoneType;
-import static io.trino.spi.type.VarbinaryType.VARBINARY;
-import static io.trino.sql.analyzer.TypeSignatureTranslator.toTypeSignature;
-import static io.trino.type.DateTimes.extractTimePrecision;
-import static io.trino.type.DateTimes.extractTimestampPrecision;
-import static io.trino.type.DateTimes.timeHasTimeZone;
-import static io.trino.type.DateTimes.timestampHasTimeZone;
-import static io.trino.type.IntervalDayTimeType.INTERVAL_DAY_TIME;
-import static io.trino.type.IntervalYearMonthType.INTERVAL_YEAR_MONTH;
-import static io.trino.type.UnknownType.UNKNOWN;
-import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -118,9 +75,9 @@ public class IrTypeAnalyzer
         this.plannerContext = requireNonNull(plannerContext, "plannerContext is null");
     }
 
-    public Map<NodeRef<Expression>, Type> getTypes(Session session, TypeProvider inputTypes, Iterable<Expression> expressions)
+    public Map<NodeRef<Expression>, Type> getTypes(TypeProvider inputTypes, Iterable<Expression> expressions)
     {
-        Visitor visitor = new Visitor(plannerContext, session, inputTypes);
+        Visitor visitor = new Visitor(plannerContext, inputTypes);
 
         for (Expression expression : expressions) {
             visitor.process(expression, new Context(ImmutableMap.of()));
@@ -129,37 +86,28 @@ public class IrTypeAnalyzer
         return visitor.getTypes();
     }
 
-    public Map<NodeRef<Expression>, Type> getTypes(Session session, TypeProvider inputTypes, Expression expression)
+    public Map<NodeRef<Expression>, Type> getTypes(TypeProvider inputTypes, Expression expression)
     {
-        return getTypes(session, inputTypes, ImmutableList.of(expression));
+        return getTypes(inputTypes, ImmutableList.of(expression));
     }
 
-    public Type getType(Session session, TypeProvider inputTypes, Expression expression)
+    public Type getType(TypeProvider inputTypes, Expression expression)
     {
-        return getTypes(session, inputTypes, expression).get(NodeRef.of(expression));
+        return getTypes(inputTypes, expression).get(NodeRef.of(expression));
     }
 
     private static class Visitor
-            extends AstVisitor<Type, Context>
+            extends IrVisitor<Type, Context>
     {
-        private static final AccessControl ALLOW_ALL_ACCESS_CONTROL = new AllowAllAccessControl();
-
         private final PlannerContext plannerContext;
-        private final Session session;
         private final TypeProvider symbolTypes;
-        private final FunctionResolver functionResolver;
-
-        // Cache from SQL type name to Type; every Type in the cache has a CAST defined from VARCHAR
-        private final Cache<String, Type> varcharCastableTypeCache = buildNonEvictableCache(CacheBuilder.newBuilder().maximumSize(1000));
 
         private final Map<NodeRef<Expression>, Type> expressionTypes = new LinkedHashMap<>();
 
-        public Visitor(PlannerContext plannerContext, Session session, TypeProvider symbolTypes)
+        public Visitor(PlannerContext plannerContext, TypeProvider symbolTypes)
         {
             this.plannerContext = requireNonNull(plannerContext, "plannerContext is null");
-            this.session = requireNonNull(session, "session is null");
             this.symbolTypes = requireNonNull(symbolTypes, "symbolTypes is null");
-            this.functionResolver = plannerContext.getFunctionResolver(WarningCollector.NOOP);
         }
 
         public Map<NodeRef<Expression>, Type> getTypes()
@@ -177,15 +125,14 @@ public class IrTypeAnalyzer
         }
 
         @Override
-        public Type process(Node node, Context context)
+        public Type process(Expression node, Context context)
         {
-            if (node instanceof Expression) {
-                // don't double process a node
-                Type type = expressionTypes.get(NodeRef.of(((Expression) node)));
-                if (type != null) {
-                    return type;
-                }
+            // don't double process a node
+            Type type = expressionTypes.get(NodeRef.of(node));
+            if (type != null) {
+                return type;
             }
+
             return super.process(node, context);
         }
 
@@ -202,7 +149,7 @@ public class IrTypeAnalyzer
         @Override
         protected Type visitSymbolReference(SymbolReference node, Context context)
         {
-            Symbol symbol = Symbol.from(node);
+            Symbol symbol = new Symbol(node.getName());
             Type type = context.argumentTypes().get(symbol);
             if (type == null) {
                 type = symbolTypes.get(symbol);
@@ -241,13 +188,6 @@ public class IrTypeAnalyzer
         }
 
         @Override
-        protected Type visitIsNotNullPredicate(IsNotNullPredicate node, Context context)
-        {
-            process(node.getValue(), context);
-            return setExpressionType(node, BOOLEAN);
-        }
-
-        @Override
         protected Type visitNullIfExpression(NullIfExpression node, Context context)
         {
             Type firstType = process(node.getFirst(), context);
@@ -261,21 +201,6 @@ public class IrTypeAnalyzer
             //    rely on the execution layer to insert the necessary casts.
 
             return setExpressionType(node, firstType);
-        }
-
-        @Override
-        protected Type visitIfExpression(IfExpression node, Context context)
-        {
-            Type conditionType = process(node.getCondition(), context);
-            checkArgument(conditionType.equals(BOOLEAN), "Condition must be boolean: %s", conditionType);
-
-            Type trueType = process(node.getTrueValue(), context);
-            if (node.getFalseValue().isPresent()) {
-                Type falseType = process(node.getFalseValue().get(), context);
-                checkArgument(trueType.equals(falseType), "Types must be equal: %s vs %s", trueType, falseType);
-            }
-
-            return setExpressionType(node, trueType);
         }
 
         @Override
@@ -334,7 +259,7 @@ public class IrTypeAnalyzer
         }
 
         @Override
-        protected Type visitArithmeticUnary(ArithmeticUnaryExpression node, Context context)
+        protected Type visitArithmeticNegation(ArithmeticNegation node, Context context)
         {
             return setExpressionType(node, process(node.getValue(), context));
         }
@@ -361,7 +286,7 @@ public class IrTypeAnalyzer
             return setExpressionType(
                     node,
                     switch (baseType) {
-                        case RowType rowType -> rowType.getFields().get(toIntExact(((LongLiteral) node.getIndex()).getParsedValue()) - 1).getType();
+                        case RowType rowType -> rowType.getFields().get((int) (long) ((Constant) node.getIndex()).getValue() - 1).getType();
                         case ArrayType arrayType -> arrayType.getElementType();
                         case MapType mapType -> mapType.getValueType();
                         default -> throw new IllegalStateException("Unexpected type: " + baseType);
@@ -369,101 +294,15 @@ public class IrTypeAnalyzer
         }
 
         @Override
-        protected Type visitArray(Array node, Context context)
+        protected Type visitConstant(Constant node, Context context)
         {
-            Set<Type> types = node.getValues().stream()
-                    .map(entry -> process(entry, context))
-                    .collect(Collectors.toSet());
-
-            if (types.isEmpty()) {
-                return setExpressionType(node, new ArrayType(UNKNOWN));
-            }
-
-            checkArgument(types.size() == 1, "All entries must have the same type: %s", types);
-            return setExpressionType(node, new ArrayType(types.iterator().next()));
-        }
-
-        @Override
-        protected Type visitStringLiteral(StringLiteral node, Context context)
-        {
-            return setExpressionType(node, VarcharType.createVarcharType(node.length()));
-        }
-
-        @Override
-        protected Type visitBinaryLiteral(BinaryLiteral node, Context context)
-        {
-            return setExpressionType(node, VARBINARY);
-        }
-
-        @Override
-        protected Type visitLongLiteral(LongLiteral node, Context context)
-        {
-            if (node.getParsedValue() >= Integer.MIN_VALUE && node.getParsedValue() <= Integer.MAX_VALUE) {
-                return setExpressionType(node, INTEGER);
-            }
-
-            return setExpressionType(node, BIGINT);
-        }
-
-        @Override
-        protected Type visitDoubleLiteral(DoubleLiteral node, Context context)
-        {
-            return setExpressionType(node, DOUBLE);
-        }
-
-        @Override
-        protected Type visitDecimalLiteral(DecimalLiteral node, Context context)
-        {
-            return setExpressionType(node, Decimals.parse(node.getValue()).getType());
-        }
-
-        @Override
-        protected Type visitBooleanLiteral(BooleanLiteral node, Context context)
-        {
-            return setExpressionType(node, BOOLEAN);
-        }
-
-        @Override
-        protected Type visitGenericLiteral(GenericLiteral node, Context context)
-        {
-            return setExpressionType(
-                    node,
-                    switch (node.getType()) {
-                        case String name when name.equalsIgnoreCase("CHAR") -> CharType.createCharType(node.getValue().length());
-                        case String name when name.equalsIgnoreCase("TIMESTAMP") && timestampHasTimeZone(node.getValue()) -> createTimestampWithTimeZoneType(extractTimestampPrecision(node.getValue()));
-                        case String name when name.equalsIgnoreCase("TIMESTAMP") -> createTimestampType(extractTimestampPrecision(node.getValue()));
-                        case String name when name.equalsIgnoreCase("TIME") && timeHasTimeZone(node.getValue()) -> createTimeWithTimeZoneType(extractTimePrecision(node.getValue()));
-                        case String name when name.equalsIgnoreCase("TIME") -> createTimeType(extractTimePrecision(node.getValue()));
-                        default -> uncheckedCacheGet(varcharCastableTypeCache, node.getType(), () -> plannerContext.getTypeManager().fromSqlType(node.getType()));
-                    });
-        }
-
-        @Override
-        protected Type visitIntervalLiteral(IntervalLiteral node, Context context)
-        {
-            Type type;
-            if (node.isYearToMonth()) {
-                type = INTERVAL_YEAR_MONTH;
-            }
-            else {
-                type = INTERVAL_DAY_TIME;
-            }
-            return setExpressionType(node, type);
-        }
-
-        @Override
-        protected Type visitNullLiteral(NullLiteral node, Context context)
-        {
-            return setExpressionType(node, UNKNOWN);
+            return setExpressionType(node, node.getType());
         }
 
         @Override
         protected Type visitFunctionCall(FunctionCall node, Context context)
         {
-            // Function should already be resolved in IR
-            ResolvedFunction function = functionResolver.resolveFunction(session, node.getName(), null, ALLOW_ALL_ACCESS_CONTROL);
-
-            BoundSignature signature = function.getSignature();
+            BoundSignature signature = node.getFunction().getSignature();
             for (int i = 0; i < node.getArguments().size(); i++) {
                 Expression argument = node.getArguments().get(i);
                 Type formalType = signature.getArgumentTypes().get(i);
@@ -505,7 +344,7 @@ public class IrTypeAnalyzer
             ImmutableMap.Builder<Symbol, Type> typeBindings = ImmutableMap.builder();
             for (int i = 0; i < argumentTypes.size(); i++) {
                 typeBindings.put(
-                        new Symbol(lambda.getArguments().get(i).getName().getValue()),
+                        new Symbol(lambda.getArguments().get(i)),
                         argumentTypes.get(i));
             }
 
@@ -527,34 +366,25 @@ public class IrTypeAnalyzer
         public Type visitCast(Cast node, Context context)
         {
             process(node.getExpression(), context);
-            return setExpressionType(node, plannerContext.getTypeManager().getType(toTypeSignature(node.getType())));
+            return setExpressionType(node, node.getType());
         }
 
         @Override
         protected Type visitInPredicate(InPredicate node, Context context)
         {
             Expression value = node.getValue();
-            InListExpression valueList = (InListExpression) node.getValueList();
 
             Type type = process(value, context);
-            for (Expression item : valueList.getValues()) {
+            for (Expression item : node.getValueList()) {
                 Type itemType = process(item, context);
                 checkArgument(itemType.equals(type), "Types must be equal: %s vs %s", itemType, type);
             }
-
-            setExpressionType(valueList, type);
 
             return setExpressionType(node, BOOLEAN);
         }
 
         @Override
         protected Type visitExpression(Expression node, Context context)
-        {
-            throw new UnsupportedOperationException("Not a valid IR expression: " + node.getClass().getName());
-        }
-
-        @Override
-        protected Type visitNode(Node node, Context context)
         {
             throw new UnsupportedOperationException("Not a valid IR expression: " + node.getClass().getName());
         }

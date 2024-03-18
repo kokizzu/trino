@@ -16,46 +16,47 @@ package io.trino.sql.planner.iterative.rule;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.trino.spi.type.BigintType;
+import io.trino.sql.ir.Constant;
+import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.ExpressionTreeRewriter;
+import io.trino.sql.ir.IsNullPredicate;
+import io.trino.sql.ir.NotExpression;
+import io.trino.sql.ir.Row;
+import io.trino.sql.ir.SymbolReference;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.assertions.PlanMatchPattern;
 import io.trino.sql.planner.iterative.rule.test.BaseRuleTest;
 import io.trino.sql.planner.iterative.rule.test.PlanBuilder;
 import io.trino.sql.planner.plan.Assignments;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.ExpressionTreeRewriter;
-import io.trino.sql.tree.IsNotNullPredicate;
-import io.trino.sql.tree.LongLiteral;
-import io.trino.sql.tree.Row;
-import io.trino.sql.tree.SymbolReference;
 import org.junit.jupiter.api.Test;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.spi.type.IntegerType.INTEGER;
+import static io.trino.sql.ir.BooleanLiteral.TRUE_LITERAL;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.expression;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.filter;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.patternRecognition;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.project;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.values;
 import static io.trino.sql.planner.rowpattern.Patterns.label;
-import static io.trino.sql.tree.BooleanLiteral.TRUE_LITERAL;
 
 public class TestExpressionRewriteRuleSet
         extends BaseRuleTest
 {
     private final ExpressionRewriteRuleSet zeroRewriter = new ExpressionRewriteRuleSet(
-            (expression, context) -> ExpressionTreeRewriter.rewriteWith(new io.trino.sql.tree.ExpressionRewriter<>()
+            (expression, context) -> ExpressionTreeRewriter.rewriteWith(new io.trino.sql.ir.ExpressionRewriter<>()
             {
                 @Override
                 protected Expression rewriteExpression(Expression node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
                 {
-                    return new LongLiteral("0");
+                    return new Constant(INTEGER, 0L);
                 }
 
                 @Override
                 public Expression rewriteRow(Row node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
                 {
                     // rewrite Row items to preserve Row structure of ValuesNode
-                    return new Row(node.getItems().stream().map(item -> new LongLiteral("0")).collect(toImmutableList()));
+                    return new Row(node.getItems().stream().map(item -> new Constant(INTEGER, 0L)).collect(toImmutableList()));
                 }
             }, expression));
 
@@ -64,10 +65,10 @@ public class TestExpressionRewriteRuleSet
     {
         tester().assertThat(zeroRewriter.projectExpressionRewrite())
                 .on(p -> p.project(
-                        Assignments.of(p.symbol("y"), new IsNotNullPredicate(new SymbolReference("x"))),
+                        Assignments.of(p.symbol("y"), new NotExpression(new IsNullPredicate(new SymbolReference("x")))),
                         p.values(p.symbol("x"))))
                 .matches(
-                        project(ImmutableMap.of("y", expression(new LongLiteral("0"))), values("x")));
+                        project(ImmutableMap.of("y", expression(new Constant(INTEGER, 0L))), values("x")));
     }
 
     @Test
@@ -75,7 +76,7 @@ public class TestExpressionRewriteRuleSet
     {
         tester().assertThat(zeroRewriter.projectExpressionRewrite())
                 .on(p -> p.project(
-                        Assignments.of(p.symbol("y"), new LongLiteral("0")),
+                        Assignments.of(p.symbol("y"), new Constant(INTEGER, 0L)),
                         p.values(p.symbol("x"))))
                 .doesNotFire();
     }
@@ -103,16 +104,16 @@ public class TestExpressionRewriteRuleSet
     public void testFilterExpressionRewrite()
     {
         tester().assertThat(zeroRewriter.filterExpressionRewrite())
-                .on(p -> p.filter(new LongLiteral("1"), p.values()))
+                .on(p -> p.filter(new Constant(INTEGER, 1L), p.values()))
                 .matches(
-                        filter(new LongLiteral("0"), values()));
+                        filter(new Constant(INTEGER, 0L), values()));
     }
 
     @Test
     public void testFilterExpressionNotRewritten()
     {
         tester().assertThat(zeroRewriter.filterExpressionRewrite())
-                .on(p -> p.filter(new LongLiteral("0"), p.values()))
+                .on(p -> p.filter(new Constant(INTEGER, 0L), p.values()))
                 .doesNotFire();
     }
 
@@ -122,9 +123,9 @@ public class TestExpressionRewriteRuleSet
         tester().assertThat(zeroRewriter.valuesExpressionRewrite())
                 .on(p -> p.values(
                         ImmutableList.<Symbol>of(p.symbol("a")),
-                        ImmutableList.of(ImmutableList.of(new LongLiteral("1")))))
+                        ImmutableList.of(ImmutableList.of(new Constant(INTEGER, 1L)))))
                 .matches(
-                        values(ImmutableList.of("a"), ImmutableList.of(ImmutableList.of(new LongLiteral("0")))));
+                        values(ImmutableList.of("a"), ImmutableList.of(ImmutableList.of(new Constant(INTEGER, 0L)))));
     }
 
     @Test
@@ -133,7 +134,7 @@ public class TestExpressionRewriteRuleSet
         tester().assertThat(zeroRewriter.valuesExpressionRewrite())
                 .on(p -> p.values(
                         ImmutableList.<Symbol>of(p.symbol("a")),
-                        ImmutableList.of(ImmutableList.of(new LongLiteral("0")))))
+                        ImmutableList.of(ImmutableList.of(new Constant(INTEGER, 0L)))))
                 .doesNotFire();
     }
 
@@ -145,16 +146,16 @@ public class TestExpressionRewriteRuleSet
         tester().assertThat(zeroRewriter.patternRecognitionExpressionRewrite())
                 .on(p -> p.patternRecognition(
                         builder -> builder
-                                .addMeasure(p.symbol("measure_1"), new LongLiteral("1"), INTEGER)
+                                .addMeasure(p.symbol("measure_1"), new Constant(INTEGER, 1L), INTEGER)
                                 .pattern(label("X"))
                                 .addVariableDefinition(label("X"), TRUE_LITERAL)
                                 .source(p.values(p.symbol("a")))))
                 .matches(
                         patternRecognition(
                                 builder -> builder
-                                        .addMeasure("measure_1", new LongLiteral("0"), INTEGER)
+                                        .addMeasure("measure_1", new Constant(INTEGER, 0L), INTEGER)
                                         .pattern(label("X"))
-                                        .addVariableDefinition(label("X"), new LongLiteral("0")),
+                                        .addVariableDefinition(label("X"), new Constant(INTEGER, 0L)),
                                 values("a")));
     }
 
@@ -164,9 +165,9 @@ public class TestExpressionRewriteRuleSet
         tester().assertThat(zeroRewriter.patternRecognitionExpressionRewrite())
                 .on(p -> p.patternRecognition(
                         builder -> builder
-                                .addMeasure(p.symbol("measure_1"), new LongLiteral("0"), INTEGER)
+                                .addMeasure(p.symbol("measure_1"), new Constant(INTEGER, 0L), INTEGER)
                                 .pattern(label("X"))
-                                .addVariableDefinition(label("X"), new LongLiteral("0"))
+                                .addVariableDefinition(label("X"), new Constant(INTEGER, 0L))
                                 .source(p.values(p.symbol("a")))))
                 .doesNotFire();
     }

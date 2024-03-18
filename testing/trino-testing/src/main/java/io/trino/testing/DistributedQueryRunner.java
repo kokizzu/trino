@@ -147,8 +147,8 @@ public class DistributedQueryRunner
             long discoveryStart = System.nanoTime();
             discoveryServer = new TestingDiscoveryServer(environment);
             closer.register(() -> closeUnchecked(discoveryServer));
-            closer.register(() -> extraCloseables.forEach(DistributedQueryRunner::closeUnchecked));
-            log.info("Created TestingDiscoveryServer in %s", nanosSince(discoveryStart));
+            extraCloseables.forEach(closeable -> closer.register(() -> closeUnchecked(closeable)));
+            log.debug("Created TestingDiscoveryServer in %s", nanosSince(discoveryStart));
 
             registerNewWorker = () -> createServer(
                     false,
@@ -309,7 +309,7 @@ public class DistributedQueryRunner
                 .build();
 
         String nodeRole = coordinator ? "coordinator" : "worker";
-        log.info("Created TestingTrinoServer %s in %s: %s", nodeRole, nanosSince(start).convertToMostSuccinctTimeUnit(), server.getBaseUrl());
+        log.debug("Created TestingTrinoServer %s in %s: %s", nodeRole, nanosSince(start).convertToMostSuccinctTimeUnit(), server.getBaseUrl());
 
         return server;
     }
@@ -451,7 +451,7 @@ public class DistributedQueryRunner
         long start = System.nanoTime();
         coordinator.createCatalog(catalogName, connectorName, properties);
         backupCoordinator.ifPresent(backup -> backup.createCatalog(catalogName, connectorName, properties));
-        log.info("Created catalog %s in %s", catalogName, nanosSince(start));
+        log.debug("Created catalog %s in %s", catalogName, nanosSince(start));
     }
 
     @Override

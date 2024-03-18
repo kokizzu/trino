@@ -17,11 +17,10 @@ import com.google.common.collect.ImmutableMap;
 import io.trino.Session;
 import io.trino.spi.expression.ConnectorExpression;
 import io.trino.spi.type.Type;
-import io.trino.sql.PlannerContext;
-import io.trino.sql.tree.AstVisitor;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.LambdaExpression;
-import io.trino.sql.tree.NodeRef;
+import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.IrVisitor;
+import io.trino.sql.ir.LambdaExpression;
+import io.trino.sql.ir.NodeRef;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -41,8 +40,7 @@ public final class PartialTranslator
             Expression inputExpression,
             Session session,
             IrTypeAnalyzer typeAnalyzer,
-            TypeProvider typeProvider,
-            PlannerContext plannerContext)
+            TypeProvider typeProvider)
     {
         requireNonNull(inputExpression, "inputExpression is null");
         requireNonNull(session, "session is null");
@@ -50,21 +48,21 @@ public final class PartialTranslator
         requireNonNull(typeProvider, "typeProvider is null");
 
         Map<NodeRef<Expression>, ConnectorExpression> partialTranslations = new HashMap<>();
-        new Visitor(session, typeAnalyzer.getTypes(session, typeProvider, inputExpression), partialTranslations, plannerContext).process(inputExpression);
+        new Visitor(session, typeAnalyzer.getTypes(typeProvider, inputExpression), partialTranslations).process(inputExpression);
         return ImmutableMap.copyOf(partialTranslations);
     }
 
     private static class Visitor
-            extends AstVisitor<Void, Void>
+            extends IrVisitor<Void, Void>
     {
         private final Map<NodeRef<Expression>, ConnectorExpression> translatedSubExpressions;
         private final ConnectorExpressionTranslator.SqlToConnectorExpressionTranslator translator;
 
-        Visitor(Session session, Map<NodeRef<Expression>, Type> types, Map<NodeRef<Expression>, ConnectorExpression> translatedSubExpressions, PlannerContext plannerContext)
+        Visitor(Session session, Map<NodeRef<Expression>, Type> types, Map<NodeRef<Expression>, ConnectorExpression> translatedSubExpressions)
         {
             requireNonNull(types, "types is null");
             this.translatedSubExpressions = requireNonNull(translatedSubExpressions, "translatedSubExpressions is null");
-            this.translator = new ConnectorExpressionTranslator.SqlToConnectorExpressionTranslator(session, types, plannerContext);
+            this.translator = new ConnectorExpressionTranslator.SqlToConnectorExpressionTranslator(session, types);
         }
 
         @Override

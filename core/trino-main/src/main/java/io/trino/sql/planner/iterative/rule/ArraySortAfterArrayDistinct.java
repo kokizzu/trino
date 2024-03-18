@@ -22,12 +22,12 @@ import io.trino.operator.scalar.ArraySortFunction;
 import io.trino.spi.function.CatalogSchemaFunctionName;
 import io.trino.spi.type.Type;
 import io.trino.sql.PlannerContext;
+import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.ExpressionTreeRewriter;
+import io.trino.sql.ir.FunctionCall;
+import io.trino.sql.ir.SymbolReference;
 import io.trino.sql.planner.BuiltinFunctionCallBuilder;
 import io.trino.sql.planner.iterative.Rule;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.ExpressionTreeRewriter;
-import io.trino.sql.tree.FunctionCall;
-import io.trino.sql.tree.SymbolReference;
 
 import java.util.List;
 import java.util.Set;
@@ -66,7 +66,7 @@ public class ArraySortAfterArrayDistinct
     }
 
     private static class Visitor
-            extends io.trino.sql.tree.ExpressionRewriter<Void>
+            extends io.trino.sql.ir.ExpressionRewriter<Void>
     {
         private final Metadata metadata;
 
@@ -79,12 +79,12 @@ public class ArraySortAfterArrayDistinct
         public Expression rewriteFunctionCall(FunctionCall node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
         {
             FunctionCall rewritten = treeRewriter.defaultRewrite(node, context);
-            if (metadata.decodeFunction(rewritten.getName()).getSignature().getName().equals(ARRAY_DISTINCT_NAME) &&
+            if (node.getFunction().getName().equals(ARRAY_DISTINCT_NAME) &&
                     getOnlyElement(rewritten.getArguments()) instanceof FunctionCall) {
                 Expression expression = getOnlyElement(rewritten.getArguments());
                 FunctionCall functionCall = (FunctionCall) expression;
-                ResolvedFunction resolvedFunction = metadata.decodeFunction(functionCall.getName());
-                if (resolvedFunction.getSignature().getName().equals(ARRAY_SORT_NAME)) {
+                ResolvedFunction resolvedFunction = functionCall.getFunction();
+                if (resolvedFunction.getName().equals(ARRAY_SORT_NAME)) {
                     List<Expression> arraySortArguments = functionCall.getArguments();
                     List<Type> arraySortArgumentsTypes = resolvedFunction.getSignature().getArgumentTypes();
 

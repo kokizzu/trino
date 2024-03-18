@@ -56,6 +56,11 @@ public class HttpThriftMetastoreClientFactory
     private final Map<String, String> additionalHeaders;
     private final OpenTelemetry openTelemetry;
 
+    private final AtomicInteger chosenGetTableMetaAlternative = new AtomicInteger(Integer.MAX_VALUE);
+    private final AtomicInteger chosenGetTableAlternative = new AtomicInteger(Integer.MAX_VALUE);
+    private final AtomicInteger chosenAlterTransactionalTableAlternative = new AtomicInteger(Integer.MAX_VALUE);
+    private final AtomicInteger chosenAlterPartitionsAlternative = new AtomicInteger(Integer.MAX_VALUE);
+
     @Inject
     public HttpThriftMetastoreClientFactory(
             ThriftHttpMetastoreConfig httpMetastoreConfig,
@@ -78,13 +83,10 @@ public class HttpThriftMetastoreClientFactory
                 () -> createHttpTransport(uri),
                 hostname,
                 new MetastoreSupportsDateStatistics(),
-                new AtomicInteger(Integer.MAX_VALUE),
-                new AtomicInteger(Integer.MAX_VALUE),
-                new AtomicInteger(Integer.MAX_VALUE),
-                new AtomicInteger(Integer.MAX_VALUE),
-                new AtomicInteger(Integer.MAX_VALUE),
-                new AtomicInteger(Integer.MAX_VALUE),
-                new AtomicInteger(Integer.MAX_VALUE));
+                chosenGetTableMetaAlternative,
+                chosenGetTableAlternative,
+                chosenAlterTransactionalTableAlternative,
+                chosenAlterPartitionsAlternative);
     }
 
     private TTransport createHttpTransport(URI uri)

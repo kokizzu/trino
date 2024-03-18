@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>441-SNAPSHOT</version>
+        <version>443-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -159,7 +159,7 @@
             <plugin>
                 <groupId>de.dentrassi.maven</groupId>
                 <artifactId>rpm</artifactId>
-                <version>1.11.0</version>
+                <version>1.12.0</version>
                 <extensions>true</extensions>
                 <executions>
                     <execution>

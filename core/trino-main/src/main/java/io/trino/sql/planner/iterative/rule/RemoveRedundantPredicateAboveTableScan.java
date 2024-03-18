@@ -24,6 +24,7 @@ import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.type.Type;
 import io.trino.sql.PlannerContext;
+import io.trino.sql.ir.Expression;
 import io.trino.sql.planner.DomainTranslator;
 import io.trino.sql.planner.DomainTranslator.ExtractionResult;
 import io.trino.sql.planner.IrTypeAnalyzer;
@@ -33,7 +34,6 @@ import io.trino.sql.planner.iterative.Rule;
 import io.trino.sql.planner.plan.FilterNode;
 import io.trino.sql.planner.plan.TableScanNode;
 import io.trino.sql.planner.plan.ValuesNode;
-import io.trino.sql.tree.Expression;
 
 import java.util.List;
 import java.util.Map;
@@ -42,6 +42,7 @@ import java.util.Optional;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.matching.Capture.newCapture;
 import static io.trino.spi.predicate.TupleDomain.intersect;
+import static io.trino.sql.ir.BooleanLiteral.TRUE_LITERAL;
 import static io.trino.sql.ir.IrUtils.combineConjuncts;
 import static io.trino.sql.ir.IrUtils.extractConjuncts;
 import static io.trino.sql.ir.IrUtils.filterDeterministicConjuncts;
@@ -50,7 +51,6 @@ import static io.trino.sql.planner.iterative.rule.PushPredicateIntoTableScan.cre
 import static io.trino.sql.planner.plan.Patterns.filter;
 import static io.trino.sql.planner.plan.Patterns.source;
 import static io.trino.sql.planner.plan.Patterns.tableScan;
-import static io.trino.sql.tree.BooleanLiteral.TRUE_LITERAL;
 import static java.lang.Boolean.FALSE;
 import static java.lang.Boolean.TRUE;
 import static java.util.Objects.requireNonNull;
@@ -142,7 +142,7 @@ public class RemoveRedundantPredicateAboveTableScan
                 context.getSymbolAllocator(),
                 typeAnalyzer,
                 TRUE_LITERAL, // Dynamic filters are included in decomposedPredicate.getRemainingExpression()
-                new DomainTranslator(plannerContext).toPredicate(unenforcedDomain.transformKeys(assignments::get)),
+                new DomainTranslator().toPredicate(unenforcedDomain.transformKeys(assignments::get)),
                 nonDeterministicPredicate,
                 decomposedPredicate.getRemainingExpression());
 
@@ -163,7 +163,6 @@ public class RemoveRedundantPredicateAboveTableScan
                         .map(ExtractionResult::getTupleDomain)
                         .collect(toImmutableList())),
                 combineConjuncts(
-                        plannerContext.getMetadata(),
                         extractedPredicates.getOrDefault(FALSE, ImmutableList.of()).stream()
                                 .map(ExtractionResult::getRemainingExpression)
                                 .collect(toImmutableList())));

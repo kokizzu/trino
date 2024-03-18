@@ -20,6 +20,8 @@ import io.trino.spi.function.BoundSignature;
 import io.trino.spi.type.RowType;
 import io.trino.spi.type.Type;
 import io.trino.sql.PlannerContext;
+import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.SymbolReference;
 import io.trino.sql.planner.IrTypeAnalyzer;
 import io.trino.sql.planner.SimplePlanVisitor;
 import io.trino.sql.planner.Symbol;
@@ -30,8 +32,6 @@ import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.ProjectNode;
 import io.trino.sql.planner.plan.UnionNode;
 import io.trino.sql.planner.plan.WindowNode;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.SymbolReference;
 import io.trino.type.FunctionType;
 import io.trino.type.UnknownType;
 
@@ -55,19 +55,17 @@ public final class TypeValidator
             TypeProvider types,
             WarningCollector warningCollector)
     {
-        plan.accept(new Visitor(session, typeAnalyzer, types), null);
+        plan.accept(new Visitor(typeAnalyzer, types), null);
     }
 
     private static class Visitor
             extends SimplePlanVisitor<Void>
     {
-        private final Session session;
         private final IrTypeAnalyzer typeAnalyzer;
         private final TypeProvider types;
 
-        public Visitor(Session session, IrTypeAnalyzer typeAnalyzer, TypeProvider types)
+        public Visitor(IrTypeAnalyzer typeAnalyzer, TypeProvider types)
         {
-            this.session = requireNonNull(session, "session is null");
             this.typeAnalyzer = requireNonNull(typeAnalyzer, "typeAnalyzer is null");
             this.types = requireNonNull(types, "types is null");
         }
@@ -118,7 +116,7 @@ public final class TypeValidator
                     verifyTypeSignature(entry.getKey(), expectedType, types.get(Symbol.from(symbolReference)));
                     continue;
                 }
-                Type actualType = typeAnalyzer.getType(session, types, entry.getValue());
+                Type actualType = typeAnalyzer.getType(types, entry.getValue());
                 verifyTypeSignature(entry.getKey(), expectedType, actualType);
             }
 
@@ -173,7 +171,7 @@ public final class TypeValidator
                 if (expectedTypeSignature instanceof FunctionType) {
                     continue;
                 }
-                Type actualTypeSignature = typeAnalyzer.getType(session, types, arguments.get(i));
+                Type actualTypeSignature = typeAnalyzer.getType(types, arguments.get(i));
                 verifyTypeSignature(symbol, expectedTypeSignature, actualTypeSignature);
             }
         }
