@@ -13,17 +13,19 @@
  */
 package io.trino.sql.ir;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.google.common.collect.ImmutableList;
+import io.trino.spi.type.Type;
 
 import java.util.List;
-import java.util.Objects;
 
+import static io.trino.spi.type.BooleanType.BOOLEAN;
+import static io.trino.sql.ir.IrUtils.validateType;
 import static java.util.Objects.requireNonNull;
 
-public final class ComparisonExpression
-        extends Expression
+@JsonSerialize
+public record Comparison(Operator operator, Expression left, Expression right)
+        implements Expression
 {
     public enum Operator
     {
@@ -83,72 +85,28 @@ public final class ComparisonExpression
         }
     }
 
-    private final Operator operator;
-    private final Expression left;
-    private final Expression right;
-
-    @JsonCreator
-    public ComparisonExpression(Operator operator, Expression left, Expression right)
+    public Comparison
     {
         requireNonNull(operator, "operator is null");
-        requireNonNull(left, "left is null");
-        requireNonNull(right, "right is null");
-
-        this.operator = operator;
-        this.left = left;
-        this.right = right;
+        validateType(left.type(), right);
     }
 
-    @JsonProperty
-    public Operator getOperator()
+    @Override
+    public Type type()
     {
-        return operator;
-    }
-
-    @JsonProperty
-    public Expression getLeft()
-    {
-        return left;
-    }
-
-    @JsonProperty
-    public Expression getRight()
-    {
-        return right;
+        return BOOLEAN;
     }
 
     @Override
     public <R, C> R accept(IrVisitor<R, C> visitor, C context)
     {
-        return visitor.visitComparisonExpression(this, context);
+        return visitor.visitComparison(this, context);
     }
 
     @Override
-    public List<? extends Expression> getChildren()
+    public List<? extends Expression> children()
     {
         return ImmutableList.of(left, right);
-    }
-
-    @Override
-    public boolean equals(Object o)
-    {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-
-        ComparisonExpression that = (ComparisonExpression) o;
-        return (operator == that.operator) &&
-                Objects.equals(left, that.left) &&
-                Objects.equals(right, that.right);
-    }
-
-    @Override
-    public int hashCode()
-    {
-        return Objects.hash(operator, left, right);
     }
 
     @Override

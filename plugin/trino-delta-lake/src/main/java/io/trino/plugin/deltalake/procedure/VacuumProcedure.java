@@ -183,10 +183,10 @@ public class VacuumProcedure
 
             TableSnapshot tableSnapshot = metadata.getSnapshot(session, tableName, handle.getLocation(), handle.getReadVersion());
             ProtocolEntry protocolEntry = transactionLogAccess.getProtocolEntry(session, tableSnapshot);
-            if (protocolEntry.getMinWriterVersion() > MAX_WRITER_VERSION) {
-                throw new TrinoException(NOT_SUPPORTED, "Cannot execute vacuum procedure with %d writer version".formatted(protocolEntry.getMinWriterVersion()));
+            if (protocolEntry.minWriterVersion() > MAX_WRITER_VERSION) {
+                throw new TrinoException(NOT_SUPPORTED, "Cannot execute vacuum procedure with %d writer version".formatted(protocolEntry.minWriterVersion()));
             }
-            Set<String> unsupportedWriterFeatures = unsupportedWriterFeatures(protocolEntry.getWriterFeatures().orElse(ImmutableSet.of()));
+            Set<String> unsupportedWriterFeatures = unsupportedWriterFeatures(protocolEntry.writerFeatures().orElse(ImmutableSet.of()));
             if (!unsupportedWriterFeatures.isEmpty()) {
                 throw new TrinoException(NOT_SUPPORTED, "Cannot execute vacuum procedure with %s writer features".formatted(unsupportedWriterFeatures));
             }
@@ -221,7 +221,7 @@ public class VacuumProcedure
                                                         .collect(toImmutableList()))
                                         .map(DeltaLakeTransactionLogEntry::getRemove)
                                         .filter(Objects::nonNull)
-                                        .map(RemoveFileEntry::getPath))
+                                        .map(RemoveFileEntry::path))
                         .peek(path -> checkState(!path.startsWith(tableLocation), "Unexpected absolute path in transaction log: %s", path))
                         .collect(toImmutableSet());
             }

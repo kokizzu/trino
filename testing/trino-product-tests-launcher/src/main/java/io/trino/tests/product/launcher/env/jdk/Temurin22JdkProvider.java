@@ -11,14 +11,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.sql.ir;
+package io.trino.tests.product.launcher.env.jdk;
 
-import static io.trino.spi.type.BooleanType.BOOLEAN;
+import com.google.inject.Inject;
+import io.trino.tests.product.launcher.env.EnvironmentOptions;
 
-public final class BooleanLiteral
+public class Temurin22JdkProvider
+        extends AdoptiumApiResolvingJdkProvider
 {
-    public static final Constant TRUE_LITERAL = new Constant(BOOLEAN, true);
-    public static final Constant FALSE_LITERAL = new Constant(BOOLEAN, false);
+    @Inject
+    public Temurin22JdkProvider(EnvironmentOptions environmentOptions)
+    {
+        super(environmentOptions);
+    }
 
-    private BooleanLiteral() {}
+    @Override
+    protected String getReleaseName()
+    {
+        return "jdk-22+36";
+    }
 }

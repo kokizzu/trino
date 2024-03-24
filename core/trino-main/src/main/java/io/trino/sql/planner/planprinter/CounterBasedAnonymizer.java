@@ -25,7 +25,7 @@ import io.trino.spi.type.Type;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
 import io.trino.sql.ir.ExpressionFormatter;
-import io.trino.sql.ir.SymbolReference;
+import io.trino.sql.ir.Reference;
 import io.trino.sql.planner.PartitioningHandle;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.SystemPartitioningHandle;
@@ -99,20 +99,20 @@ public class CounterBasedAnonymizer
         return anonymizeExpressionFormatter.process(expression);
     }
 
-    private String anonymizeSymbolReference(SymbolReference node)
+    private String anonymizeSymbolReference(Reference node)
     {
         return '"' + anonymize(Symbol.from(node)) + '"';
     }
 
     private String anonymizeLiteral(Constant literal)
     {
-        if (literal.getValue() == null) {
+        if (literal.value() == null) {
             return "null";
         }
-        if (literal.getType().equals(BOOLEAN)) {
-            return literal.getValue().toString();
+        if (literal.type().equals(BOOLEAN)) {
+            return literal.value().toString();
         }
-        return anonymizeLiteral(literal.getType().getDisplayName(), literal.getValue());
+        return anonymizeLiteral(literal.type().getDisplayName(), literal.value());
     }
 
     private <T> String anonymizeLiteral(String type, T value)

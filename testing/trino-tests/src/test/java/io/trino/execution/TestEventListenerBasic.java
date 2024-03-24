@@ -17,6 +17,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.json.JsonCodec;
+import io.airlift.json.JsonCodecFactory;
+import io.airlift.json.ObjectMapperProvider;
 import io.trino.Session;
 import io.trino.connector.MockConnectorFactory;
 import io.trino.connector.MockConnectorTableHandle;
@@ -49,9 +51,16 @@ import io.trino.spi.eventlistener.RoutineInfo;
 import io.trino.spi.eventlistener.TableInfo;
 import io.trino.spi.metrics.Metrics;
 import io.trino.spi.security.ViewExpression;
+import io.trino.spi.type.Type;
+import io.trino.spi.type.TypeManager;
+import io.trino.spi.type.TypeSignature;
+import io.trino.sql.planner.Symbol;
+import io.trino.sql.planner.SymbolKeyDeserializer;
 import io.trino.testing.AbstractTestQueryFramework;
 import io.trino.testing.DistributedQueryRunner;
 import io.trino.testing.QueryRunner;
+import io.trino.type.TypeDeserializer;
+import io.trino.type.TypeSignatureKeyDeserializer;
 import org.intellij.lang.annotations.Language;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -74,7 +83,6 @@ import static com.google.common.collect.Iterables.getOnlyElement;
 import static com.google.common.collect.MoreCollectors.toOptional;
 import static com.google.common.io.Resources.getResource;
 import static com.google.common.util.concurrent.MoreExecutors.shutdownAndAwaitTermination;
-import static io.airlift.json.JsonCodec.jsonCodec;
 import static io.airlift.json.JsonCodec.mapJsonCodec;
 import static io.trino.common.assertions.TrinoAssertions.assertThat;
 import static io.trino.connector.MockConnectorEntities.TPCH_NATION_DATA;
@@ -85,7 +93,6 @@ import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.spi.type.VarcharType.createVarcharType;
 import static io.trino.sql.planner.planprinter.JsonRenderer.JsonRenderedNode;
-import static io.trino.sql.planner.planprinter.NodeRepresentation.TypedSymbol.typedSymbol;
 import static io.trino.testing.TestingSession.testSessionBuilder;
 import static java.lang.Double.NaN;
 import static java.lang.String.format;
@@ -100,7 +107,6 @@ public class TestEventListenerBasic
         extends AbstractTestQueryFramework
 {
     private static final JsonCodec<Map<String, JsonRenderedNode>> ANONYMIZED_PLAN_JSON_CODEC = mapJsonCodec(String.class, JsonRenderedNode.class);
-    private static final JsonCodec<StatsAndCosts> STATS_AND_COSTS_JSON_CODEC = jsonCodec(StatsAndCosts.class);
     private static final String IGNORE_EVENT_MARKER = " -- ignore_generated_event";
     private static final String VARCHAR_TYPE = "varchar(15)";
     private static final String BIGINT_TYPE = BIGINT.getDisplayName();
@@ -1414,7 +1420,19 @@ public class TestEventListenerBasic
         QueryEvents queryEvents = queries.runQueryAndWaitForEvents("SELECT l.name FROM nation l, nation r WHERE l.nationkey = r.nationkey", getSession(), true).getQueryEvents();
         QueryCompletedEvent event = queryEvents.getQueryCompletedEvent();
         assertThat(event.getStatistics().getPlanNodeStatsAndCosts()).isPresent();
-        StatsAndCosts statsAndCosts = STATS_AND_COSTS_JSON_CODEC.fromJson(event.getStatistics().getPlanNodeStatsAndCosts().get());
+
+        TypeManager typeManager = getQueryRunner().getPlannerContext().getTypeManager();
+        ObjectMapperProvider provider = new ObjectMapperProvider();
+        provider.setKeyDeserializers(ImmutableMap.of(
+                Symbol.class, new SymbolKeyDeserializer(typeManager),
+                TypeSignature.class, new TypeSignatureKeyDeserializer()));
+
+        provider.setJsonDeserializers(ImmutableMap.of(
+                Type.class, new TypeDeserializer(typeManager::getType)));
+
+        JsonCodec<StatsAndCosts> codec = new JsonCodecFactory(provider).jsonCodec(StatsAndCosts.class);
+
+        StatsAndCosts statsAndCosts = codec.fromJson(event.getStatistics().getPlanNodeStatsAndCosts().get());
         assertThat(statsAndCosts.getStats().values()).allMatch(stats -> stats.getOutputRowCount() == 25.0);
     }
 
@@ -1429,14 +1447,14 @@ public class TestEventListenerBasic
                         "6",
                         "Output",
                         ImmutableMap.of("columnNames", "[column_1]"),
-                        ImmutableList.of(typedSymbol("symbol_1", DOUBLE)),
+                        ImmutableList.of(new Symbol(DOUBLE, "symbol_1")),
                         ImmutableList.of(),
                         ImmutableList.of(new PlanNodeStatsAndCostSummary(10., 90., 0., 0., 0.)),
                         ImmutableList.of(new JsonRenderedNode(
                                 "100",
                                 "Limit",
                                 ImmutableMap.of("count", "10", "withTies", "", "inputPreSortedBy", "[]"),
-                                ImmutableList.of(typedSymbol("symbol_1", DOUBLE)),
+                                ImmutableList.of(new Symbol(DOUBLE, "symbol_1")),
                                 ImmutableList.of(),
                                 ImmutableList.of(new PlanNodeStatsAndCostSummary(10., 90., 90., 0., 0.)),
                                 ImmutableList.of(new JsonRenderedNode(
@@ -1447,14 +1465,14 @@ public class TestEventListenerBasic
                                                 "isReplicateNullsAndAny", "",
                                                 "hashColumn", "[]",
                                                 "arguments", "[]"),
-                                        ImmutableList.of(typedSymbol("symbol_1", DOUBLE)),
+                                        ImmutableList.of(new Symbol(DOUBLE, "symbol_1")),
                                         ImmutableList.of(),
                                         ImmutableList.of(new PlanNodeStatsAndCostSummary(10., 90., 0., 0., 0.)),
                                         ImmutableList.of(new JsonRenderedNode(
                                                 "140",
                                                 "RemoteSource",
                                                 ImmutableMap.of("sourceFragmentIds", "[1]"),
-                                                ImmutableList.of(typedSymbol("symbol_1", DOUBLE)),
+                                                ImmutableList.of(new Symbol(DOUBLE, "symbol_1")),
                                                 ImmutableList.of(),
                                                 ImmutableList.of(),
                                                 ImmutableList.of()))))))),
@@ -1465,7 +1483,7 @@ public class TestEventListenerBasic
                                 "count", "10",
                                 "withTies", "",
                                 "inputPreSortedBy", "[]"),
-                        ImmutableList.of(typedSymbol("symbol_1", DOUBLE)),
+                        ImmutableList.of(new Symbol(DOUBLE, "symbol_1")),
                         ImmutableList.of(),
                         ImmutableList.of(new PlanNodeStatsAndCostSummary(10., 90., 90., 0., 0.)),
                         ImmutableList.of(new JsonRenderedNode(
@@ -1473,7 +1491,7 @@ public class TestEventListenerBasic
                                 "TableScan",
                                 ImmutableMap.of(
                                         "table", "[table = catalog_1.schema_1.table_1, connector = tpch]"),
-                                ImmutableList.of(typedSymbol("symbol_1", DOUBLE)),
+                                ImmutableList.of(new Symbol(DOUBLE, "symbol_1")),
                                 ImmutableList.of("symbol_1 := column_2"),
                                 ImmutableList.of(new PlanNodeStatsAndCostSummary(NaN, NaN, NaN, 0., 0.)),
                                 ImmutableList.of()))));

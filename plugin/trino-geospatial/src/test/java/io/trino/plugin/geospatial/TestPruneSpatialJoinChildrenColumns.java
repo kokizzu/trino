@@ -17,9 +17,9 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.trino.metadata.ResolvedFunction;
 import io.trino.metadata.TestingFunctionResolution;
-import io.trino.sql.ir.ComparisonExpression;
-import io.trino.sql.ir.FunctionCall;
-import io.trino.sql.ir.SymbolReference;
+import io.trino.sql.ir.Call;
+import io.trino.sql.ir.Comparison;
+import io.trino.sql.ir.Reference;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.assertions.PlanMatchPattern;
 import io.trino.sql.planner.iterative.rule.PruneSpatialJoinChildrenColumns;
@@ -30,8 +30,10 @@ import org.junit.jupiter.api.Test;
 import java.util.Optional;
 
 import static io.trino.plugin.geospatial.GeometryType.GEOMETRY;
+import static io.trino.spi.type.BigintType.BIGINT;
+import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.sql.analyzer.TypeSignatureProvider.fromTypes;
-import static io.trino.sql.ir.ComparisonExpression.Operator.LESS_THAN_OR_EQUAL;
+import static io.trino.sql.ir.Comparison.Operator.LESS_THAN_OR_EQUAL;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.spatialJoin;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.strictProject;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.values;
@@ -47,27 +49,27 @@ public class TestPruneSpatialJoinChildrenColumns
     {
         tester().assertThat(new PruneSpatialJoinChildrenColumns())
                 .on(p -> {
-                    Symbol a = p.symbol("a");
-                    Symbol b = p.symbol("b");
-                    Symbol r = p.symbol("r");
+                    Symbol a = p.symbol("a", GEOMETRY);
+                    Symbol b = p.symbol("b", GEOMETRY);
+                    Symbol r = p.symbol("r", DOUBLE);
                     Symbol unused = p.symbol("unused");
                     return p.spatialJoin(
                             SpatialJoinNode.Type.INNER,
                             p.values(a, unused),
                             p.values(b, r),
                             ImmutableList.of(a, b, r),
-                            new ComparisonExpression(
+                            new Comparison(
                                     LESS_THAN_OR_EQUAL,
-                                    new FunctionCall(TEST_ST_DISTANCE_FUNCTION, ImmutableList.of(a.toSymbolReference(), b.toSymbolReference())),
+                                    new Call(TEST_ST_DISTANCE_FUNCTION, ImmutableList.of(a.toSymbolReference(), b.toSymbolReference())),
                                     r.toSymbolReference()));
                 })
                 .matches(
                         spatialJoin(
-                                new ComparisonExpression(LESS_THAN_OR_EQUAL, new FunctionCall(TEST_ST_DISTANCE_FUNCTION, ImmutableList.of(new SymbolReference("a"), new SymbolReference("b"))), new SymbolReference("r")),
+                                new Comparison(LESS_THAN_OR_EQUAL, new Call(TEST_ST_DISTANCE_FUNCTION, ImmutableList.of(new Reference(GEOMETRY, "a"), new Reference(GEOMETRY, "b"))), new Reference(DOUBLE, "r")),
                                 Optional.empty(),
                                 Optional.of(ImmutableList.of("a", "b", "r")),
                                 strictProject(
-                                        ImmutableMap.of("a", PlanMatchPattern.expression(new SymbolReference("a"))),
+                                        ImmutableMap.of("a", PlanMatchPattern.expression(new Reference(GEOMETRY, "a"))),
                                         values("a", "unused")),
                                 values("b", "r")));
     }
@@ -77,31 +79,31 @@ public class TestPruneSpatialJoinChildrenColumns
     {
         tester().assertThat(new PruneSpatialJoinChildrenColumns())
                 .on(p -> {
-                    Symbol a = p.symbol("a");
-                    Symbol b = p.symbol("b");
-                    Symbol r = p.symbol("r");
-                    Symbol unusedLeft = p.symbol("unused_left");
-                    Symbol unusedRight = p.symbol("unused_right");
+                    Symbol a = p.symbol("a", GEOMETRY);
+                    Symbol b = p.symbol("b", GEOMETRY);
+                    Symbol r = p.symbol("r", DOUBLE);
+                    Symbol unusedLeft = p.symbol("unused_left", BIGINT);
+                    Symbol unusedRight = p.symbol("unused_right", BIGINT);
                     return p.spatialJoin(
                             SpatialJoinNode.Type.INNER,
                             p.values(a, unusedLeft),
                             p.values(b, r, unusedRight),
                             ImmutableList.of(a, b, r),
-                            new ComparisonExpression(
+                            new Comparison(
                                     LESS_THAN_OR_EQUAL,
-                                    new FunctionCall(TEST_ST_DISTANCE_FUNCTION, ImmutableList.of(a.toSymbolReference(), b.toSymbolReference())),
+                                    new Call(TEST_ST_DISTANCE_FUNCTION, ImmutableList.of(a.toSymbolReference(), b.toSymbolReference())),
                                     r.toSymbolReference()));
                 })
                 .matches(
                         spatialJoin(
-                                new ComparisonExpression(LESS_THAN_OR_EQUAL, new FunctionCall(TEST_ST_DISTANCE_FUNCTION, ImmutableList.of(new SymbolReference("a"), new SymbolReference("b"))), new SymbolReference("r")),
+                                new Comparison(LESS_THAN_OR_EQUAL, new Call(TEST_ST_DISTANCE_FUNCTION, ImmutableList.of(new Reference(GEOMETRY, "a"), new Reference(GEOMETRY, "b"))), new Reference(DOUBLE, "r")),
                                 Optional.empty(),
                                 Optional.of(ImmutableList.of("a", "b", "r")),
                                 strictProject(
-                                        ImmutableMap.of("a", PlanMatchPattern.expression(new SymbolReference("a"))),
+                                        ImmutableMap.of("a", PlanMatchPattern.expression(new Reference(GEOMETRY, "a"))),
                                         values("a", "unused_left")),
                                 strictProject(
-                                        ImmutableMap.of("b", PlanMatchPattern.expression(new SymbolReference("b")), "r", PlanMatchPattern.expression(new SymbolReference("r"))),
+                                        ImmutableMap.of("b", PlanMatchPattern.expression(new Reference(GEOMETRY, "b")), "r", PlanMatchPattern.expression(new Reference(DOUBLE, "r"))),
                                         values("b", "r", "unused_right"))));
     }
 
@@ -110,16 +112,16 @@ public class TestPruneSpatialJoinChildrenColumns
     {
         tester().assertThat(new PruneSpatialJoinChildrenColumns())
                 .on(p -> {
-                    Symbol a = p.symbol("a");
-                    Symbol b = p.symbol("b");
-                    Symbol r = p.symbol("r");
-                    Symbol output = p.symbol("output");
+                    Symbol a = p.symbol("a", GEOMETRY);
+                    Symbol b = p.symbol("b", GEOMETRY);
+                    Symbol r = p.symbol("r", DOUBLE);
+                    Symbol output = p.symbol("output", BIGINT);
                     return p.spatialJoin(
                             SpatialJoinNode.Type.INNER,
                             p.values(a),
                             p.values(b, r, output),
                             ImmutableList.of(output),
-                            new ComparisonExpression(LESS_THAN_OR_EQUAL, new FunctionCall(TEST_ST_DISTANCE_FUNCTION, ImmutableList.of(new SymbolReference("a"), new SymbolReference("b"))), new SymbolReference("r")));
+                            new Comparison(LESS_THAN_OR_EQUAL, new Call(TEST_ST_DISTANCE_FUNCTION, ImmutableList.of(new Reference(GEOMETRY, "a"), new Reference(GEOMETRY, "b"))), new Reference(DOUBLE, "r")));
                 })
                 .doesNotFire();
     }
@@ -129,17 +131,17 @@ public class TestPruneSpatialJoinChildrenColumns
     {
         tester().assertThat(new PruneSpatialJoinChildrenColumns())
                 .on(p -> {
-                    Symbol a = p.symbol("a");
-                    Symbol b = p.symbol("b");
-                    Symbol r = p.symbol("r");
-                    Symbol leftPartitionSymbol = p.symbol("left_partition_symbol");
-                    Symbol rightPartitionSymbol = p.symbol("right_partition_symbol");
+                    Symbol a = p.symbol("a", GEOMETRY);
+                    Symbol b = p.symbol("b", GEOMETRY);
+                    Symbol r = p.symbol("r", DOUBLE);
+                    Symbol leftPartitionSymbol = p.symbol("left_partition_symbol", BIGINT);
+                    Symbol rightPartitionSymbol = p.symbol("right_partition_symbol", BIGINT);
                     return p.spatialJoin(
                             SpatialJoinNode.Type.INNER,
                             p.values(a, leftPartitionSymbol),
                             p.values(b, r, rightPartitionSymbol),
                             ImmutableList.of(a, b, r),
-                            new ComparisonExpression(LESS_THAN_OR_EQUAL, new FunctionCall(TEST_ST_DISTANCE_FUNCTION, ImmutableList.of(new SymbolReference("a"), new SymbolReference("b"))), new SymbolReference("r")),
+                            new Comparison(LESS_THAN_OR_EQUAL, new Call(TEST_ST_DISTANCE_FUNCTION, ImmutableList.of(new Reference(GEOMETRY, "a"), new Reference(GEOMETRY, "b"))), new Reference(DOUBLE, "r")),
                             Optional.of(leftPartitionSymbol),
                             Optional.of(rightPartitionSymbol),
                             Optional.of("some nice kdb tree"));

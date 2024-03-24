@@ -18,9 +18,9 @@ import io.trino.metadata.ResolvedFunction;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeSignature;
 import io.trino.sql.analyzer.TypeSignatureProvider;
+import io.trino.sql.ir.Call;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
-import io.trino.sql.ir.FunctionCall;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -54,7 +54,7 @@ public class BuiltinFunctionCallBuilder
     public BuiltinFunctionCallBuilder addArgument(Constant value)
     {
         requireNonNull(value, "value is null");
-        return addArgument(value.getType().getTypeSignature(), value);
+        return addArgument(value.type().getTypeSignature(), value);
     }
 
     public BuiltinFunctionCallBuilder addArgument(Type type, Expression value)
@@ -83,9 +83,9 @@ public class BuiltinFunctionCallBuilder
         return this;
     }
 
-    public FunctionCall build()
+    public Call build()
     {
         ResolvedFunction resolvedFunction = metadata.resolveBuiltinFunction(name, TypeSignatureProvider.fromTypeSignatures(argumentTypes));
-        return new FunctionCall(resolvedFunction, argumentValues);
+        return new Call(resolvedFunction, argumentValues);
     }
 }

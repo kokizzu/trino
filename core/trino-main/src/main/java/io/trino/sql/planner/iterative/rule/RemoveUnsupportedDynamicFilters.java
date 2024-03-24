@@ -24,12 +24,9 @@ import io.trino.sql.ir.Cast;
 import io.trino.sql.ir.Expression;
 import io.trino.sql.ir.ExpressionRewriter;
 import io.trino.sql.ir.ExpressionTreeRewriter;
-import io.trino.sql.ir.LogicalExpression;
-import io.trino.sql.ir.NodeRef;
-import io.trino.sql.ir.SymbolReference;
-import io.trino.sql.planner.IrTypeAnalyzer;
+import io.trino.sql.ir.Logical;
+import io.trino.sql.ir.Reference;
 import io.trino.sql.planner.Symbol;
-import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.planner.optimizations.PlanOptimizer;
 import io.trino.sql.planner.plan.DynamicFilterId;
 import io.trino.sql.planner.plan.FilterNode;
@@ -56,7 +53,7 @@ import static io.trino.spi.function.OperatorType.SATURATED_FLOOR_CAST;
 import static io.trino.sql.DynamicFilters.extractDynamicFilters;
 import static io.trino.sql.DynamicFilters.getDescriptor;
 import static io.trino.sql.DynamicFilters.isDynamicFilter;
-import static io.trino.sql.ir.BooleanLiteral.TRUE_LITERAL;
+import static io.trino.sql.ir.Booleans.TRUE;
 import static io.trino.sql.ir.IrUtils.combineConjuncts;
 import static io.trino.sql.ir.IrUtils.combinePredicates;
 import static io.trino.sql.ir.IrUtils.extractConjuncts;
@@ -74,31 +71,27 @@ public class RemoveUnsupportedDynamicFilters
         implements PlanOptimizer
 {
     private final PlannerContext plannerContext;
-    private final IrTypeAnalyzer typeAnalyzer;
 
     public RemoveUnsupportedDynamicFilters(PlannerContext plannerContext)
     {
         this.plannerContext = requireNonNull(plannerContext, "plannerContext is null");
         // This is a limited type analyzer for the simple expressions used in dynamic filters
-        this.typeAnalyzer = new IrTypeAnalyzer(plannerContext);
     }
 
     @Override
     public PlanNode optimize(PlanNode plan, Context context)
     {
-        PlanWithConsumedDynamicFilters result = plan.accept(new RemoveUnsupportedDynamicFilters.Rewriter(context.types()), ImmutableSet.of());
+        PlanWithConsumedDynamicFilters result = plan.accept(new RemoveUnsupportedDynamicFilters.Rewriter(), ImmutableSet.of());
         return result.getNode();
     }
 
     private class Rewriter
             extends PlanVisitor<PlanWithConsumedDynamicFilters, Set<DynamicFilterId>>
     {
-        private final TypeProvider types;
         private final TypeCoercion typeCoercion;
 
-        public Rewriter(TypeProvider types)
+        public Rewriter()
         {
-            this.types = requireNonNull(types, "types is null");
             this.typeCoercion = new TypeCoercion(plannerContext.getTypeManager()::getType);
         }
 
@@ -145,7 +138,7 @@ public class RemoveUnsupportedDynamicFilters
 
             Optional<Expression> filter = node
                     .getFilter().map(this::removeAllDynamicFilters)  // no DF support at Join operators.
-                    .filter(expression -> !expression.equals(TRUE_LITERAL));
+                    .filter(expression -> !expression.equals(TRUE));
 
             PlanNode left = leftResult.getNode();
             PlanNode right = rightResult.getNode();
@@ -277,7 +270,7 @@ public class RemoveUnsupportedDynamicFilters
                 modified = removeAllDynamicFilters(original);
             }
 
-            if (TRUE_LITERAL.equals(modified)) {
+            if (TRUE.equals(modified)) {
                 return new PlanWithConsumedDynamicFilters(source, consumedDynamicFilterIds.build());
             }
 
@@ -310,18 +303,17 @@ public class RemoveUnsupportedDynamicFilters
 
         private boolean isSupportedDynamicFilterExpression(Expression expression)
         {
-            if (expression instanceof SymbolReference) {
+            if (expression instanceof Reference) {
                 return true;
             }
             if (!(expression instanceof Cast castExpression)) {
                 return false;
             }
-            if (!(castExpression.getExpression() instanceof SymbolReference)) {
+            if (!(castExpression.expression() instanceof Reference)) {
                 return false;
             }
-            Map<NodeRef<Expression>, Type> expressionTypes = typeAnalyzer.getTypes(types, expression);
-            Type castSourceType = expressionTypes.get(NodeRef.of(castExpression.getExpression()));
-            Type castTargetType = expressionTypes.get(NodeRef.<Expression>of(castExpression));
+            Type castSourceType = castExpression.expression().type();
+            Type castTargetType = castExpression.type();
             // CAST must be an implicit coercion
             if (!typeCoercion.canCoerce(castSourceType, castTargetType)) {
                 return false;
@@ -355,16 +347,16 @@ public class RemoveUnsupportedDynamicFilters
             return ExpressionTreeRewriter.rewriteWith(new ExpressionRewriter<>()
             {
                 @Override
-                public Expression rewriteLogicalExpression(LogicalExpression node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
+                public Expression rewriteLogical(Logical node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
                 {
-                    LogicalExpression rewrittenNode = treeRewriter.defaultRewrite(node, context);
+                    Logical rewrittenNode = treeRewriter.defaultRewrite(node, context);
 
                     boolean modified = (node != rewrittenNode);
                     ImmutableList.Builder<Expression> expressionBuilder = ImmutableList.builder();
 
-                    for (Expression term : rewrittenNode.getTerms()) {
+                    for (Expression term : rewrittenNode.terms()) {
                         if (isDynamicFilter(term)) {
-                            expressionBuilder.add(TRUE_LITERAL);
+                            expressionBuilder.add(TRUE);
                             modified = true;
                         }
                         else {
@@ -375,7 +367,7 @@ public class RemoveUnsupportedDynamicFilters
                     if (!modified) {
                         return node;
                     }
-                    return combinePredicates(node.getOperator(), expressionBuilder.build());
+                    return combinePredicates(node.operator(), expressionBuilder.build());
                 }
             }, expression);
         }

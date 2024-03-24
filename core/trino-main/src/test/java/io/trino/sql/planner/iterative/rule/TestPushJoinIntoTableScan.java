@@ -37,8 +37,8 @@ import io.trino.spi.function.OperatorType;
 import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.NullableValue;
 import io.trino.spi.predicate.TupleDomain;
-import io.trino.sql.ir.ArithmeticBinaryExpression;
-import io.trino.sql.ir.ComparisonExpression;
+import io.trino.sql.ir.Arithmetic;
+import io.trino.sql.ir.Comparison;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.iterative.rule.test.RuleTester;
@@ -60,7 +60,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.spi.expression.StandardFunctions.MULTIPLY_FUNCTION_NAME;
 import static io.trino.spi.predicate.Domain.onlyNull;
 import static io.trino.spi.type.BigintType.BIGINT;
-import static io.trino.sql.ir.ArithmeticBinaryExpression.Operator.MULTIPLY;
+import static io.trino.sql.ir.Arithmetic.Operator.MULTIPLY;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.anyTree;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.project;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.tableScan;
@@ -136,7 +136,7 @@ public class TestPushJoinIntoTableScan
 
     @ParameterizedTest
     @MethodSource("testPushJoinIntoTableScanParams")
-    public void testPushJoinIntoTableScan(io.trino.sql.planner.plan.JoinType joinType, Optional<ComparisonExpression.Operator> filterComparisonOperator)
+    public void testPushJoinIntoTableScan(io.trino.sql.planner.plan.JoinType joinType, Optional<Comparison.Operator> filterComparisonOperator)
     {
         MockConnectorFactory connectorFactory = createMockConnectorFactory((session, applyJoinType, left, right, joinConditions, leftAssignments, rightAssignments) -> {
             assertThat(((MockConnectorTableHandle) left).getTableName()).isEqualTo(TABLE_A_SCHEMA_TABLE_NAME);
@@ -152,7 +152,7 @@ public class TestPushJoinIntoTableScan
                     false));
         });
         try (RuleTester ruleTester = RuleTester.builder().withDefaultCatalogConnectorFactory(connectorFactory).build()) {
-            ruleTester.assertThat(new PushJoinIntoTableScan(ruleTester.getPlannerContext(), ruleTester.getTypeAnalyzer()))
+            ruleTester.assertThat(new PushJoinIntoTableScan(ruleTester.getPlannerContext()))
                     .withSession(MOCK_SESSION)
                     .on(p -> {
                         Symbol columnA1Symbol = p.symbol(COLUMN_A1);
@@ -180,7 +180,7 @@ public class TestPushJoinIntoTableScan
                                 joinType,
                                 left,
                                 right,
-                                new ComparisonExpression(filterComparisonOperator.get(), columnA1Symbol.toSymbolReference(), columnB1Symbol.toSymbolReference()));
+                                new Comparison(filterComparisonOperator.get(), columnA1Symbol.toSymbolReference(), columnB1Symbol.toSymbolReference()));
                     })
                     .matches(
                             project(
@@ -192,40 +192,40 @@ public class TestPushJoinIntoTableScan
     {
         return Stream.of(
                 Arguments.of(INNER, Optional.empty()),
-                Arguments.of(INNER, Optional.of(ComparisonExpression.Operator.EQUAL)),
-                Arguments.of(INNER, Optional.of(ComparisonExpression.Operator.LESS_THAN)),
-                Arguments.of(INNER, Optional.of(ComparisonExpression.Operator.LESS_THAN_OR_EQUAL)),
-                Arguments.of(INNER, Optional.of(ComparisonExpression.Operator.GREATER_THAN)),
-                Arguments.of(INNER, Optional.of(ComparisonExpression.Operator.GREATER_THAN_OR_EQUAL)),
-                Arguments.of(INNER, Optional.of(ComparisonExpression.Operator.NOT_EQUAL)),
-                Arguments.of(INNER, Optional.of(ComparisonExpression.Operator.IS_DISTINCT_FROM)),
+                Arguments.of(INNER, Optional.of(Comparison.Operator.EQUAL)),
+                Arguments.of(INNER, Optional.of(Comparison.Operator.LESS_THAN)),
+                Arguments.of(INNER, Optional.of(Comparison.Operator.LESS_THAN_OR_EQUAL)),
+                Arguments.of(INNER, Optional.of(Comparison.Operator.GREATER_THAN)),
+                Arguments.of(INNER, Optional.of(Comparison.Operator.GREATER_THAN_OR_EQUAL)),
+                Arguments.of(INNER, Optional.of(Comparison.Operator.NOT_EQUAL)),
+                Arguments.of(INNER, Optional.of(Comparison.Operator.IS_DISTINCT_FROM)),
 
                 Arguments.of(io.trino.sql.planner.plan.JoinType.LEFT, Optional.empty()),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.LEFT, Optional.of(ComparisonExpression.Operator.EQUAL)),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.LEFT, Optional.of(ComparisonExpression.Operator.LESS_THAN)),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.LEFT, Optional.of(ComparisonExpression.Operator.LESS_THAN_OR_EQUAL)),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.LEFT, Optional.of(ComparisonExpression.Operator.GREATER_THAN)),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.LEFT, Optional.of(ComparisonExpression.Operator.GREATER_THAN_OR_EQUAL)),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.LEFT, Optional.of(ComparisonExpression.Operator.NOT_EQUAL)),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.LEFT, Optional.of(ComparisonExpression.Operator.IS_DISTINCT_FROM)),
+                Arguments.of(io.trino.sql.planner.plan.JoinType.LEFT, Optional.of(Comparison.Operator.EQUAL)),
+                Arguments.of(io.trino.sql.planner.plan.JoinType.LEFT, Optional.of(Comparison.Operator.LESS_THAN)),
+                Arguments.of(io.trino.sql.planner.plan.JoinType.LEFT, Optional.of(Comparison.Operator.LESS_THAN_OR_EQUAL)),
+                Arguments.of(io.trino.sql.planner.plan.JoinType.LEFT, Optional.of(Comparison.Operator.GREATER_THAN)),
+                Arguments.of(io.trino.sql.planner.plan.JoinType.LEFT, Optional.of(Comparison.Operator.GREATER_THAN_OR_EQUAL)),
+                Arguments.of(io.trino.sql.planner.plan.JoinType.LEFT, Optional.of(Comparison.Operator.NOT_EQUAL)),
+                Arguments.of(io.trino.sql.planner.plan.JoinType.LEFT, Optional.of(Comparison.Operator.IS_DISTINCT_FROM)),
 
                 Arguments.of(io.trino.sql.planner.plan.JoinType.RIGHT, Optional.empty()),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.RIGHT, Optional.of(ComparisonExpression.Operator.EQUAL)),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.RIGHT, Optional.of(ComparisonExpression.Operator.LESS_THAN)),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.RIGHT, Optional.of(ComparisonExpression.Operator.LESS_THAN_OR_EQUAL)),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.RIGHT, Optional.of(ComparisonExpression.Operator.GREATER_THAN)),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.RIGHT, Optional.of(ComparisonExpression.Operator.GREATER_THAN_OR_EQUAL)),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.RIGHT, Optional.of(ComparisonExpression.Operator.NOT_EQUAL)),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.RIGHT, Optional.of(ComparisonExpression.Operator.IS_DISTINCT_FROM)),
+                Arguments.of(io.trino.sql.planner.plan.JoinType.RIGHT, Optional.of(Comparison.Operator.EQUAL)),
+                Arguments.of(io.trino.sql.planner.plan.JoinType.RIGHT, Optional.of(Comparison.Operator.LESS_THAN)),
+                Arguments.of(io.trino.sql.planner.plan.JoinType.RIGHT, Optional.of(Comparison.Operator.LESS_THAN_OR_EQUAL)),
+                Arguments.of(io.trino.sql.planner.plan.JoinType.RIGHT, Optional.of(Comparison.Operator.GREATER_THAN)),
+                Arguments.of(io.trino.sql.planner.plan.JoinType.RIGHT, Optional.of(Comparison.Operator.GREATER_THAN_OR_EQUAL)),
+                Arguments.of(io.trino.sql.planner.plan.JoinType.RIGHT, Optional.of(Comparison.Operator.NOT_EQUAL)),
+                Arguments.of(io.trino.sql.planner.plan.JoinType.RIGHT, Optional.of(Comparison.Operator.IS_DISTINCT_FROM)),
 
                 Arguments.of(io.trino.sql.planner.plan.JoinType.FULL, Optional.empty()),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.FULL, Optional.of(ComparisonExpression.Operator.EQUAL)),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.FULL, Optional.of(ComparisonExpression.Operator.LESS_THAN)),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.FULL, Optional.of(ComparisonExpression.Operator.LESS_THAN_OR_EQUAL)),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.FULL, Optional.of(ComparisonExpression.Operator.GREATER_THAN)),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.FULL, Optional.of(ComparisonExpression.Operator.GREATER_THAN_OR_EQUAL)),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.FULL, Optional.of(ComparisonExpression.Operator.NOT_EQUAL)),
-                Arguments.of(io.trino.sql.planner.plan.JoinType.FULL, Optional.of(ComparisonExpression.Operator.IS_DISTINCT_FROM)));
+                Arguments.of(io.trino.sql.planner.plan.JoinType.FULL, Optional.of(Comparison.Operator.EQUAL)),
+                Arguments.of(io.trino.sql.planner.plan.JoinType.FULL, Optional.of(Comparison.Operator.LESS_THAN)),
+                Arguments.of(io.trino.sql.planner.plan.JoinType.FULL, Optional.of(Comparison.Operator.LESS_THAN_OR_EQUAL)),
+                Arguments.of(io.trino.sql.planner.plan.JoinType.FULL, Optional.of(Comparison.Operator.GREATER_THAN)),
+                Arguments.of(io.trino.sql.planner.plan.JoinType.FULL, Optional.of(Comparison.Operator.GREATER_THAN_OR_EQUAL)),
+                Arguments.of(io.trino.sql.planner.plan.JoinType.FULL, Optional.of(Comparison.Operator.NOT_EQUAL)),
+                Arguments.of(io.trino.sql.planner.plan.JoinType.FULL, Optional.of(Comparison.Operator.IS_DISTINCT_FROM)));
     }
 
     /**
@@ -254,7 +254,7 @@ public class TestPushJoinIntoTableScan
                             false));
                 });
         try (RuleTester ruleTester = RuleTester.builder().withDefaultCatalogConnectorFactory(connectorFactory).build()) {
-            ruleTester.assertThat(new PushJoinIntoTableScan(ruleTester.getPlannerContext(), ruleTester.getTypeAnalyzer()))
+            ruleTester.assertThat(new PushJoinIntoTableScan(ruleTester.getPlannerContext()))
                     .withSession(MOCK_SESSION)
                     .on(p -> {
                         Symbol columnA1Symbol = p.symbol(COLUMN_A1);
@@ -275,9 +275,9 @@ public class TestPushJoinIntoTableScan
                                 INNER,
                                 left,
                                 right,
-                                new ComparisonExpression(
-                                        ComparisonExpression.Operator.GREATER_THAN,
-                                        new ArithmeticBinaryExpression(MULTIPLY_BIGINT, MULTIPLY, new Constant(BIGINT, 44L), columnA1Symbol.toSymbolReference()),
+                                new Comparison(
+                                        Comparison.Operator.GREATER_THAN,
+                                        new Arithmetic(MULTIPLY_BIGINT, MULTIPLY, new Constant(BIGINT, 44L), columnA1Symbol.toSymbolReference()),
                                         columnB1Symbol.toSymbolReference()));
                     })
                     .matches(
@@ -297,7 +297,7 @@ public class TestPushJoinIntoTableScan
             ruleTester.getPlanTester().createCatalog("another_catalog", "mock", ImmutableMap.of());
             TableHandle tableBHandleAnotherCatalog = createTableHandle(new MockConnectorTableHandle(new SchemaTableName(SCHEMA, TABLE_B)), createTestCatalogHandle("another_catalog"));
 
-            ruleTester.assertThat(new PushJoinIntoTableScan(ruleTester.getPlannerContext(), ruleTester.getTypeAnalyzer()))
+            ruleTester.assertThat(new PushJoinIntoTableScan(ruleTester.getPlannerContext()))
                     .withSession(MOCK_SESSION)
                     .on(p -> {
                         Symbol columnA1Symbol = p.symbol(COLUMN_A1);
@@ -336,7 +336,7 @@ public class TestPushJoinIntoTableScan
                     throw new IllegalStateException("applyJoin should not be called!");
                 });
         try (RuleTester ruleTester = RuleTester.builder().withDefaultCatalogConnectorFactory(connectorFactory).build()) {
-            ruleTester.assertThat(new PushJoinIntoTableScan(ruleTester.getPlannerContext(), ruleTester.getTypeAnalyzer()))
+            ruleTester.assertThat(new PushJoinIntoTableScan(ruleTester.getPlannerContext()))
                     .withSession(joinPushDownDisabledSession)
                     .on(p -> {
                         Symbol columnA1Symbol = p.symbol(COLUMN_A1);
@@ -375,7 +375,7 @@ public class TestPushJoinIntoTableScan
                     throw new IllegalStateException("applyJoin should not be called!");
                 });
         try (RuleTester ruleTester = RuleTester.builder().withDefaultCatalogConnectorFactory(connectorFactory).build()) {
-            ruleTester.assertThat(new PushJoinIntoTableScan(ruleTester.getPlannerContext(), ruleTester.getTypeAnalyzer()))
+            ruleTester.assertThat(new PushJoinIntoTableScan(ruleTester.getPlannerContext()))
                     .withSession(allPushdownsDisabledSession)
                     .on(p -> {
                         Symbol columnA1Symbol = p.symbol(COLUMN_A1);
@@ -412,7 +412,7 @@ public class TestPushJoinIntoTableScan
                 JOIN_TABLE_B_COLUMN_MAPPING,
                 false)));
         try (RuleTester ruleTester = RuleTester.builder().withDefaultCatalogConnectorFactory(connectorFactory).build()) {
-            ruleTester.assertThat(new PushJoinIntoTableScan(ruleTester.getPlannerContext(), ruleTester.getTypeAnalyzer()))
+            ruleTester.assertThat(new PushJoinIntoTableScan(ruleTester.getPlannerContext()))
                     .withSession(MOCK_SESSION)
                     .on(p -> {
                         Symbol columnA1Symbol = p.symbol(COLUMN_A1);
@@ -507,7 +507,7 @@ public class TestPushJoinIntoTableScan
                     throw new IllegalStateException("applyJoin should not be called!");
                 });
         try (RuleTester ruleTester = RuleTester.builder().withDefaultCatalogConnectorFactory(connectorFactory).build()) {
-            ruleTester.assertThat(new PushJoinIntoTableScan(ruleTester.getPlannerContext(), ruleTester.getTypeAnalyzer()))
+            ruleTester.assertThat(new PushJoinIntoTableScan(ruleTester.getPlannerContext()))
                     .withSession(MOCK_SESSION)
                     .on(p -> {
                         Symbol columnA1Symbol = p.symbol(COLUMN_A1);
@@ -546,7 +546,7 @@ public class TestPushJoinIntoTableScan
                 false)));
         try (RuleTester ruleTester = RuleTester.builder().withDefaultCatalogConnectorFactory(connectorFactory).build()) {
             assertThatThrownBy(() -> {
-                ruleTester.assertThat(new PushJoinIntoTableScan(ruleTester.getPlannerContext(), ruleTester.getTypeAnalyzer()))
+                ruleTester.assertThat(new PushJoinIntoTableScan(ruleTester.getPlannerContext()))
                         .withSession(MOCK_SESSION)
                         .on(p -> {
                             Symbol columnA1Symbol = p.symbol(COLUMN_A1);
@@ -628,7 +628,7 @@ public class TestPushJoinIntoTableScan
         };
     }
 
-    private JoinCondition.Operator getConditionOperator(ComparisonExpression.Operator operator)
+    private JoinCondition.Operator getConditionOperator(Comparison.Operator operator)
     {
         switch (operator) {
             case EQUAL:

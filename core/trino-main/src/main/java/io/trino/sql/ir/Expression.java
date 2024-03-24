@@ -13,52 +13,53 @@
  */
 package io.trino.sql.ir;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.google.errorprone.annotations.Immutable;
+import io.trino.spi.type.Type;
 
 import java.util.List;
 
 @Immutable
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME)
 @JsonSubTypes({
-        @JsonSubTypes.Type(value = ArithmeticBinaryExpression.class, name = "arithmeticBinary"),
-        @JsonSubTypes.Type(value = ArithmeticNegation.class, name = "arithmeticUnary"),
-        @JsonSubTypes.Type(value = BetweenPredicate.class, name = "between"),
-        @JsonSubTypes.Type(value = BindExpression.class, name = "bind"),
-        @JsonSubTypes.Type(value = BooleanLiteral.class, name = "boolean"),
+        @JsonSubTypes.Type(value = Arithmetic.class, name = "arithmetic"),
+        @JsonSubTypes.Type(value = Negation.class, name = "negation"),
+        @JsonSubTypes.Type(value = Between.class, name = "between"),
+        @JsonSubTypes.Type(value = Bind.class, name = "bind"),
         @JsonSubTypes.Type(value = Cast.class, name = "cast"),
-        @JsonSubTypes.Type(value = CoalesceExpression.class, name = "coalesce"),
-        @JsonSubTypes.Type(value = ComparisonExpression.class, name = "comparison"),
-        @JsonSubTypes.Type(value = FunctionCall.class, name = "call"),
+        @JsonSubTypes.Type(value = Coalesce.class, name = "coalesce"),
+        @JsonSubTypes.Type(value = Comparison.class, name = "comparison"),
+        @JsonSubTypes.Type(value = Call.class, name = "call"),
         @JsonSubTypes.Type(value = Constant.class, name = "constant"),
-        @JsonSubTypes.Type(value = InPredicate.class, name = "in"),
-        @JsonSubTypes.Type(value = IsNullPredicate.class, name = "isNull"),
-        @JsonSubTypes.Type(value = LambdaExpression.class, name = "lambda"),
-        @JsonSubTypes.Type(value = LogicalExpression.class, name = "logicalBinary"),
-        @JsonSubTypes.Type(value = NotExpression.class, name = "not"),
-        @JsonSubTypes.Type(value = NullIfExpression.class, name = "nullif"),
+        @JsonSubTypes.Type(value = In.class, name = "in"),
+        @JsonSubTypes.Type(value = IsNull.class, name = "isnull"),
+        @JsonSubTypes.Type(value = Lambda.class, name = "lambda"),
+        @JsonSubTypes.Type(value = Logical.class, name = "logical"),
+        @JsonSubTypes.Type(value = Not.class, name = "not"),
+        @JsonSubTypes.Type(value = NullIf.class, name = "nullif"),
         @JsonSubTypes.Type(value = Row.class, name = "row"),
-        @JsonSubTypes.Type(value = SearchedCaseExpression.class, name = "searchedCase"),
-        @JsonSubTypes.Type(value = SimpleCaseExpression.class, name = "simpleCase"),
-        @JsonSubTypes.Type(value = SubscriptExpression.class, name = "subscript"),
-        @JsonSubTypes.Type(value = SymbolReference.class, name = "symbol"),
-        @JsonSubTypes.Type(value = WhenClause.class, name = "when"),
+        @JsonSubTypes.Type(value = Case.class, name = "case"),
+        @JsonSubTypes.Type(value = Switch.class, name = "switch"),
+        @JsonSubTypes.Type(value = FieldReference.class, name = "field"),
+        @JsonSubTypes.Type(value = Reference.class, name = "reference"),
 })
-public abstract sealed class Expression
-        permits ArithmeticBinaryExpression, ArithmeticNegation, BetweenPredicate,
-        BindExpression, Cast, CoalesceExpression, ComparisonExpression, FunctionCall, InPredicate,
-        IsNullPredicate, LambdaExpression, Constant, LogicalExpression,
-        NotExpression, NullIfExpression, Row, SearchedCaseExpression, SimpleCaseExpression,
-        SubscriptExpression, SymbolReference, WhenClause
+public sealed interface Expression
+        permits Arithmetic, Between, Bind, Call, Case, Cast, Coalesce,
+        Comparison, Constant, FieldReference, In, IsNull, Lambda, Logical,
+        Negation, Not, NullIf, Reference, Row, Switch
 {
+    Type type();
+
     /**
      * Accessible for {@link IrVisitor}, use {@link IrVisitor#process(Expression, Object)} instead.
      */
-    protected <R, C> R accept(IrVisitor<R, C> visitor, C context)
+    default <R, C> R accept(IrVisitor<R, C> visitor, C context)
     {
         return visitor.visitExpression(this, context);
     }
 
-    public abstract List<? extends Expression> getChildren();
+    @JsonIgnore
+    List<? extends Expression> children();
 }

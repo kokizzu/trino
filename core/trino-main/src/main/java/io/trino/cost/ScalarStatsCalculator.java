@@ -22,23 +22,19 @@ import io.trino.spi.type.SmallintType;
 import io.trino.spi.type.TinyintType;
 import io.trino.spi.type.Type;
 import io.trino.sql.PlannerContext;
-import io.trino.sql.ir.ArithmeticBinaryExpression;
-import io.trino.sql.ir.ArithmeticNegation;
+import io.trino.sql.ir.Arithmetic;
+import io.trino.sql.ir.Call;
 import io.trino.sql.ir.Cast;
-import io.trino.sql.ir.CoalesceExpression;
+import io.trino.sql.ir.Coalesce;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
-import io.trino.sql.ir.FunctionCall;
 import io.trino.sql.ir.IrVisitor;
-import io.trino.sql.ir.NodeRef;
-import io.trino.sql.ir.SymbolReference;
+import io.trino.sql.ir.Negation;
+import io.trino.sql.ir.Reference;
 import io.trino.sql.planner.IrExpressionInterpreter;
-import io.trino.sql.planner.IrTypeAnalyzer;
 import io.trino.sql.planner.NoOpSymbolResolver;
 import io.trino.sql.planner.Symbol;
-import io.trino.sql.planner.TypeProvider;
 
-import java.util.Map;
 import java.util.OptionalDouble;
 
 import static io.trino.spi.statistics.StatsUtil.toStatsRepresentation;
@@ -53,18 +49,16 @@ import static java.util.Objects.requireNonNull;
 public class ScalarStatsCalculator
 {
     private final PlannerContext plannerContext;
-    private final IrTypeAnalyzer typeAnalyzer;
 
     @Inject
-    public ScalarStatsCalculator(PlannerContext plannerContext, IrTypeAnalyzer typeAnalyzer)
+    public ScalarStatsCalculator(PlannerContext plannerContext)
     {
         this.plannerContext = requireNonNull(plannerContext, "plannerContext cannot be null");
-        this.typeAnalyzer = requireNonNull(typeAnalyzer, "typeAnalyzer is null");
     }
 
-    public SymbolStatsEstimate calculate(Expression scalarExpression, PlanNodeStatsEstimate inputStatistics, Session session, TypeProvider types)
+    public SymbolStatsEstimate calculate(Expression scalarExpression, PlanNodeStatsEstimate inputStatistics, Session session)
     {
-        return new Visitor(inputStatistics, session, types).process(scalarExpression);
+        return new Visitor(inputStatistics, session).process(scalarExpression);
     }
 
     private class Visitor
@@ -72,13 +66,11 @@ public class ScalarStatsCalculator
     {
         private final PlanNodeStatsEstimate input;
         private final Session session;
-        private final TypeProvider types;
 
-        Visitor(PlanNodeStatsEstimate input, Session session, TypeProvider types)
+        Visitor(PlanNodeStatsEstimate input, Session session)
         {
             this.input = input;
             this.session = session;
-            this.types = types;
         }
 
         @Override
@@ -88,7 +80,7 @@ public class ScalarStatsCalculator
         }
 
         @Override
-        protected SymbolStatsEstimate visitSymbolReference(SymbolReference node, Void context)
+        protected SymbolStatsEstimate visitReference(Reference node, Void context)
         {
             return input.getSymbolStatistics(Symbol.from(node));
         }
@@ -96,8 +88,8 @@ public class ScalarStatsCalculator
         @Override
         protected SymbolStatsEstimate visitConstant(Constant node, Void context)
         {
-            Type type = node.getType();
-            Object value = node.getValue();
+            Type type = node.type();
+            Object value = node.value();
             if (value == null) {
                 return nullStatsEstimate();
             }
@@ -115,10 +107,9 @@ public class ScalarStatsCalculator
         }
 
         @Override
-        protected SymbolStatsEstimate visitFunctionCall(FunctionCall node, Void context)
+        protected SymbolStatsEstimate visitCall(Call node, Void context)
         {
-            Map<NodeRef<Expression>, Type> expressionTypes = typeAnalyzer.getTypes(types, node);
-            IrExpressionInterpreter interpreter = new IrExpressionInterpreter(node, plannerContext, session, expressionTypes);
+            IrExpressionInterpreter interpreter = new IrExpressionInterpreter(node, plannerContext, session);
             Object value = interpreter.optimize(NoOpSymbolResolver.INSTANCE);
 
             if (value == null) {
@@ -140,14 +131,14 @@ public class ScalarStatsCalculator
         @Override
         protected SymbolStatsEstimate visitCast(Cast node, Void context)
         {
-            SymbolStatsEstimate sourceStats = process(node.getExpression());
+            SymbolStatsEstimate sourceStats = process(node.expression());
 
             // todo - make this general postprocessing rule.
             double distinctValuesCount = sourceStats.getDistinctValuesCount();
             double lowValue = sourceStats.getLowValue();
             double highValue = sourceStats.getHighValue();
 
-            if (isIntegralType(typeAnalyzer.getType(types, node))) {
+            if (isIntegralType(((Expression) node).type())) {
                 // todo handle low/high value changes if range gets narrower due to cast (e.g. BIGINT -> SMALLINT)
                 if (isFinite(lowValue)) {
                     lowValue = Math.round(lowValue);
@@ -177,17 +168,17 @@ public class ScalarStatsCalculator
                 return true;
             }
 
-            if (type instanceof DecimalType) {
-                return ((DecimalType) type).getScale() == 0;
+            if (type instanceof DecimalType decimalType) {
+                return decimalType.getScale() == 0;
             }
 
             return false;
         }
 
         @Override
-        protected SymbolStatsEstimate visitArithmeticNegation(ArithmeticNegation node, Void context)
+        protected SymbolStatsEstimate visitNegation(Negation node, Void context)
         {
-            SymbolStatsEstimate stats = process(node.getValue());
+            SymbolStatsEstimate stats = process(node.value());
             return SymbolStatsEstimate.buildFrom(stats)
                     .setLowValue(-stats.getHighValue())
                     .setHighValue(-stats.getLowValue())
@@ -195,11 +186,11 @@ public class ScalarStatsCalculator
         }
 
         @Override
-        protected SymbolStatsEstimate visitArithmeticBinary(ArithmeticBinaryExpression node, Void context)
+        protected SymbolStatsEstimate visitArithmetic(Arithmetic node, Void context)
         {
             requireNonNull(node, "node is null");
-            SymbolStatsEstimate left = process(node.getLeft());
-            SymbolStatsEstimate right = process(node.getRight());
+            SymbolStatsEstimate left = process(node.left());
+            SymbolStatsEstimate right = process(node.right());
             if (left.isUnknown() || right.isUnknown()) {
                 return SymbolStatsEstimate.unknown();
             }
@@ -217,11 +208,11 @@ public class ScalarStatsCalculator
                 result.setLowValue(NaN)
                         .setHighValue(NaN);
             }
-            else if (node.getOperator() == ArithmeticBinaryExpression.Operator.DIVIDE && rightLow < 0 && rightHigh > 0) {
+            else if (node.operator() == Arithmetic.Operator.DIVIDE && rightLow < 0 && rightHigh > 0) {
                 result.setLowValue(Double.NEGATIVE_INFINITY)
                         .setHighValue(Double.POSITIVE_INFINITY);
             }
-            else if (node.getOperator() == ArithmeticBinaryExpression.Operator.MODULUS) {
+            else if (node.operator() == Arithmetic.Operator.MODULUS) {
                 double maxDivisor = max(abs(rightLow), abs(rightHigh));
                 if (leftHigh <= 0) {
                     result.setLowValue(max(-maxDivisor, leftLow))
@@ -237,10 +228,10 @@ public class ScalarStatsCalculator
                 }
             }
             else {
-                double v1 = operate(node.getOperator(), leftLow, rightLow);
-                double v2 = operate(node.getOperator(), leftLow, rightHigh);
-                double v3 = operate(node.getOperator(), leftHigh, rightLow);
-                double v4 = operate(node.getOperator(), leftHigh, rightHigh);
+                double v1 = operate(node.operator(), leftLow, rightLow);
+                double v2 = operate(node.operator(), leftLow, rightHigh);
+                double v3 = operate(node.operator(), leftHigh, rightLow);
+                double v4 = operate(node.operator(), leftHigh, rightHigh);
                 double lowValue = min(v1, v2, v3, v4);
                 double highValue = max(v1, v2, v3, v4);
 
@@ -251,7 +242,7 @@ public class ScalarStatsCalculator
             return result.build();
         }
 
-        private double operate(ArithmeticBinaryExpression.Operator operator, double left, double right)
+        private double operate(Arithmetic.Operator operator, double left, double right)
         {
             switch (operator) {
                 case ADD:
@@ -269,11 +260,11 @@ public class ScalarStatsCalculator
         }
 
         @Override
-        protected SymbolStatsEstimate visitCoalesceExpression(CoalesceExpression node, Void context)
+        protected SymbolStatsEstimate visitCoalesce(Coalesce node, Void context)
         {
             requireNonNull(node, "node is null");
             SymbolStatsEstimate result = null;
-            for (Expression operand : node.getOperands()) {
+            for (Expression operand : node.operands()) {
                 SymbolStatsEstimate operandEstimates = process(operand);
                 if (result != null) {
                     result = estimateCoalesce(result, operandEstimates);

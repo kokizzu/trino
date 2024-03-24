@@ -182,8 +182,7 @@ public class TestDynamicFilterService
                 ImmutableMap.of(
                         symbol1, new TestingColumnHandle("probeColumnA"),
                         symbol2, new TestingColumnHandle("probeColumnA"),
-                        symbol3, new TestingColumnHandle("probeColumnB")),
-                symbolAllocator.getTypes());
+                        symbol3, new TestingColumnHandle("probeColumnB")));
 
         assertThat(dynamicFilter.getColumnsCovered())
                 .describedAs("columns covered")
@@ -276,8 +275,7 @@ public class TestDynamicFilterService
                         new DynamicFilters.Descriptor(filterId2, df2)),
                 ImmutableMap.of(
                         symbol1, new TestingColumnHandle("probeColumnA"),
-                        symbol2, new TestingColumnHandle("probeColumnA")),
-                symbolAllocator.getTypes());
+                        symbol2, new TestingColumnHandle("probeColumnA")));
 
         assertThat(dynamicFilterColumnA.getColumnsCovered())
                 .describedAs("columns covered")
@@ -353,8 +351,7 @@ public class TestDynamicFilterService
                 ImmutableList.of(
                         new DynamicFilters.Descriptor(filterId1, df1)),
                 ImmutableMap.of(
-                        symbol1, new TestingColumnHandle("probeColumnA")),
-                symbolAllocator.getTypes());
+                        symbol1, new TestingColumnHandle("probeColumnA")));
 
         // dynamic filter is initially blocked
         assertThat(dynamicFilter.getCurrentPredicate().isAll()).isTrue();
@@ -394,8 +391,7 @@ public class TestDynamicFilterService
         DynamicFilter dynamicFilter = dynamicFilterService.createDynamicFilter(
                 queryId,
                 ImmutableList.of(new DynamicFilters.Descriptor(filterId1, df1)),
-                ImmutableMap.of(symbol1, new TestingColumnHandle("probeColumnA")),
-                symbolAllocator.getTypes());
+                ImmutableMap.of(symbol1, new TestingColumnHandle("probeColumnA")));
 
         assertThat(dynamicFilter.getColumnsCovered())
                 .describedAs("columns covered")
@@ -434,8 +430,7 @@ public class TestDynamicFilterService
                 queryId,
                 ImmutableList.of(new DynamicFilters.Descriptor(filterId1, df1)),
                 ImmutableMap.of(
-                        symbol1, new TestingColumnHandle("probeColumnA")),
-                symbolAllocator.getTypes());
+                        symbol1, new TestingColumnHandle("probeColumnA")));
 
         assertThat(dynamicFilter.getColumnsCovered())
                 .describedAs("columns covered")
@@ -497,8 +492,7 @@ public class TestDynamicFilterService
         DynamicFilter dynamicFilter = dynamicFilterService.createDynamicFilter(
                 queryId,
                 ImmutableList.of(new DynamicFilters.Descriptor(filterId1, df1)),
-                ImmutableMap.of(symbol1, new TestingColumnHandle("probeColumnA")),
-                symbolAllocator.getTypes());
+                ImmutableMap.of(symbol1, new TestingColumnHandle("probeColumnA")));
         assertThat(dynamicFilter.getCurrentPredicate().isAll()).isTrue();
         assertThat(dynamicFilter.isComplete()).isFalse();
         CompletableFuture<?> blockedFuture = dynamicFilter.isBlocked();
@@ -542,8 +536,7 @@ public class TestDynamicFilterService
         DynamicFilter dynamicFilter = dynamicFilterService.createDynamicFilter(
                 queryId,
                 ImmutableList.of(new DynamicFilters.Descriptor(filterId, df1)),
-                ImmutableMap.of(symbol1, column),
-                symbolAllocator.getTypes());
+                ImmutableMap.of(symbol1, column));
         assertThat(dynamicFilter.isBlocked().isDone()).isFalse();
         assertThat(dynamicFilter.isComplete()).isFalse();
         assertThat(dynamicFilter.getCurrentPredicate()).isEqualTo(TupleDomain.all());
@@ -590,14 +583,12 @@ public class TestDynamicFilterService
         DynamicFilter dynamicFilter1 = dynamicFilterService.createDynamicFilter(
                 queryId,
                 ImmutableList.of(new DynamicFilters.Descriptor(filterId1, symbol.toSymbolReference())),
-                ImmutableMap.of(symbol, handle),
-                symbolAllocator.getTypes());
+                ImmutableMap.of(symbol, handle));
 
         DynamicFilter dynamicFilter2 = dynamicFilterService.createDynamicFilter(
                 queryId,
                 ImmutableList.of(new DynamicFilters.Descriptor(filterId2, symbol.toSymbolReference())),
-                ImmutableMap.of(symbol, handle),
-                symbolAllocator.getTypes());
+                ImmutableMap.of(symbol, handle));
 
         assertThat(dynamicFilter1.isAwaitable()).isTrue();
         // non lazy dynamic filters are marked as non-awaitable
@@ -635,8 +626,7 @@ public class TestDynamicFilterService
                         new DynamicFilters.Descriptor(filterId1, df2)),
                 ImmutableMap.of(
                         symbol1, column1,
-                        symbol2, column2),
-                symbolAllocator.getTypes());
+                        symbol2, column2));
 
         assertThat(dynamicFilter.getColumnsCovered())
                 .describedAs("columns covered")
@@ -1029,8 +1019,8 @@ public class TestDynamicFilterService
             PartitioningHandle stagePartitioning,
             ExchangeNode.Type exchangeType)
     {
-        Symbol symbol = new Symbol("column");
-        Symbol buildSymbol = new Symbol("buildColumn");
+        Symbol symbol = new Symbol(VARCHAR, "column");
+        Symbol buildSymbol = new Symbol(VARCHAR, "buildColumn");
 
         PlanNodeId tableScanNodeId = new PlanNodeId("plan_id");
         TableScanNode tableScan = TableScanNode.newInstance(
@@ -1063,7 +1053,7 @@ public class TestDynamicFilterService
                         Optional.empty(),
                         ImmutableMap.of(producedDynamicFilterId, buildSymbol),
                         Optional.empty()),
-                ImmutableMap.of(symbol, VARCHAR),
+                ImmutableSet.of(symbol),
                 stagePartitioning,
                 Optional.empty(),
                 ImmutableList.of(tableScanNodeId),

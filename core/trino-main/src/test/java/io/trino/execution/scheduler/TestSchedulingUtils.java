@@ -16,10 +16,11 @@ package io.trino.execution.scheduler;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import io.airlift.slice.Slices;
 import io.trino.cost.StatsAndCosts;
 import io.trino.operator.RetryPolicy;
-import io.trino.sql.ir.BooleanLiteral;
+import io.trino.sql.ir.Booleans;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Row;
 import io.trino.sql.planner.Partitioning;
@@ -48,6 +49,7 @@ import static io.trino.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.SOURCE_DISTRIBUTION;
 import static io.trino.sql.planner.plan.ExchangeNode.Type.REPARTITION;
 import static io.trino.sql.planner.plan.JoinType.INNER;
+import static io.trino.type.UnknownType.UNKNOWN;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class TestSchedulingUtils
@@ -271,7 +273,7 @@ public class TestSchedulingUtils
         return new RemoteSourceNode(
                 new PlanNodeId(fragmentIds.get(0)),
                 fragmentIds.stream().map(PlanFragmentId::new).collect(toImmutableList()),
-                ImmutableList.of(new Symbol("blah")),
+                ImmutableList.of(new Symbol(UNKNOWN, "blah")),
                 Optional.empty(),
                 REPARTITION,
                 RetryPolicy.TASK);
@@ -305,7 +307,7 @@ public class TestSchedulingUtils
                 right,
                 left.getOutputSymbols().get(0),
                 right.getOutputSymbols().get(0),
-                new Symbol(id),
+                new Symbol(UNKNOWN, id),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -332,7 +334,7 @@ public class TestSchedulingUtils
                 left,
                 right,
                 left.getOutputSymbols(),
-                BooleanLiteral.TRUE_LITERAL,
+                Booleans.TRUE,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty());
@@ -340,13 +342,13 @@ public class TestSchedulingUtils
 
     private static UnionNode union(String id, List<PlanNode> sources)
     {
-        Symbol symbol = new Symbol(id);
+        Symbol symbol = new Symbol(UNKNOWN, id);
         return new UnionNode(new PlanNodeId(id), sources, ImmutableListMultimap.of(), ImmutableList.of(symbol));
     }
 
     private static SubPlan valuesSubPlan(String fragmentId)
     {
-        Symbol symbol = new Symbol("column");
+        Symbol symbol = new Symbol(UNKNOWN, "column");
         return createSubPlan(fragmentId, new ValuesNode(new PlanNodeId(fragmentId + "Values"),
                         ImmutableList.of(symbol),
                         ImmutableList.of(new Row(ImmutableList.of(new Constant(VARCHAR, Slices.utf8Slice("foo")))))),
@@ -360,7 +362,7 @@ public class TestSchedulingUtils
         PlanFragment planFragment = new PlanFragment(
                 new PlanFragmentId(fragmentId),
                 plan,
-                ImmutableMap.of(symbol, VARCHAR),
+                ImmutableSet.of(symbol),
                 SOURCE_DISTRIBUTION,
                 Optional.empty(),
                 ImmutableList.of(valuesNodeId),

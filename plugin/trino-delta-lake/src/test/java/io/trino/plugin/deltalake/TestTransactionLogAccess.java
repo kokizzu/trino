@@ -180,8 +180,8 @@ public class TestTransactionLogAccess
         assertThat(metadataEntry.getLowercasePartitionColumns()).containsOnly("age");
 
         MetadataEntry.Format format = metadataEntry.getFormat();
-        assertThat(format.getOptions().keySet().size()).isEqualTo(0);
-        assertThat(format.getProvider()).isEqualTo("parquet");
+        assertThat(format.options().keySet()).isEmpty();
+        assertThat(format.provider()).isEqualTo("parquet");
 
         assertThat(tableSnapshot.getCachedMetadata()).isEqualTo(Optional.of(metadataEntry));
     }
@@ -376,8 +376,8 @@ public class TestTransactionLogAccess
         assertThat(metadataEntry.getOriginalPartitionColumns()).containsOnly("age");
 
         MetadataEntry.Format format = metadataEntry.getFormat();
-        assertThat(format.getOptions().keySet().size()).isEqualTo(0);
-        assertThat(format.getProvider()).isEqualTo("parquet");
+        assertThat(format.options().keySet()).isEmpty();
+        assertThat(format.provider()).isEqualTo("parquet");
     }
 
     @Test
@@ -421,8 +421,8 @@ public class TestTransactionLogAccess
         setupTransactionLogAccessFromResources(tableName, resourcePath);
 
         try (Stream<RemoveFileEntry> removeEntries = transactionLogAccess.getRemoveEntries(SESSION, tableSnapshot)) {
-            Set<String> removedPaths = removeEntries.map(RemoveFileEntry::getPath).collect(Collectors.toSet());
-            Set<String> expectedPaths = EXPECTED_REMOVE_ENTRIES.stream().map(RemoveFileEntry::getPath).collect(Collectors.toSet());
+            Set<String> removedPaths = removeEntries.map(RemoveFileEntry::path).collect(Collectors.toSet());
+            Set<String> expectedPaths = EXPECTED_REMOVE_ENTRIES.stream().map(RemoveFileEntry::path).collect(Collectors.toSet());
 
             assertThat(removedPaths).isEqualTo(expectedPaths);
         }
@@ -446,8 +446,8 @@ public class TestTransactionLogAccess
         try (Stream<ProtocolEntry> protocolEntryStream = transactionLogAccess.getProtocolEntries(SESSION, tableSnapshot)) {
             List<ProtocolEntry> protocolEntries = protocolEntryStream.toList();
             assertThat(protocolEntries.size()).isEqualTo(1);
-            assertThat(protocolEntries.get(0).getMinReaderVersion()).isEqualTo(1);
-            assertThat(protocolEntries.get(0).getMinWriterVersion()).isEqualTo(2);
+            assertThat(protocolEntries.get(0).minReaderVersion()).isEqualTo(1);
+            assertThat(protocolEntries.get(0).minWriterVersion()).isEqualTo(2);
         }
     }
 

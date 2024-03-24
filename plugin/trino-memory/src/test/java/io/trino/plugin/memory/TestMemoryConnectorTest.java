@@ -540,12 +540,15 @@ public class TestMemoryConnectorTest
 
         assertThat(query("SHOW SCHEMAS"))
                 .skippingTypesCheck()
-                .matches("VALUES 'default', 'information_schema', 'schema1', 'schema2'");
+                .containsAll("VALUES 'default', 'information_schema', 'schema1', 'schema2'");
         assertUpdate("CREATE TABLE schema1.nation AS SELECT * FROM tpch.tiny.nation WHERE nationkey % 2 = 0", "SELECT count(*) FROM nation WHERE MOD(nationkey, 2) = 0");
         assertUpdate("CREATE TABLE schema2.nation AS SELECT * FROM tpch.tiny.nation WHERE nationkey % 2 = 1", "SELECT count(*) FROM nation WHERE MOD(nationkey, 2) = 1");
 
         assertThat(computeScalar("SELECT count(*) FROM schema1.nation")).isEqualTo(13L);
         assertThat(computeScalar("SELECT count(*) FROM schema2.nation")).isEqualTo(12L);
+
+        assertUpdate("DROP SCHEMA schema2 CASCADE");
+        assertUpdate("DROP SCHEMA schema1 CASCADE");
     }
 
     @Test

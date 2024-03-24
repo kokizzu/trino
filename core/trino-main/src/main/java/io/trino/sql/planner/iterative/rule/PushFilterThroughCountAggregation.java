@@ -46,7 +46,7 @@ import java.util.Set;
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static io.trino.matching.Capture.newCapture;
 import static io.trino.metadata.GlobalFunctionCatalog.builtinFunctionName;
-import static io.trino.sql.ir.BooleanLiteral.TRUE_LITERAL;
+import static io.trino.sql.ir.Booleans.TRUE;
 import static io.trino.sql.ir.IrUtils.combineConjuncts;
 import static io.trino.sql.planner.DomainTranslator.getExtractionResult;
 import static io.trino.sql.planner.plan.AggregationNode.Step.SINGLE;
@@ -184,7 +184,7 @@ public class PushFilterThroughCountAggregation
         Symbol countSymbol = getOnlyElement(aggregationNode.getAggregations().keySet());
         Aggregation aggregation = getOnlyElement(aggregationNode.getAggregations().values());
 
-        DomainTranslator.ExtractionResult extractionResult = getExtractionResult(plannerContext, context.getSession(), filterNode.getPredicate(), context.getSymbolAllocator().getTypes());
+        DomainTranslator.ExtractionResult extractionResult = getExtractionResult(plannerContext, context.getSession(), filterNode.getPredicate());
         TupleDomain<Symbol> tupleDomain = extractionResult.getTupleDomain();
 
         if (tupleDomain.isNone()) {
@@ -231,7 +231,7 @@ public class PushFilterThroughCountAggregation
             Expression newPredicate = combineConjuncts(
                     new DomainTranslator().toPredicate(newTupleDomain),
                     extractionResult.getRemainingExpression());
-            if (newPredicate.equals(TRUE_LITERAL)) {
+            if (newPredicate.equals(TRUE)) {
                 return Result.ofPlanNode(filterSource);
             }
             return Result.ofPlanNode(new FilterNode(filterNode.getId(), filterSource, newPredicate));

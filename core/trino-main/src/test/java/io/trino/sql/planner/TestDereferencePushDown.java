@@ -19,13 +19,14 @@ import io.trino.Session;
 import io.trino.metadata.ResolvedFunction;
 import io.trino.metadata.TestingFunctionResolution;
 import io.trino.spi.function.OperatorType;
-import io.trino.sql.ir.ArithmeticBinaryExpression;
-import io.trino.sql.ir.ComparisonExpression;
+import io.trino.spi.type.RowType;
+import io.trino.sql.ir.Arithmetic;
+import io.trino.sql.ir.Call;
+import io.trino.sql.ir.Comparison;
 import io.trino.sql.ir.Constant;
-import io.trino.sql.ir.FunctionCall;
-import io.trino.sql.ir.LogicalExpression;
-import io.trino.sql.ir.SubscriptExpression;
-import io.trino.sql.ir.SymbolReference;
+import io.trino.sql.ir.FieldReference;
+import io.trino.sql.ir.Logical;
+import io.trino.sql.ir.Reference;
 import io.trino.sql.planner.assertions.BasePlanTest;
 import org.junit.jupiter.api.Test;
 
@@ -33,11 +34,10 @@ import static io.trino.SystemSessionProperties.FILTERING_SEMI_JOIN_TO_INNER;
 import static io.trino.SystemSessionProperties.MERGE_PROJECT_WITH_VALUES;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.DoubleType.DOUBLE;
-import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.sql.analyzer.TypeSignatureProvider.fromTypes;
-import static io.trino.sql.ir.ArithmeticBinaryExpression.Operator.MULTIPLY;
-import static io.trino.sql.ir.ComparisonExpression.Operator.EQUAL;
-import static io.trino.sql.ir.LogicalExpression.Operator.OR;
+import static io.trino.sql.ir.Arithmetic.Operator.MULTIPLY;
+import static io.trino.sql.ir.Comparison.Operator.EQUAL;
+import static io.trino.sql.ir.Logical.Operator.OR;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.any;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.anyTree;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.expression;
@@ -67,9 +67,9 @@ public class TestDereferencePushDown
                 output(ImmutableList.of("a_msg_x", "a_msg", "b_msg_y"),
                         strictProject(
                                 ImmutableMap.of(
-                                        "a_msg_x", expression(new SubscriptExpression(new SymbolReference("a_msg"), new Constant(INTEGER, 1L))),
-                                        "a_msg", expression(new SymbolReference("a_msg")),
-                                        "b_msg_y", expression(new SymbolReference("b_msg_y"))),
+                                        "a_msg_x", expression(new FieldReference(new Reference(RowType.anonymousRow(BIGINT, DOUBLE), "a_msg"), 0)),
+                                        "a_msg", expression(new Reference(RowType.anonymousRow(BIGINT, DOUBLE), "a_msg")),
+                                        "b_msg_y", expression(new Reference(DOUBLE, "b_msg_y"))),
                                 join(INNER, builder -> builder
                                         .left(values("a_msg"))
                                         .right(
@@ -86,9 +86,9 @@ public class TestDereferencePushDown
                         "WHERE a.msg.y = b.msg.y",
                 output(
                         project(
-                                ImmutableMap.of("b_x", expression(new SymbolReference("b_x"))),
+                                ImmutableMap.of("b_x", expression(new Reference(BIGINT, "b_x"))),
                                 filter(
-                                        new ComparisonExpression(EQUAL, new SymbolReference("a_y"), new SymbolReference("b_y")),
+                                        new Comparison(EQUAL, new Reference(DOUBLE, "a_y"), new Reference(DOUBLE, "b_y")),
                                         values(
                                                 ImmutableList.of("b_x", "b_y", "a_y"),
                                                 ImmutableList.of(ImmutableList.of(
@@ -111,11 +111,11 @@ public class TestDereferencePushDown
                         join(INNER, builder -> builder
                                 .left(
                                         project(filter(
-                                                new ComparisonExpression(EQUAL, new SymbolReference("a_y"), new Constant(DOUBLE, 2.0)),
+                                                new Comparison(EQUAL, new Reference(DOUBLE, "a_y"), new Constant(DOUBLE, 2.0)),
                                                 values(ImmutableList.of("a_y"), ImmutableList.of(ImmutableList.of(new Constant(DOUBLE, 2e0)))))))
                                 .right(
                                         project(filter(
-                                                new ComparisonExpression(EQUAL, new SymbolReference("b_y"), new Constant(DOUBLE, 2.0)),
+                                                new Comparison(EQUAL, new Reference(DOUBLE, "b_y"), new Constant(DOUBLE, 2.0)),
                                                 values(
                                                         ImmutableList.of("b_y", "b_x"),
                                                         ImmutableList.of(ImmutableList.of(new Constant(DOUBLE, 2.0), new Constant(BIGINT, 1L))))))))));
@@ -131,11 +131,11 @@ public class TestDereferencePushDown
                         "WHERE a.msg.x = 7 OR IS_FINITE(b.msg.y)",
                 any(
                         project(
-                                ImmutableMap.of("a_y", expression(new SymbolReference("a_y")), "b_x", expression(new SymbolReference("b_x"))),
+                                ImmutableMap.of("a_y", expression(new Reference(DOUBLE, "a_y")), "b_x", expression(new Reference(BIGINT, "b_x"))),
                                 filter(
-                                        new LogicalExpression(OR, ImmutableList.of(
-                                                new ComparisonExpression(EQUAL, new SymbolReference("a_x"), new Constant(BIGINT, 7L)),
-                                                new FunctionCall(IS_FINITE, ImmutableList.of(new SymbolReference("b_y"))))),
+                                        new Logical(OR, ImmutableList.of(
+                                                new Comparison(EQUAL, new Reference(BIGINT, "a_x"), new Constant(BIGINT, 7L)),
+                                                new Call(IS_FINITE, ImmutableList.of(new Reference(DOUBLE, "b_y"))))),
                                         values(
                                                 ImmutableList.of("b_x", "b_y", "a_y", "a_x"),
                                                 ImmutableList.of(ImmutableList.of(
@@ -187,11 +187,11 @@ public class TestDereferencePushDown
                 anyTree(
                         project(
                                 ImmutableMap.of(
-                                        "msg1", expression(new SymbolReference("msg1")), // not pushed down because used in partition by
-                                        "msg2", expression(new SymbolReference("msg2")), // not pushed down because used in order by
-                                        "msg3", expression(new SymbolReference("msg3")), // not pushed down because used in window function
-                                        "msg4_x", expression(new SubscriptExpression(new SymbolReference("msg4"), new Constant(INTEGER, 1L))), // pushed down because msg4.x used in window function
-                                        "msg5_x", expression(new SubscriptExpression(new SymbolReference("msg5"), new Constant(INTEGER, 1L)))), // pushed down because window node does not refer it
+                                        "msg1", expression(new Reference(RowType.anonymousRow(BIGINT, DOUBLE), "msg1")), // not pushed down because used in partition by
+                                        "msg2", expression(new Reference(RowType.anonymousRow(BIGINT, DOUBLE), "msg2")), // not pushed down because used in order by
+                                        "msg3", expression(new Reference(RowType.anonymousRow(BIGINT, DOUBLE), "msg3")), // not pushed down because used in window function
+                                        "msg4_x", expression(new FieldReference(new Reference(RowType.anonymousRow(BIGINT, DOUBLE), "msg4"), 0)), // pushed down because msg4.x used in window function
+                                        "msg5_x", expression(new FieldReference(new Reference(RowType.anonymousRow(BIGINT, DOUBLE), "msg5"), 0))), // pushed down because window node does not refer it
                                 values("msg1", "msg2", "msg3", "msg4", "msg5"))));
     }
 
@@ -209,7 +209,7 @@ public class TestDereferencePushDown
                 anyTree(
                         semiJoin("a_x", "b_z", "semi_join_symbol",
                                 project(
-                                        ImmutableMap.of("a_y", expression(new SubscriptExpression(new SymbolReference("msg"), new Constant(INTEGER, 2L)))),
+                                        ImmutableMap.of("a_y", expression(new FieldReference(new Reference(RowType.anonymousRow(BIGINT, DOUBLE, BIGINT), "msg"), 1))),
                                         values(ImmutableList.of("msg", "a_x"), ImmutableList.of())),
                                 values(ImmutableList.of("b_z"), ImmutableList.of()))));
     }
@@ -220,9 +220,9 @@ public class TestDereferencePushDown
         assertPlan("WITH t(msg) AS (VALUES ROW(CAST(ROW(1, 2.0) AS ROW(x BIGINT, y DOUBLE))), ROW(CAST(ROW(3, 4.0) AS ROW(x BIGINT, y DOUBLE))))" +
                         "SELECT msg.x * 3  FROM t limit 1",
                 anyTree(
-                        strictProject(ImmutableMap.of("x_into_3", expression(new ArithmeticBinaryExpression(MULTIPLY_BIGINT, MULTIPLY, new SymbolReference("msg_x"), new Constant(BIGINT, 3L)))),
+                        strictProject(ImmutableMap.of("x_into_3", expression(new Arithmetic(MULTIPLY_BIGINT, MULTIPLY, new Reference(BIGINT, "msg_x"), new Constant(BIGINT, 3L)))),
                                 limit(1,
-                                        strictProject(ImmutableMap.of("msg_x", expression(new SubscriptExpression(new SymbolReference("msg"), new Constant(INTEGER, 1L)))),
+                                        strictProject(ImmutableMap.of("msg_x", expression(new FieldReference(new Reference(RowType.anonymousRow(BIGINT, DOUBLE), "msg"), 0))),
                                                 values("msg"))))));
 
         // dereference pushdown + constant folding
@@ -235,9 +235,9 @@ public class TestDereferencePushDown
                         limit(
                                 100,
                                 project(
-                                        ImmutableMap.of("b_x", expression(new SymbolReference("b_x"))),
+                                        ImmutableMap.of("b_x", expression(new Reference(BIGINT, "b_x"))),
                                         filter(
-                                                new ComparisonExpression(EQUAL, new SymbolReference("a_y"), new SymbolReference("b_y")),
+                                                new Comparison(EQUAL, new Reference(DOUBLE, "a_y"), new Reference(DOUBLE, "b_y")),
                                                 values(
                                                         ImmutableList.of("b_x", "b_y", "a_y"),
                                                         ImmutableList.of(ImmutableList.of(
@@ -261,11 +261,11 @@ public class TestDereferencePushDown
                         join(INNER, builder -> builder
                                 .left(
                                         project(filter(
-                                                new ComparisonExpression(EQUAL, new SymbolReference("a_y"), new Constant(DOUBLE, 2.0)),
+                                                new Comparison(EQUAL, new Reference(DOUBLE, "a_y"), new Constant(DOUBLE, 2.0)),
                                                 values(ImmutableList.of("a_y"), ImmutableList.of(ImmutableList.of(new Constant(DOUBLE, 2e0)))))))
                                 .right(
                                         project(filter(
-                                                new ComparisonExpression(EQUAL, new SymbolReference("b_y"), new Constant(DOUBLE, 2.0)),
+                                                new Comparison(EQUAL, new Reference(DOUBLE, "b_y"), new Constant(DOUBLE, 2.0)),
                                                 values(
                                                         ImmutableList.of("b_y", "b_x"),
                                                         ImmutableList.of(ImmutableList.of(new Constant(DOUBLE, 2.0), new Constant(BIGINT, 1L))))))))));
@@ -280,18 +280,18 @@ public class TestDereferencePushDown
                         "CROSS JOIN UNNEST (a.array) " +
                         "WHERE a.msg.x + b.msg.x < BIGINT '10'",
                 output(ImmutableList.of("expr"),
-                        strictProject(ImmutableMap.of("expr", expression(new SymbolReference("a_x"))),
+                        strictProject(ImmutableMap.of("expr", expression(new Reference(BIGINT, "a_x"))),
                                 unnest(
                                         join(INNER, builder -> builder
                                                 .left(
                                                         project(
                                                                 filter(
-                                                                        new ComparisonExpression(EQUAL, new SymbolReference("a_y"), new Constant(DOUBLE, 2.0)),
+                                                                        new Comparison(EQUAL, new Reference(DOUBLE, "a_y"), new Constant(DOUBLE, 2.0)),
                                                                         values("array", "a_y", "a_x"))))
                                                 .right(
                                                         project(
                                                                 filter(
-                                                                        new ComparisonExpression(EQUAL, new SymbolReference("b_y"), new Constant(DOUBLE, 2.0)),
+                                                                        new Comparison(EQUAL, new Reference(DOUBLE, "b_y"), new Constant(DOUBLE, 2.0)),
                                                                         values(ImmutableList.of("b_y"), ImmutableList.of(ImmutableList.of(new Constant(DOUBLE, 2e0))))))))))));
     }
 }

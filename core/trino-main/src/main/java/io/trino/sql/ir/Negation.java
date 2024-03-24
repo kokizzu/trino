@@ -13,68 +13,44 @@
  */
 package io.trino.sql.ir;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.google.common.collect.ImmutableList;
+import io.trino.spi.type.Type;
 
 import java.util.List;
-import java.util.Objects;
 
 import static java.util.Objects.requireNonNull;
 
-public final class IsNullPredicate
-        extends Expression
+@JsonSerialize
+public record Negation(Expression value)
+        implements Expression
 {
-    private final Expression value;
-
-    @JsonCreator
-    public IsNullPredicate(Expression value)
+    public Negation
     {
         requireNonNull(value, "value is null");
-        this.value = value;
     }
 
-    @JsonProperty
-    public Expression getValue()
+    @Override
+    public Type type()
     {
-        return value;
+        return value.type();
     }
 
     @Override
     public <R, C> R accept(IrVisitor<R, C> visitor, C context)
     {
-        return visitor.visitIsNullPredicate(this, context);
+        return visitor.visitNegation(this, context);
     }
 
     @Override
-    public List<? extends Expression> getChildren()
+    public List<? extends Expression> children()
     {
         return ImmutableList.of(value);
     }
 
     @Override
-    public boolean equals(Object o)
-    {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-
-        IsNullPredicate that = (IsNullPredicate) o;
-        return Objects.equals(value, that.value);
-    }
-
-    @Override
-    public int hashCode()
-    {
-        return value.hashCode();
-    }
-
-    @Override
     public String toString()
     {
-        return "IsNull(%s)".formatted(value);
+        return "-(%s)".formatted(value);
     }
 }

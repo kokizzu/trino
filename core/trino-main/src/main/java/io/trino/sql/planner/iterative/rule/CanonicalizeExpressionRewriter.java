@@ -21,66 +21,57 @@ import io.trino.spi.type.TimestampWithTimeZoneType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.VarcharType;
 import io.trino.sql.PlannerContext;
-import io.trino.sql.ir.ArithmeticBinaryExpression;
+import io.trino.sql.ir.Arithmetic;
+import io.trino.sql.ir.Call;
 import io.trino.sql.ir.Cast;
-import io.trino.sql.ir.ComparisonExpression;
+import io.trino.sql.ir.Comparison;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
 import io.trino.sql.ir.ExpressionRewriter;
 import io.trino.sql.ir.ExpressionTreeRewriter;
-import io.trino.sql.ir.FunctionCall;
-import io.trino.sql.ir.SymbolReference;
-import io.trino.sql.planner.IrTypeAnalyzer;
-import io.trino.sql.planner.TypeProvider;
+import io.trino.sql.ir.Reference;
 
 import static io.trino.metadata.GlobalFunctionCatalog.builtinFunctionName;
 import static io.trino.spi.type.DateType.DATE;
-import static io.trino.sql.ir.ArithmeticBinaryExpression.Operator.ADD;
-import static io.trino.sql.ir.ArithmeticBinaryExpression.Operator.MULTIPLY;
-import static java.util.Objects.requireNonNull;
+import static io.trino.sql.ir.Arithmetic.Operator.ADD;
+import static io.trino.sql.ir.Arithmetic.Operator.MULTIPLY;
 
 public final class CanonicalizeExpressionRewriter
 {
-    public static Expression canonicalizeExpression(Expression expression, IrTypeAnalyzer typeAnalyzer, PlannerContext plannerContext, TypeProvider types)
+    public static Expression canonicalizeExpression(Expression expression, PlannerContext plannerContext)
     {
-        return ExpressionTreeRewriter.rewriteWith(new Visitor(plannerContext, typeAnalyzer, types), expression);
+        return ExpressionTreeRewriter.rewriteWith(new Visitor(plannerContext), expression);
     }
 
     private CanonicalizeExpressionRewriter() {}
 
-    public static Expression rewrite(Expression expression, PlannerContext plannerContext, IrTypeAnalyzer typeAnalyzer, TypeProvider types)
+    public static Expression rewrite(Expression expression, PlannerContext plannerContext)
     {
-        requireNonNull(typeAnalyzer, "typeAnalyzer is null");
-
-        if (expression instanceof SymbolReference) {
+        if (expression instanceof Reference) {
             return expression;
         }
 
-        return ExpressionTreeRewriter.rewriteWith(new Visitor(plannerContext, typeAnalyzer, types), expression);
+        return ExpressionTreeRewriter.rewriteWith(new Visitor(plannerContext), expression);
     }
 
     private static class Visitor
             extends ExpressionRewriter<Void>
     {
         private final PlannerContext plannerContext;
-        private final IrTypeAnalyzer typeAnalyzer;
-        private final TypeProvider types;
 
-        public Visitor(PlannerContext plannerContext, IrTypeAnalyzer typeAnalyzer, TypeProvider types)
+        public Visitor(PlannerContext plannerContext)
         {
             this.plannerContext = plannerContext;
-            this.typeAnalyzer = typeAnalyzer;
-            this.types = types;
         }
 
         @SuppressWarnings("ArgumentSelectionDefectChecker")
         @Override
-        public Expression rewriteComparisonExpression(ComparisonExpression node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
+        public Expression rewriteComparison(Comparison node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
         {
             // if we have a comparison of the form <constant> <op> <expr>, normalize it to
             // <expr> <op-flipped> <constant>
-            if (isConstant(node.getLeft()) && !isConstant(node.getRight())) {
-                node = new ComparisonExpression(node.getOperator().flip(), node.getRight(), node.getLeft());
+            if (isConstant(node.left()) && !isConstant(node.right())) {
+                node = new Comparison(node.operator().flip(), node.right(), node.left());
             }
 
             return treeRewriter.defaultRewrite(node, context);
@@ -88,25 +79,25 @@ public final class CanonicalizeExpressionRewriter
 
         @SuppressWarnings("ArgumentSelectionDefectChecker")
         @Override
-        public Expression rewriteArithmeticBinary(ArithmeticBinaryExpression node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
+        public Expression rewriteArithmetic(Arithmetic node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
         {
-            if (node.getOperator() == MULTIPLY || node.getOperator() == ADD) {
+            if (node.operator() == MULTIPLY || node.operator() == ADD) {
                 // if we have a operation of the form <constant> [+|*] <expr>, normalize it to
                 // <expr> [+|*] <constant>
-                if (isConstant(node.getLeft()) && !isConstant(node.getRight())) {
-                    node = new ArithmeticBinaryExpression(
+                if (isConstant(node.left()) && !isConstant(node.right())) {
+                    node = new Arithmetic(
                             plannerContext.getMetadata().resolveOperator(
-                                    switch (node.getOperator()) {
+                                    switch (node.operator()) {
                                         case ADD -> OperatorType.ADD;
                                         case MULTIPLY -> OperatorType.MULTIPLY;
-                                        default -> throw new IllegalStateException("Unexpected value: " + node.getOperator());
+                                        default -> throw new IllegalStateException("Unexpected value: " + node.operator());
                                     },
                                     ImmutableList.of(
-                                            node.getFunction().getSignature().getArgumentType(1),
-                                            node.getFunction().getSignature().getArgumentType(0))),
-                            node.getOperator(),
-                            node.getRight(),
-                            node.getLeft());
+                                            node.function().getSignature().getArgumentType(1),
+                                            node.function().getSignature().getArgumentType(0))),
+                            node.operator(),
+                            node.right(),
+                            node.left());
                 }
             }
 
@@ -114,12 +105,12 @@ public final class CanonicalizeExpressionRewriter
         }
 
         @Override
-        public Expression rewriteFunctionCall(FunctionCall node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
+        public Expression rewriteCall(Call node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
         {
-            CatalogSchemaFunctionName functionName = node.getFunction().getName();
-            if (functionName.equals(builtinFunctionName("date")) && node.getArguments().size() == 1) {
-                Expression argument = node.getArguments().get(0);
-                Type argumentType = typeAnalyzer.getType(types, argument);
+            CatalogSchemaFunctionName functionName = node.function().getName();
+            if (functionName.equals(builtinFunctionName("date")) && node.arguments().size() == 1) {
+                Expression argument = node.arguments().get(0);
+                Type argumentType = argument.type();
                 if (argumentType instanceof TimestampType
                         || argumentType instanceof TimestampWithTimeZoneType
                         || argumentType instanceof VarcharType) {

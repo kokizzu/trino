@@ -26,13 +26,11 @@ import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.WriterScalingOptions;
 import io.trino.sql.PlannerContext;
-import io.trino.sql.planner.IrTypeAnalyzer;
 import io.trino.sql.planner.Partitioning;
 import io.trino.sql.planner.PartitioningHandle;
 import io.trino.sql.planner.PartitioningScheme;
 import io.trino.sql.planner.PlanNodeIdAllocator;
 import io.trino.sql.planner.Symbol;
-import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.planner.assertions.BasePlanTest;
 import io.trino.sql.planner.iterative.rule.test.PlanBuilder;
 import io.trino.sql.planner.plan.ExchangeNode;
@@ -55,6 +53,7 @@ import static io.trino.sql.planner.SystemPartitioningHandle.SCALED_WRITER_ROUND_
 import static io.trino.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
 import static io.trino.testing.TestingHandles.TEST_CATALOG_HANDLE;
 import static io.trino.testing.TestingHandles.createTestCatalogHandle;
+import static io.trino.type.UnknownType.UNKNOWN;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS;
 import static org.junit.jupiter.api.parallel.ExecutionMode.CONCURRENT;
@@ -92,7 +91,7 @@ public class TestValidateScaledWritersUsage
                 new TpchTableHandle("sf1", "nation", 1.0),
                 TestingTransactionHandle.create());
         TpchColumnHandle nationkeyColumnHandle = new TpchColumnHandle("nationkey", BIGINT);
-        symbol = new Symbol("nationkey");
+        symbol = new Symbol(UNKNOWN, "nationkey");
         tableScanNode = planBuilder.tableScan(nationTableHandle, ImmutableList.of(symbol), ImmutableMap.of(symbol, nationkeyColumnHandle));
     }
 
@@ -292,8 +291,6 @@ public class TestValidateScaledWritersUsage
                     root,
                     session,
                     plannerContext,
-                    new IrTypeAnalyzer(plannerContext),
-                    TypeProvider.empty(),
                     WarningCollector.NOOP);
             return null;
         });

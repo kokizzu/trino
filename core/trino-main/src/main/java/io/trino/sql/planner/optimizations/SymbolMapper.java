@@ -19,7 +19,8 @@ import io.trino.spi.connector.SortOrder;
 import io.trino.sql.ir.Expression;
 import io.trino.sql.ir.ExpressionRewriter;
 import io.trino.sql.ir.ExpressionTreeRewriter;
-import io.trino.sql.ir.SymbolReference;
+import io.trino.sql.ir.Lambda;
+import io.trino.sql.ir.Reference;
 import io.trino.sql.planner.OrderingScheme;
 import io.trino.sql.planner.PartitioningScheme;
 import io.trino.sql.planner.Symbol;
@@ -151,10 +152,25 @@ public class SymbolMapper
         return ExpressionTreeRewriter.rewriteWith(new ExpressionRewriter<>()
         {
             @Override
-            public Expression rewriteSymbolReference(SymbolReference node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
+            public Expression rewriteReference(Reference node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
             {
                 Symbol canonical = map(Symbol.from(node));
                 return canonical.toSymbolReference();
+            }
+
+            @Override
+            public Expression rewriteLambda(Lambda node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
+            {
+                List<Symbol> arguments = node.arguments().stream()
+                        .map(symbol -> map(new Symbol(symbol.getType(), symbol.getName())))
+                        .collect(toImmutableList());
+
+                Expression body = treeRewriter.rewrite(node.body(), context);
+                if (body != node.body()) {
+                    return new Lambda(arguments, body);
+                }
+
+                return node;
             }
         }, expression);
     }
@@ -340,7 +356,7 @@ public class SymbolMapper
                             .map(expression -> ExpressionTreeRewriter.rewriteWith(new ExpressionRewriter<Void>()
                             {
                                 @Override
-                                public Expression rewriteSymbolReference(SymbolReference node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
+                                public Expression rewriteReference(Reference node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
                                 {
                                     if (pointer.getClassifierSymbol().isPresent() && Symbol.from(node).equals(pointer.getClassifierSymbol().get()) ||
                                             pointer.getMatchNumberSymbol().isPresent() && Symbol.from(node).equals(pointer.getMatchNumberSymbol().get())) {

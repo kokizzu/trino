@@ -25,10 +25,9 @@ import io.trino.spi.type.RowType;
 import io.trino.spi.type.Type;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.Reference;
 import io.trino.sql.ir.Row;
-import io.trino.sql.ir.SymbolReference;
 import io.trino.sql.planner.ConnectorExpressionTranslator;
-import io.trino.sql.planner.IrTypeAnalyzer;
 import io.trino.sql.planner.iterative.Rule;
 import io.trino.sql.planner.plan.MergeProcessorNode;
 import io.trino.sql.planner.plan.MergeWriterNode;
@@ -71,14 +70,12 @@ public class PushMergeWriterUpdateIntoConnector
                                     project().capturedAs(PROJECT_NODE_CAPTURE).with(source().matching(
                                             tableScan().capturedAs(TABLE_SCAN)))))))));
 
-    public PushMergeWriterUpdateIntoConnector(IrTypeAnalyzer typeAnalyzer, Metadata metadata)
+    public PushMergeWriterUpdateIntoConnector(Metadata metadata)
     {
         this.metadata = requireNonNull(metadata, "metadata is null");
-        this.typeAnalyzer = requireNonNull(typeAnalyzer, "typeAnalyzer is null");
     }
 
     private final Metadata metadata;
-    private final IrTypeAnalyzer typeAnalyzer;
 
     @Override
     public Pattern<TableFinishNode> getPattern()
@@ -120,20 +117,18 @@ public class PushMergeWriterUpdateIntoConnector
     {
         ImmutableMap.Builder<ColumnHandle, io.trino.spi.expression.Constant> assignments = ImmutableMap.builder();
         if (mergeRow instanceof Row row) {
-            List<? extends Expression> fields = row.getChildren();
+            List<? extends Expression> fields = row.children();
             for (int i = 0; i < orderedColumnNames.size(); i++) {
                 String columnName = orderedColumnNames.get(i);
                 Expression field = fields.get(i);
-                if (field instanceof SymbolReference) {
+                if (field instanceof Reference) {
                     // the column is not updated
                     continue;
                 }
 
                 Optional<ConnectorExpression> connectorExpression = ConnectorExpressionTranslator.translate(
                         context.getSession(),
-                        field,
-                        context.getSymbolAllocator().getTypes(),
-                        typeAnalyzer);
+                        field);
 
                 // we don't support any expressions in update statements yet, only constants
                 if (connectorExpression.isEmpty() || !(connectorExpression.get() instanceof io.trino.spi.expression.Constant)) {
@@ -143,8 +138,8 @@ public class PushMergeWriterUpdateIntoConnector
             }
         }
         else if (mergeRow instanceof Constant row) {
-            RowType type = (RowType) row.getType();
-            SqlRow rowValue = (SqlRow) row.getValue();
+            RowType type = (RowType) row.type();
+            SqlRow rowValue = (SqlRow) row.value();
 
             for (int i = 0; i < orderedColumnNames.size(); i++) {
                 Type fieldType = type.getFields().get(i).getType();

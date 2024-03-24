@@ -27,15 +27,13 @@ import io.trino.spi.type.DecimalType;
 import io.trino.spi.type.Int128;
 import io.trino.spi.type.Type;
 import io.trino.sql.PlannerContext;
+import io.trino.sql.ir.Case;
 import io.trino.sql.ir.Cast;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
-import io.trino.sql.ir.NodeRef;
-import io.trino.sql.ir.SearchedCaseExpression;
-import io.trino.sql.ir.SymbolReference;
+import io.trino.sql.ir.Reference;
 import io.trino.sql.ir.WhenClause;
 import io.trino.sql.planner.IrExpressionInterpreter;
-import io.trino.sql.planner.IrTypeAnalyzer;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.SymbolsExtractor;
 import io.trino.sql.planner.iterative.Rule;
@@ -120,12 +118,10 @@ public class PreAggregateCaseAggregations
                     .with(source().matching(not(AggregationNode.class::isInstance)))));
 
     private final PlannerContext plannerContext;
-    private final IrTypeAnalyzer typeAnalyzer;
 
-    public PreAggregateCaseAggregations(PlannerContext plannerContext, IrTypeAnalyzer typeAnalyzer)
+    public PreAggregateCaseAggregations(PlannerContext plannerContext)
     {
         this.plannerContext = requireNonNull(plannerContext, "plannerContext is null");
-        this.typeAnalyzer = requireNonNull(typeAnalyzer, "typeAnalyzer is null");
     }
 
     @Override
@@ -226,7 +222,7 @@ public class PreAggregateCaseAggregations
         assignments.putIdentities(aggregationNode.getGroupingKeys());
         newProjectionSymbols.forEach((aggregation, symbol) -> assignments.put(
                 symbol,
-                new SearchedCaseExpression(ImmutableList.of(
+                new Case(ImmutableList.of(
                         new WhenClause(
                                 aggregation.getOperand(),
                                 preAggregations.get(new PreAggregationKey(aggregation)).getAggregationSymbol().toSymbolReference())),
@@ -294,7 +290,7 @@ public class PreAggregateCaseAggregations
 
                             // Cast pre-projection if needed to match aggregation input type.
                             // This is because entire "CASE WHEN" expression could be wrapped in CAST.
-                            Type preProjectionType = getType(context, preProjection);
+                            Type preProjectionType = getType(preProjection);
                             Type aggregationInputType = getOnlyElement(key.getFunction().getSignature().getArgumentTypes());
                             if (!preProjectionType.equals(aggregationInputType)) {
                                 preProjection = new Cast(preProjection, aggregationInputType);
@@ -302,7 +298,7 @@ public class PreAggregateCaseAggregations
                             }
 
                             // Wrap the preProjection with IF to retain the conditional nature on the CASE aggregation(s) during pre-aggregation
-                            if (!(preProjection instanceof SymbolReference || preProjection instanceof Constant)) {
+                            if (!(preProjection instanceof Reference || preProjection instanceof Constant)) {
                                 Expression unionConditions = or(caseAggregations.stream()
                                         .map(CaseAggregation::getOperand)
                                         .collect(toImmutableSet()));
@@ -335,7 +331,7 @@ public class PreAggregateCaseAggregations
     private Optional<CaseAggregation> extractCaseAggregation(Symbol aggregationSymbol, Aggregation aggregation, ProjectNode projectNode, Context context)
     {
         if (aggregation.getArguments().size() != 1
-                || !(aggregation.getArguments().get(0) instanceof SymbolReference)
+                || !(aggregation.getArguments().get(0) instanceof Reference)
                 || aggregation.isDistinct()
                 || aggregation.getFilter().isPresent()
                 || aggregation.getMask().isPresent()
@@ -356,17 +352,17 @@ public class PreAggregateCaseAggregations
         Expression unwrappedProjection;
         // unwrap top-level cast
         if (projection instanceof Cast) {
-            unwrappedProjection = ((Cast) projection).getExpression();
+            unwrappedProjection = ((Cast) projection).expression();
         }
         else {
             unwrappedProjection = projection;
         }
 
-        if (!(unwrappedProjection instanceof SearchedCaseExpression caseExpression)) {
+        if (!(unwrappedProjection instanceof Case caseExpression)) {
             return Optional.empty();
         }
 
-        if (caseExpression.getWhenClauses().size() != 1) {
+        if (caseExpression.whenClauses().size() != 1) {
             return Optional.empty();
         }
 
@@ -386,9 +382,9 @@ public class PreAggregateCaseAggregations
         }
 
         Optional<Expression> cumulativeAggregationDefaultValue = Optional.empty();
-        if (caseExpression.getDefaultValue().isPresent()) {
-            Type defaultType = getType(context, caseExpression.getDefaultValue().get());
-            Object defaultValue = optimizeExpression(caseExpression.getDefaultValue().get(), context);
+        if (caseExpression.defaultValue().isPresent()) {
+            Type defaultType = getType(caseExpression.defaultValue().get());
+            Object defaultValue = optimizeExpression(caseExpression.defaultValue().get(), context);
             if (defaultValue != null) {
                 if (!name.equals(SUM)) {
                     return Optional.empty();
@@ -412,7 +408,7 @@ public class PreAggregateCaseAggregations
             }
 
             // cumulative aggregation default value need to be CAST to cumulative aggregation input type
-            cumulativeAggregationDefaultValue = Optional.of(new Cast(caseExpression.getDefaultValue().get(), aggregationType));
+            cumulativeAggregationDefaultValue = Optional.of(new Cast(caseExpression.defaultValue().get(), aggregationType));
         }
 
         return Optional.of(new CaseAggregation(
@@ -420,20 +416,19 @@ public class PreAggregateCaseAggregations
                 resolvedFunction,
                 cumulativeFunction,
                 name,
-                caseExpression.getWhenClauses().get(0).getOperand(),
-                caseExpression.getWhenClauses().get(0).getResult(),
+                caseExpression.whenClauses().get(0).getOperand(),
+                caseExpression.whenClauses().get(0).getResult(),
                 cumulativeAggregationDefaultValue));
     }
 
-    private Type getType(Context context, Expression expression)
+    private Type getType(Expression expression)
     {
-        return typeAnalyzer.getType(context.getSymbolAllocator().getTypes(), expression);
+        return expression.type();
     }
 
     private Object optimizeExpression(Expression expression, Context context)
     {
-        Map<NodeRef<Expression>, Type> expressionTypes = typeAnalyzer.getTypes(context.getSymbolAllocator().getTypes(), expression);
-        IrExpressionInterpreter expressionInterpreter = new IrExpressionInterpreter(expression, plannerContext, context.getSession(), expressionTypes);
+        IrExpressionInterpreter expressionInterpreter = new IrExpressionInterpreter(expression, plannerContext, context.getSession());
         return expressionInterpreter.optimize(Symbol::toSymbolReference);
     }
 

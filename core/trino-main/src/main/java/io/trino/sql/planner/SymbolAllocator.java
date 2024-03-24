@@ -17,21 +17,22 @@ import com.google.common.primitives.Ints;
 import io.trino.spi.type.BigintType;
 import io.trino.spi.type.Type;
 import io.trino.sql.analyzer.Field;
+import io.trino.sql.ir.Call;
 import io.trino.sql.ir.Expression;
-import io.trino.sql.ir.FunctionCall;
-import io.trino.sql.ir.SymbolReference;
+import io.trino.sql.ir.Reference;
 import jakarta.annotation.Nullable;
 
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.toMap;
 
 public class SymbolAllocator
 {
-    private final Map<Symbol, Type> symbols;
+    private final Map<String, Symbol> symbols;
     private int nextId;
 
     public SymbolAllocator()
@@ -39,9 +40,10 @@ public class SymbolAllocator
         symbols = new HashMap<>();
     }
 
-    public SymbolAllocator(Map<Symbol, Type> initial)
+    public SymbolAllocator(Collection<Symbol> initial)
     {
-        symbols = new HashMap<>(initial);
+        symbols = new HashMap<>(initial.stream()
+                .collect(toMap(Symbol::getName, e -> e)));
     }
 
     public Symbol newSymbol(Symbol symbolHint)
@@ -51,8 +53,7 @@ public class SymbolAllocator
 
     public Symbol newSymbol(Symbol symbolHint, String suffix)
     {
-        checkArgument(symbols.containsKey(symbolHint), "symbolHint not in symbols map");
-        return newSymbol(symbolHint.getName(), symbols.get(symbolHint), suffix);
+        return newSymbol(symbolHint.getName(), symbolHint.getType(), suffix);
     }
 
     public Symbol newSymbol(String nameHint, Type type)
@@ -90,9 +91,9 @@ public class SymbolAllocator
             unique = unique + "$" + suffix;
         }
 
-        Symbol symbol = new Symbol(unique);
-        while (symbols.putIfAbsent(symbol, type) != null) {
-            symbol = new Symbol(unique + "_" + nextId());
+        Symbol symbol = new Symbol(type, unique);
+        while (symbols.putIfAbsent(symbol.getName(), symbol) != null) {
+            symbol = new Symbol(type, unique + "_" + nextId());
         }
 
         return symbol;
@@ -106,12 +107,12 @@ public class SymbolAllocator
     public Symbol newSymbol(Expression expression, Type type, String suffix)
     {
         String nameHint = "expr";
-        if (expression instanceof FunctionCall functionCall) {
+        if (expression instanceof Call call) {
             // symbol allocation can happen during planning, before function calls are rewritten
-            nameHint = functionCall.getFunction().getName().getFunctionName();
+            nameHint = call.function().getName().getFunctionName();
         }
-        else if (expression instanceof SymbolReference symbolReference) {
-            nameHint = symbolReference.getName();
+        else if (expression instanceof Reference reference) {
+            nameHint = reference.name();
         }
 
         return newSymbol(nameHint, type, suffix);
@@ -123,9 +124,9 @@ public class SymbolAllocator
         return newSymbol(nameHint, field.getType());
     }
 
-    public TypeProvider getTypes()
+    public Collection<Symbol> getSymbols()
     {
-        return TypeProvider.viewOf(symbols);
+        return symbols.values();
     }
 
     private int nextId()

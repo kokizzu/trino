@@ -20,10 +20,10 @@ import io.trino.metadata.ResolvedFunction;
 import io.trino.metadata.TestingFunctionResolution;
 import io.trino.spi.function.OperatorType;
 import io.trino.spi.type.RowType;
-import io.trino.sql.ir.ArithmeticBinaryExpression;
+import io.trino.sql.ir.Arithmetic;
 import io.trino.sql.ir.Constant;
-import io.trino.sql.ir.SubscriptExpression;
-import io.trino.sql.ir.SymbolReference;
+import io.trino.sql.ir.FieldReference;
+import io.trino.sql.ir.Reference;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.iterative.rule.test.BaseRuleTest;
 import io.trino.sql.planner.plan.Assignments;
@@ -33,7 +33,7 @@ import java.util.Optional;
 
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.IntegerType.INTEGER;
-import static io.trino.sql.ir.ArithmeticBinaryExpression.Operator.MULTIPLY;
+import static io.trino.sql.ir.Arithmetic.Operator.MULTIPLY;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.expression;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.project;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.union;
@@ -43,7 +43,7 @@ public class TestPushProjectionThroughUnion
         extends BaseRuleTest
 {
     private static final TestingFunctionResolution FUNCTIONS = new TestingFunctionResolution();
-    private static final ResolvedFunction MULTIPLY_INTEGER = FUNCTIONS.resolveOperator(OperatorType.MULTIPLY, ImmutableList.of(INTEGER, INTEGER));
+    private static final ResolvedFunction MULTIPLY_BIGINT = FUNCTIONS.resolveOperator(OperatorType.MULTIPLY, ImmutableList.of(BIGINT, BIGINT));
     private static final RowType ROW_TYPE = RowType.from(ImmutableList.of(new RowType.Field(Optional.of("x"), BIGINT), new RowType.Field(Optional.of("y"), BIGINT)));
 
     @Test
@@ -85,18 +85,18 @@ public class TestPushProjectionThroughUnion
     {
         tester().assertThat(new PushProjectionThroughUnion())
                 .on(p -> {
-                    Symbol a = p.symbol("a");
-                    Symbol b = p.symbol("b");
-                    Symbol c = p.symbol("c");
+                    Symbol a = p.symbol("a", BIGINT);
+                    Symbol b = p.symbol("b", BIGINT);
+                    Symbol c = p.symbol("c", BIGINT);
                     Symbol d = p.symbol("d", ROW_TYPE);
-                    Symbol cTimes3 = p.symbol("c_times_3");
-                    Symbol dX = p.symbol("d_x");
+                    Symbol cTimes3 = p.symbol("c_times_3", BIGINT);
+                    Symbol dX = p.symbol("d_x", BIGINT);
                     Symbol z = p.symbol("z", ROW_TYPE);
                     Symbol w = p.symbol("w", ROW_TYPE);
                     return p.project(
                             Assignments.of(
-                                    cTimes3, new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, c.toSymbolReference(), new Constant(INTEGER, 3L)),
-                                    dX, new SubscriptExpression(new SymbolReference("d"), new Constant(INTEGER, 1L))),
+                                    cTimes3, new Arithmetic(MULTIPLY_BIGINT, MULTIPLY, c.toSymbolReference(), new Constant(BIGINT, 3L)),
+                                    dX, new FieldReference(new Reference(ROW_TYPE, "d"), 0)),
                             p.union(
                                     ImmutableListMultimap.<Symbol, Symbol>builder()
                                             .put(c, a)
@@ -111,10 +111,10 @@ public class TestPushProjectionThroughUnion
                 .matches(
                         union(
                                 project(
-                                        ImmutableMap.of("a_times_3", expression(new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("a"), new Constant(INTEGER, 3L))), "z_x", expression(new SubscriptExpression(new SymbolReference("z"), new Constant(INTEGER, 1L)))),
+                                        ImmutableMap.of("a_times_3", expression(new Arithmetic(MULTIPLY_BIGINT, MULTIPLY, new Reference(BIGINT, "a"), new Constant(BIGINT, 3L))), "z_x", expression(new FieldReference(new Reference(ROW_TYPE, "z"), 0))),
                                         values(ImmutableList.of("a", "z"))),
                                 project(
-                                        ImmutableMap.of("b_times_3", expression(new ArithmeticBinaryExpression(MULTIPLY_INTEGER, MULTIPLY, new SymbolReference("b"), new Constant(INTEGER, 3L))), "w_x", expression(new SubscriptExpression(new SymbolReference("w"), new Constant(INTEGER, 1L)))),
+                                        ImmutableMap.of("b_times_3", expression(new Arithmetic(MULTIPLY_BIGINT, MULTIPLY, new Reference(BIGINT, "b"), new Constant(BIGINT, 3L))), "w_x", expression(new FieldReference(new Reference(ROW_TYPE, "w"), 0))),
                                         values(ImmutableList.of("b", "w"))))
                                 .withNumberOfOutputColumns(2)
                                 .withAlias("a_times_3")

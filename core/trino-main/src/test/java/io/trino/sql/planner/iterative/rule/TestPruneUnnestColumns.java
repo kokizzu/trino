@@ -15,7 +15,7 @@ package io.trino.sql.planner.iterative.rule;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import io.trino.sql.ir.SymbolReference;
+import io.trino.sql.ir.Reference;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.iterative.rule.test.BaseRuleTest;
 import io.trino.sql.planner.plan.Assignments;
@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
 
+import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.UnnestMapping.unnestMapping;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.expression;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.strictProject;
@@ -54,7 +55,7 @@ public class TestPruneUnnestColumns
                 })
                 .matches(
                         strictProject(
-                                ImmutableMap.of("replicate_symbol", expression(new SymbolReference("replicate_symbol")), "unnested_symbol", expression(new SymbolReference("unnested_symbol"))),
+                                ImmutableMap.of("replicate_symbol", expression(new Reference(BIGINT, "replicate_symbol")), "unnested_symbol", expression(new Reference(BIGINT, "unnested_symbol"))),
                                 unnest(
                                         ImmutableList.of("replicate_symbol"),
                                         ImmutableList.of(unnestMapping("unnest_symbol", ImmutableList.of("unnested_symbol"))),
@@ -83,7 +84,7 @@ public class TestPruneUnnestColumns
                 })
                 .matches(
                         strictProject(
-                                ImmutableMap.of("unnested_symbol", expression(new SymbolReference("unnested_symbol")), "ordinality_symbol", expression(new SymbolReference("ordinality_symbol"))),
+                                ImmutableMap.of("unnested_symbol", expression(new Reference(BIGINT, "unnested_symbol")), "ordinality_symbol", expression(new Reference(BIGINT, "ordinality_symbol"))),
                                 unnest(
                                         ImmutableList.of(),
                                         ImmutableList.of(unnestMapping("unnest_symbol", ImmutableList.of("unnested_symbol"))),

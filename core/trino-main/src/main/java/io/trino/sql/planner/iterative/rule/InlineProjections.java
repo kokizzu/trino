@@ -22,12 +22,10 @@ import io.trino.matching.Pattern;
 import io.trino.spi.type.RowType;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
-import io.trino.sql.ir.SubscriptExpression;
-import io.trino.sql.ir.SymbolReference;
-import io.trino.sql.planner.IrTypeAnalyzer;
+import io.trino.sql.ir.FieldReference;
+import io.trino.sql.ir.Reference;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.SymbolsExtractor;
-import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.planner.iterative.Rule;
 import io.trino.sql.planner.plan.Assignments;
 import io.trino.sql.planner.plan.PlanNode;
@@ -43,7 +41,6 @@ import static io.trino.matching.Capture.newCapture;
 import static io.trino.sql.planner.ExpressionSymbolInliner.inlineSymbols;
 import static io.trino.sql.planner.plan.Patterns.project;
 import static io.trino.sql.planner.plan.Patterns.source;
-import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toSet;
 
 /**
@@ -60,13 +57,6 @@ public class InlineProjections
     private static final Pattern<ProjectNode> PATTERN = project()
             .with(source().matching(project().capturedAs(CHILD)));
 
-    private final IrTypeAnalyzer typeAnalyzer;
-
-    public InlineProjections(IrTypeAnalyzer typeAnalyzer)
-    {
-        this.typeAnalyzer = requireNonNull(typeAnalyzer, "typeAnalyzer is null");
-    }
-
     @Override
     public Pattern<ProjectNode> getPattern()
     {
@@ -78,19 +68,19 @@ public class InlineProjections
     {
         ProjectNode child = captures.get(CHILD);
 
-        return inlineProjections(parent, child, typeAnalyzer, context.getSymbolAllocator().getTypes())
+        return inlineProjections(parent, child)
                 .map(Result::ofPlanNode)
                 .orElse(Result.empty());
     }
 
-    static Optional<ProjectNode> inlineProjections(ProjectNode parent, ProjectNode child, IrTypeAnalyzer typeAnalyzer, TypeProvider types)
+    static Optional<ProjectNode> inlineProjections(ProjectNode parent, ProjectNode child)
     {
         // squash identity projections
         if (parent.isIdentity() && child.isIdentity()) {
             return Optional.of((ProjectNode) parent.replaceChildren(ImmutableList.of(child.getSource())));
         }
 
-        Set<Symbol> targets = extractInliningTargets(parent, child, typeAnalyzer, types);
+        Set<Symbol> targets = extractInliningTargets(parent, child);
         if (targets.isEmpty()) {
             return Optional.empty();
         }
@@ -159,7 +149,7 @@ public class InlineProjections
         return inlineSymbols(mapping, expression);
     }
 
-    private static Set<Symbol> extractInliningTargets(ProjectNode parent, ProjectNode child, IrTypeAnalyzer typeAnalyzer, TypeProvider types)
+    private static Set<Symbol> extractInliningTargets(ProjectNode parent, ProjectNode child)
     {
         // candidates for inlining are
         //   1. references to simple constants or symbol references
@@ -179,7 +169,7 @@ public class InlineProjections
 
         // find references to simple constants or symbol references
         Set<Symbol> basicReferences = dependencies.keySet().stream()
-                .filter(input -> child.getAssignments().get(input) instanceof Constant || child.getAssignments().get(input) instanceof SymbolReference)
+                .filter(input -> child.getAssignments().get(input) instanceof Constant || child.getAssignments().get(input) instanceof Reference)
                 .filter(input -> !child.getAssignments().isIdentity(input)) // skip identities, otherwise, this rule will keep firing forever
                 .collect(toSet());
 
@@ -190,8 +180,8 @@ public class InlineProjections
                     // skip dereferences, otherwise, inlining can cause conflicts with PushdownDereferences
                     Expression assignment = child.getAssignments().get(entry.getKey());
 
-                    if (assignment instanceof SubscriptExpression) {
-                        if (typeAnalyzer.getType(types, ((SubscriptExpression) assignment).getBase()) instanceof RowType) {
+                    if (assignment instanceof FieldReference) {
+                        if (((FieldReference) assignment).base().type() instanceof RowType) {
                             return false;
                         }
                     }
@@ -206,6 +196,6 @@ public class InlineProjections
 
     private static boolean isSymbolReference(Symbol symbol, Expression expression)
     {
-        return expression instanceof SymbolReference && ((SymbolReference) expression).getName().equals(symbol.getName());
+        return expression instanceof Reference reference && reference.name().equals(symbol.getName());
     }
 }

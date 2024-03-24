@@ -14,18 +14,20 @@
 
 package io.trino.sql.ir;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.google.common.collect.ImmutableList;
+import io.trino.spi.type.Type;
+import io.trino.sql.planner.Symbol;
+import io.trino.type.FunctionType;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.stream.Collectors;
 
-import static java.util.Objects.requireNonNull;
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static io.trino.sql.ir.IrUtils.validateType;
 
 /**
- * "$INTERNAL$BIND"(value, targetFunction)
+ * Bind(value, targetFunction)
  * <p>
  * When invoked, the returned function inserts the given value as
  * the leading argument to the targetFunction.  The other arguments are
@@ -46,66 +48,42 @@ import static java.util.Objects.requireNonNull;
  * Lambda capturing is implemented through desugaring in Trino.
  * This expression facilitates desugaring.
  */
-public final class BindExpression
-        extends Expression
+@JsonSerialize
+public record Bind(List<Expression> values, Lambda function)
+        implements Expression
 {
-    private final List<Expression> values;
-    // Function expression must be of function type.
-    // It is not necessarily a lambda. For example, it can be another bind expression.
-    private final Expression function;
-
-    @JsonCreator
-    public BindExpression(List<Expression> values, Expression function)
+    public Bind
     {
-        this.values = requireNonNull(values, "values is null");
-        this.function = requireNonNull(function, "function is null");
+        values = ImmutableList.copyOf(values);
+        for (int i = 0; i < values.size(); i++) {
+            validateType(function.arguments().get(i).getType(), values.get(i));
+        }
     }
 
-    @JsonProperty
-    public List<Expression> getValues()
+    @Override
+    public Type type()
     {
-        return values;
-    }
-
-    @JsonProperty
-    public Expression getFunction()
-    {
-        return function;
+        return new FunctionType(
+                function.arguments()
+                        .subList(values.size(), function.arguments().size()).stream()
+                        .map(Symbol::getType)
+                        .collect(toImmutableList()),
+                ((FunctionType) function.type()).getReturnType());
     }
 
     @Override
     public <R, C> R accept(IrVisitor<R, C> visitor, C context)
     {
-        return visitor.visitBindExpression(this, context);
+        return visitor.visitBind(this, context);
     }
 
     @Override
-    public List<? extends Expression> getChildren()
+    public List<? extends Expression> children()
     {
         return ImmutableList.<Expression>builder()
                 .addAll(values)
                 .add(function)
                 .build();
-    }
-
-    @Override
-    public boolean equals(Object o)
-    {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        BindExpression that = (BindExpression) o;
-        return Objects.equals(values, that.values) &&
-                Objects.equals(function, that.function);
-    }
-
-    @Override
-    public int hashCode()
-    {
-        return Objects.hash(values, function);
     }
 
     @Override

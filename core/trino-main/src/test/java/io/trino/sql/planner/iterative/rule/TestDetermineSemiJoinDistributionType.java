@@ -39,12 +39,13 @@ import static io.trino.SystemSessionProperties.JOIN_MAX_BROADCAST_TABLE_SIZE;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.spi.type.VarcharType.createUnboundedVarcharType;
-import static io.trino.sql.ir.BooleanLiteral.TRUE_LITERAL;
+import static io.trino.sql.ir.Booleans.TRUE;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.filter;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.semiJoin;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.values;
 import static io.trino.sql.planner.plan.SemiJoinNode.DistributionType.PARTITIONED;
 import static io.trino.sql.planner.plan.SemiJoinNode.DistributionType.REPLICATED;
+import static io.trino.type.UnknownType.UNKNOWN;
 import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS;
 import static org.junit.jupiter.api.parallel.ExecutionMode.CONCURRENT;
 
@@ -99,11 +100,11 @@ public class TestDetermineSemiJoinDistributionType
                 .setSystemProperty(JOIN_DISTRIBUTION_TYPE, JoinDistributionType.PARTITIONED.name())
                 .overrideStats("valuesA", PlanNodeStatsEstimate.builder()
                         .setOutputRowCount(aRows)
-                        .addSymbolStatistics(ImmutableMap.of(new Symbol("A1"), new SymbolStatsEstimate(0, 100, 0, 6400, 100)))
+                        .addSymbolStatistics(ImmutableMap.of(new Symbol(UNKNOWN, "A1"), new SymbolStatsEstimate(0, 100, 0, 6400, 100)))
                         .build())
                 .overrideStats("valuesB", PlanNodeStatsEstimate.builder()
                         .setOutputRowCount(bRows)
-                        .addSymbolStatistics(ImmutableMap.of(new Symbol("B1"), new SymbolStatsEstimate(0, 100, 0, 640000, 100)))
+                        .addSymbolStatistics(ImmutableMap.of(new Symbol(UNKNOWN, "B1"), new SymbolStatsEstimate(0, 100, 0, 640000, 100)))
                         .build())
                 .on(p -> {
                     Symbol a1 = p.symbol("A1", symbolType);
@@ -137,11 +138,11 @@ public class TestDetermineSemiJoinDistributionType
                 .setSystemProperty(JOIN_MAX_BROADCAST_TABLE_SIZE, "1B")
                 .overrideStats("valuesA", PlanNodeStatsEstimate.builder()
                         .setOutputRowCount(aRows)
-                        .addSymbolStatistics(ImmutableMap.of(new Symbol("A1"), SymbolStatsEstimate.unknown()))
+                        .addSymbolStatistics(ImmutableMap.of(new Symbol(UNKNOWN, "A1"), SymbolStatsEstimate.unknown()))
                         .build())
                 .overrideStats("valuesB", PlanNodeStatsEstimate.builder()
                         .setOutputRowCount(bRows)
-                        .addSymbolStatistics(ImmutableMap.of(new Symbol("B1"), SymbolStatsEstimate.unknown()))
+                        .addSymbolStatistics(ImmutableMap.of(new Symbol(UNKNOWN, "B1"), SymbolStatsEstimate.unknown()))
                         .build())
                 .on(p ->
                         p.semiJoin(
@@ -171,11 +172,11 @@ public class TestDetermineSemiJoinDistributionType
                 .setSystemProperty(JOIN_DISTRIBUTION_TYPE, JoinDistributionType.AUTOMATIC.name())
                 .overrideStats("valuesA", PlanNodeStatsEstimate.builder()
                         .setOutputRowCount(aRows)
-                        .addSymbolStatistics(ImmutableMap.of(new Symbol("A1"), SymbolStatsEstimate.unknown()))
+                        .addSymbolStatistics(ImmutableMap.of(new Symbol(UNKNOWN, "A1"), SymbolStatsEstimate.unknown()))
                         .build())
                 .overrideStats("valuesB", PlanNodeStatsEstimate.builder()
                         .setOutputRowCount(bRows)
-                        .addSymbolStatistics(ImmutableMap.of(new Symbol("B1"), SymbolStatsEstimate.unknown()))
+                        .addSymbolStatistics(ImmutableMap.of(new Symbol(UNKNOWN, "B1"), SymbolStatsEstimate.unknown()))
                         .build())
                 .on(p ->
                         p.semiJoin(
@@ -205,11 +206,11 @@ public class TestDetermineSemiJoinDistributionType
                 .setSystemProperty(JOIN_DISTRIBUTION_TYPE, JoinDistributionType.AUTOMATIC.name())
                 .overrideStats("valuesA", PlanNodeStatsEstimate.builder()
                         .setOutputRowCount(aRows)
-                        .addSymbolStatistics(ImmutableMap.of(new Symbol("A1"), SymbolStatsEstimate.unknown()))
+                        .addSymbolStatistics(ImmutableMap.of(new Symbol(UNKNOWN, "A1"), SymbolStatsEstimate.unknown()))
                         .build())
                 .overrideStats("valuesB", PlanNodeStatsEstimate.builder()
                         .setOutputRowCount(bRows)
-                        .addSymbolStatistics(ImmutableMap.of(new Symbol("B1"), SymbolStatsEstimate.unknown()))
+                        .addSymbolStatistics(ImmutableMap.of(new Symbol(UNKNOWN, "B1"), SymbolStatsEstimate.unknown()))
                         .build())
                 .on(p ->
                         p.semiJoin(
@@ -239,11 +240,11 @@ public class TestDetermineSemiJoinDistributionType
 
         PlanNodeStatsEstimate probeSideStatsEstimate = PlanNodeStatsEstimate.builder()
                 .setOutputRowCount(aRows)
-                .addSymbolStatistics(ImmutableMap.of(new Symbol("A1"), new SymbolStatsEstimate(0, 100, 0, 640000, 10)))
+                .addSymbolStatistics(ImmutableMap.of(new Symbol(UNKNOWN, "A1"), new SymbolStatsEstimate(0, 100, 0, 640000, 10)))
                 .build();
         PlanNodeStatsEstimate buildSideStatsEstimate = PlanNodeStatsEstimate.builder()
                 .setOutputRowCount(bRows)
-                .addSymbolStatistics(ImmutableMap.of(new Symbol("B1"), new SymbolStatsEstimate(0, 100, 0, 640000, 10)))
+                .addSymbolStatistics(ImmutableMap.of(new Symbol(UNKNOWN, "B1"), new SymbolStatsEstimate(0, 100, 0, 640000, 10)))
                 .build();
 
         // B table is small enough to be replicated according to JOIN_MAX_BROADCAST_TABLE_SIZE limit
@@ -275,11 +276,11 @@ public class TestDetermineSemiJoinDistributionType
 
         probeSideStatsEstimate = PlanNodeStatsEstimate.builder()
                 .setOutputRowCount(aRows)
-                .addSymbolStatistics(ImmutableMap.of(new Symbol("A1"), new SymbolStatsEstimate(0, 100, 0, 640000d * 10000, 10)))
+                .addSymbolStatistics(ImmutableMap.of(new Symbol(UNKNOWN, "A1"), new SymbolStatsEstimate(0, 100, 0, 640000d * 10000, 10)))
                 .build();
         buildSideStatsEstimate = PlanNodeStatsEstimate.builder()
                 .setOutputRowCount(bRows)
-                .addSymbolStatistics(ImmutableMap.of(new Symbol("B1"), new SymbolStatsEstimate(0, 100, 0, 640000d * 10000, 10)))
+                .addSymbolStatistics(ImmutableMap.of(new Symbol(UNKNOWN, "B1"), new SymbolStatsEstimate(0, 100, 0, 640000d * 10000, 10)))
                 .build();
 
         // B table exceeds JOIN_MAX_BROADCAST_TABLE_SIZE limit therefore it is partitioned
@@ -319,15 +320,15 @@ public class TestDetermineSemiJoinDistributionType
 
         PlanNodeStatsEstimate probeSideStatsEstimate = PlanNodeStatsEstimate.builder()
                 .setOutputRowCount(aRows)
-                .addSymbolStatistics(ImmutableMap.of(new Symbol("A1"), new SymbolStatsEstimate(0, 100, 0, 640000d * 10000, 10)))
+                .addSymbolStatistics(ImmutableMap.of(new Symbol(UNKNOWN, "A1"), new SymbolStatsEstimate(0, 100, 0, 640000d * 10000, 10)))
                 .build();
         PlanNodeStatsEstimate buildSideStatsEstimate = PlanNodeStatsEstimate.builder()
                 .setOutputRowCount(bRows)
-                .addSymbolStatistics(ImmutableMap.of(new Symbol("B1"), new SymbolStatsEstimate(0, 100, 0, 640000d * 10000, 10)))
+                .addSymbolStatistics(ImmutableMap.of(new Symbol(UNKNOWN, "B1"), new SymbolStatsEstimate(0, 100, 0, 640000d * 10000, 10)))
                 .build();
         PlanNodeStatsEstimate buildSideSourceStatsEstimate = PlanNodeStatsEstimate.builder()
                 .setOutputRowCount(bRows)
-                .addSymbolStatistics(ImmutableMap.of(new Symbol("B1"), new SymbolStatsEstimate(0, 100, 0, 64, 10)))
+                .addSymbolStatistics(ImmutableMap.of(new Symbol(UNKNOWN, "B1"), new SymbolStatsEstimate(0, 100, 0, 64, 10)))
                 .build();
 
         // build side exceeds JOIN_MAX_BROADCAST_TABLE_SIZE limit but source plan nodes are small
@@ -345,7 +346,7 @@ public class TestDetermineSemiJoinDistributionType
                             p.values(new PlanNodeId("valuesA"), aRows, a1),
                             p.filter(
                                     new PlanNodeId("filterB"),
-                                    TRUE_LITERAL,
+                                    TRUE,
                                     p.values(new PlanNodeId("valuesB"), bRows, b1)),
                             a1,
                             b1,
@@ -360,7 +361,7 @@ public class TestDetermineSemiJoinDistributionType
                         "output",
                         Optional.of(REPLICATED),
                         values(ImmutableMap.of("A1", 0)),
-                        filter(TRUE_LITERAL, values(ImmutableMap.of("B1", 0)))));
+                        filter(TRUE, values(ImmutableMap.of("B1", 0)))));
     }
 
     private RuleBuilder assertDetermineSemiJoinDistributionType()

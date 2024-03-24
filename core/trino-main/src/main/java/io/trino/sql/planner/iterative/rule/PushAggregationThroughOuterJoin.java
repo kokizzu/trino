@@ -21,7 +21,7 @@ import io.trino.matching.Capture;
 import io.trino.matching.Captures;
 import io.trino.matching.Pattern;
 import io.trino.spi.type.Type;
-import io.trino.sql.ir.CoalesceExpression;
+import io.trino.sql.ir.Coalesce;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
 import io.trino.sql.ir.Row;
@@ -260,7 +260,7 @@ public class PushAggregationThroughOuterJoin
         Assignments.Builder assignmentsBuilder = Assignments.builder();
         for (Symbol symbol : outerJoin.getOutputSymbols()) {
             if (aggregationNode.getAggregations().containsKey(symbol)) {
-                assignmentsBuilder.put(symbol, new CoalesceExpression(symbol.toSymbolReference(), sourceAggregationToOverNullMapping.get(symbol).toSymbolReference()));
+                assignmentsBuilder.put(symbol, new Coalesce(symbol.toSymbolReference(), sourceAggregationToOverNullMapping.get(symbol).toSymbolReference()));
             }
             else {
                 assignmentsBuilder.putIdentity(symbol);
@@ -278,7 +278,7 @@ public class PushAggregationThroughOuterJoin
         ImmutableList.Builder<Expression> nullLiterals = ImmutableList.builder();
         ImmutableMap.Builder<Symbol, Symbol> sourcesSymbolMappingBuilder = ImmutableMap.builder();
         for (Symbol sourceSymbol : referenceAggregation.getSource().getOutputSymbols()) {
-            Type type = symbolAllocator.getTypes().get(sourceSymbol);
+            Type type = sourceSymbol.getType();
             nullLiterals.add(new Constant(type, null));
             Symbol nullSymbol = symbolAllocator.newSymbol("null", type);
             nullSymbols.add(nullSymbol);
@@ -298,7 +298,7 @@ public class PushAggregationThroughOuterJoin
         for (Map.Entry<Symbol, AggregationNode.Aggregation> entry : referenceAggregation.getAggregations().entrySet()) {
             Symbol aggregationSymbol = entry.getKey();
             Aggregation overNullAggregation = mapper.map(entry.getValue());
-            Symbol overNullSymbol = symbolAllocator.newSymbol(overNullAggregation.getResolvedFunction().getSignature().getName().getFunctionName(), symbolAllocator.getTypes().get(aggregationSymbol));
+            Symbol overNullSymbol = symbolAllocator.newSymbol(overNullAggregation.getResolvedFunction().getSignature().getName().getFunctionName(), aggregationSymbol.getType());
             aggregationsOverNullBuilder.put(overNullSymbol, overNullAggregation);
             aggregationsSymbolMappingBuilder.put(aggregationSymbol, overNullSymbol);
         }

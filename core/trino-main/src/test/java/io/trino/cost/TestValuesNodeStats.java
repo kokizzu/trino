@@ -19,7 +19,7 @@ import io.trino.metadata.ResolvedFunction;
 import io.trino.metadata.TestingFunctionResolution;
 import io.trino.spi.function.OperatorType;
 import io.trino.spi.type.VarcharType;
-import io.trino.sql.ir.ArithmeticBinaryExpression;
+import io.trino.sql.ir.Arithmetic;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.planner.Symbol;
 import org.junit.jupiter.api.Test;
@@ -29,16 +29,13 @@ import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.spi.type.VarcharType.createVarcharType;
-import static io.trino.sql.ir.ArithmeticBinaryExpression.Operator.ADD;
-import static io.trino.sql.ir.ArithmeticBinaryExpression.Operator.DIVIDE;
+import static io.trino.sql.ir.Arithmetic.Operator.DIVIDE;
 import static io.trino.type.UnknownType.UNKNOWN;
 
 public class TestValuesNodeStats
         extends BaseStatsCalculatorTest
 {
     private static final TestingFunctionResolution FUNCTIONS = new TestingFunctionResolution();
-    private static final ResolvedFunction ADD_BIGINT = FUNCTIONS.resolveOperator(OperatorType.ADD, ImmutableList.of(BIGINT, BIGINT));
-    private static final ResolvedFunction ADD_INTEGER = FUNCTIONS.resolveOperator(OperatorType.ADD, ImmutableList.of(INTEGER, INTEGER));
     private static final ResolvedFunction DIVIDE_INTEGER = FUNCTIONS.resolveOperator(OperatorType.DIVIDE, ImmutableList.of(INTEGER, INTEGER));
 
     @Test
@@ -47,14 +44,14 @@ public class TestValuesNodeStats
         tester().assertStatsFor(pb -> pb
                         .values(ImmutableList.of(pb.symbol("a", BIGINT), pb.symbol("b", DOUBLE)),
                                 ImmutableList.of(
-                                        ImmutableList.of(new ArithmeticBinaryExpression(ADD_BIGINT, ADD, new Constant(BIGINT, 3L), new Constant(BIGINT, 3L)), new Constant(DOUBLE, 13.5e0)),
-                                        ImmutableList.of(new Constant(BIGINT, 55L), new Constant(UNKNOWN, null)),
+                                        ImmutableList.of(new Constant(BIGINT, 6L), new Constant(DOUBLE, 13.5e0)),
+                                        ImmutableList.of(new Constant(BIGINT, 55L), new Constant(DOUBLE, null)),
                                         ImmutableList.of(new Constant(BIGINT, 6L), new Constant(DOUBLE, 13.5e0)))))
                 .check(outputStats -> outputStats.equalTo(
                         PlanNodeStatsEstimate.builder()
                                 .setOutputRowCount(3)
                                 .addSymbolStatistics(
-                                        new Symbol("a"),
+                                        new Symbol(BIGINT, "a"),
                                         SymbolStatsEstimate.builder()
                                                 .setNullsFraction(0)
                                                 .setLowValue(6)
@@ -62,7 +59,7 @@ public class TestValuesNodeStats
                                                 .setDistinctValuesCount(2)
                                                 .build())
                                 .addSymbolStatistics(
-                                        new Symbol("b"),
+                                        new Symbol(DOUBLE, "b"),
                                         SymbolStatsEstimate.builder()
                                                 .setNullsFraction(0.33333333333333333)
                                                 .setLowValue(13.5)
@@ -82,7 +79,7 @@ public class TestValuesNodeStats
                         PlanNodeStatsEstimate.builder()
                                 .setOutputRowCount(4)
                                 .addSymbolStatistics(
-                                        new Symbol("v"),
+                                        new Symbol(UNKNOWN, "v"),
                                         SymbolStatsEstimate.builder()
                                                 .setNullsFraction(0.25)
                                                 .setDistinctValuesCount(3)
@@ -96,7 +93,7 @@ public class TestValuesNodeStats
     {
         tester().assertStatsFor(pb -> pb
                         .values(ImmutableList.of(pb.symbol("a", BIGINT)),
-                                ImmutableList.of(ImmutableList.of(new ArithmeticBinaryExpression(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 1L), new Constant(INTEGER, 0L))))))
+                                ImmutableList.of(ImmutableList.of(new Arithmetic(DIVIDE_INTEGER, DIVIDE, new Constant(INTEGER, 1L), new Constant(INTEGER, 0L))))))
                 .check(outputStats -> outputStats.equalTo(unknown()));
     }
 
@@ -105,19 +102,19 @@ public class TestValuesNodeStats
     {
         PlanNodeStatsEstimate nullAStats = PlanNodeStatsEstimate.builder()
                 .setOutputRowCount(1)
-                .addSymbolStatistics(new Symbol("a"), SymbolStatsEstimate.zero())
+                .addSymbolStatistics(new Symbol(INTEGER, "a"), SymbolStatsEstimate.zero())
                 .build();
 
         tester().assertStatsFor(pb -> pb
                         .values(ImmutableList.of(pb.symbol("a", BIGINT)),
                                 ImmutableList.of(
-                                        ImmutableList.of(new ArithmeticBinaryExpression(ADD_INTEGER, ADD, new Constant(INTEGER, 3L), new Constant(UNKNOWN, null))))))
+                                        ImmutableList.of(new Constant(INTEGER, null)))))
                 .check(outputStats -> outputStats.equalTo(nullAStats));
 
         tester().assertStatsFor(pb -> pb
                         .values(ImmutableList.of(pb.symbol("a", BIGINT)),
                                 ImmutableList.of(
-                                        ImmutableList.of(new Constant(UNKNOWN, null)))))
+                                        ImmutableList.of(new Constant(BIGINT, null)))))
                 .check(outputStats -> outputStats.equalTo(nullAStats));
 
         tester().assertStatsFor(pb -> pb
@@ -136,7 +133,7 @@ public class TestValuesNodeStats
                 .check(outputStats -> outputStats.equalTo(
                         PlanNodeStatsEstimate.builder()
                                 .setOutputRowCount(0)
-                                .addSymbolStatistics(new Symbol("a"), SymbolStatsEstimate.zero())
+                                .addSymbolStatistics(new Symbol(UNKNOWN, "a"), SymbolStatsEstimate.zero())
                                 .build()));
     }
 }

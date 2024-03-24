@@ -19,8 +19,7 @@ import io.trino.matching.Capture;
 import io.trino.matching.Captures;
 import io.trino.matching.Pattern;
 import io.trino.sql.ir.Expression;
-import io.trino.sql.ir.SymbolReference;
-import io.trino.sql.planner.IrTypeAnalyzer;
+import io.trino.sql.ir.Reference;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.iterative.Rule;
 import io.trino.sql.planner.optimizations.SymbolMapper;
@@ -41,7 +40,6 @@ import static io.trino.sql.planner.iterative.rule.DereferencePushdown.extractRow
 import static io.trino.sql.planner.plan.Patterns.project;
 import static io.trino.sql.planner.plan.Patterns.source;
 import static io.trino.sql.planner.plan.Patterns.topN;
-import static java.util.Objects.requireNonNull;
 
 /**
  * Transforms:
@@ -71,12 +69,6 @@ public final class PushTopNThroughProject
                                     .capturedAs(PROJECT_CHILD)
                                     // do not push topN between projection and table scan so that they can be merged into a PageProcessor
                                     .with(source().matching(node -> !(node instanceof TableScanNode)))));
-    private final IrTypeAnalyzer typeAnalyzer;
-
-    public PushTopNThroughProject(IrTypeAnalyzer typeAnalyzer)
-    {
-        this.typeAnalyzer = requireNonNull(typeAnalyzer, "typeAnalyzer is null");
-    }
 
     @Override
     public Pattern<TopNNode> getPattern()
@@ -93,8 +85,8 @@ public final class PushTopNThroughProject
         // undoing of PushDownDereferencesThroughTopN. We still push topN in the case of overlapping dereferences since
         // it enables PushDownDereferencesThroughTopN rule to push optimal dereferences.
         Set<Expression> projections = ImmutableSet.copyOf(projectNode.getAssignments().getExpressions());
-        if (!extractRowSubscripts(projections, false, typeAnalyzer, context.getSymbolAllocator().getTypes()).isEmpty()
-                && exclusiveDereferences(projections, typeAnalyzer, context.getSymbolAllocator().getTypes())) {
+        if (!extractRowSubscripts(projections, false).isEmpty()
+                && exclusiveDereferences(projections)) {
             return Result.empty();
         }
 
@@ -121,7 +113,7 @@ public final class PushTopNThroughProject
         SymbolMapper.Builder mapper = SymbolMapper.builder();
         for (Symbol symbol : symbols) {
             Expression expression = assignments.get(symbol);
-            if (!(expression instanceof SymbolReference)) {
+            if (!(expression instanceof Reference)) {
                 return Optional.empty();
             }
             mapper.put(symbol, Symbol.from(expression));

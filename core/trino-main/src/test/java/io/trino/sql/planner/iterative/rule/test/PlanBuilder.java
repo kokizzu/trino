@@ -51,7 +51,6 @@ import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.TestingConnectorIndexHandle;
 import io.trino.sql.planner.TestingConnectorTransactionHandle;
 import io.trino.sql.planner.TestingWriterTarget;
-import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.planner.assertions.AggregationFunction;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.AggregationNode.Aggregation;
@@ -117,7 +116,6 @@ import io.trino.testing.TestingMetadata.TestingColumnHandle;
 import io.trino.testing.TestingMetadata.TestingTableHandle;
 import io.trino.testing.TestingTableExecuteHandle;
 import io.trino.testing.TestingTransactionHandle;
-import io.trino.type.UnknownType;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -129,6 +127,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -137,15 +136,15 @@ import static io.trino.spi.connector.RowChangeParadigm.DELETE_ROW_AND_INSERT_ROW
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.spi.type.VarbinaryType.VARBINARY;
-import static io.trino.sql.ir.BooleanLiteral.TRUE_LITERAL;
+import static io.trino.sql.ir.Booleans.TRUE;
 import static io.trino.sql.planner.SystemPartitioningHandle.FIXED_ARBITRARY_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.FIXED_HASH_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
 import static io.trino.sql.planner.plan.JoinType.INNER;
 import static io.trino.testing.TestingHandles.TEST_CATALOG_HANDLE;
-import static io.trino.util.MoreLists.nElements;
 import static java.lang.String.format;
 import static java.util.Collections.emptyList;
+import static java.util.Collections.nCopies;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
 
@@ -153,7 +152,7 @@ public class PlanBuilder
 {
     private final PlanNodeIdAllocator idAllocator;
     private final Session session;
-    private final Map<Symbol, Type> symbols = new HashMap<>();
+    private final Map<String, Symbol> symbolsByName = new HashMap<>();
     private final FunctionResolver functionResolver;
 
     public PlanBuilder(PlanNodeIdAllocator idAllocator, PlannerContext plannerContext, Session session)
@@ -241,10 +240,11 @@ public class PlanBuilder
 
     public ValuesNode values(PlanNodeId id, int rows, Symbol... columns)
     {
-        return values(
-                id,
-                ImmutableList.copyOf(columns),
-                nElements(rows, row -> nElements(columns.length, cell -> new Constant(UnknownType.UNKNOWN, null))));
+        List<Expression> row = Arrays.stream(columns)
+                .map(symbol -> new Constant(symbol.getType(), null))
+                .collect(Collectors.toList());
+
+        return values(id, ImmutableList.copyOf(columns), nCopies(rows, row));
     }
 
     public ValuesNode values(List<Symbol> columns, List<List<Expression>> rows)
@@ -528,7 +528,7 @@ public class PlanBuilder
 
     public CorrelatedJoinNode correlatedJoin(List<Symbol> correlation, PlanNode input, PlanNode subquery)
     {
-        return correlatedJoin(correlation, input, JoinType.INNER, TRUE_LITERAL, subquery);
+        return correlatedJoin(correlation, input, JoinType.INNER, TRUE, subquery);
     }
 
     public CorrelatedJoinNode correlatedJoin(List<Symbol> correlation, PlanNode input, JoinType type, Expression filter, PlanNode subquery)
@@ -1307,6 +1307,7 @@ public class PlanBuilder
                 Optional.empty());
     }
 
+    @Deprecated
     public Symbol symbol(String name)
     {
         return symbol(name, BIGINT);
@@ -1314,15 +1315,11 @@ public class PlanBuilder
 
     public Symbol symbol(String name, Type type)
     {
-        Symbol symbol = new Symbol(name);
+        Symbol symbol = new Symbol(type, name);
 
-        Type old = symbols.put(symbol, type);
-        if (old != null && !old.equals(type)) {
-            throw new IllegalArgumentException(format("Symbol '%s' already registered with type '%s'", name, old));
-        }
-
-        if (old == null) {
-            symbols.put(symbol, type);
+        Symbol old = symbolsByName.put(symbol.getName(), symbol);
+        if (old != null && !old.getType().equals(type)) {
+            throw new IllegalArgumentException(format("Symbol '%s' already registered with type '%s'", name, old.getType()));
         }
 
         return symbol;
@@ -1440,8 +1437,8 @@ public class PlanBuilder
         return new AggregationFunction(name, Optional.empty(), Optional.of(orderBy), false, arguments);
     }
 
-    public TypeProvider getTypes()
+    public Collection<Symbol> getSymbols()
     {
-        return TypeProvider.copyOf(symbols);
+        return symbolsByName.values();
     }
 }

@@ -15,23 +15,18 @@ package io.trino.sql;
 
 import com.google.common.collect.ImmutableMap;
 import io.trino.spi.type.Decimals;
-import io.trino.spi.type.Type;
 import io.trino.sql.ir.Cast;
-import io.trino.sql.ir.CoalesceExpression;
+import io.trino.sql.ir.Coalesce;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
-import io.trino.sql.ir.NodeRef;
 import io.trino.sql.planner.IrExpressionInterpreter;
-import io.trino.sql.planner.IrTypeAnalyzer;
 import io.trino.sql.planner.NoOpSymbolResolver;
-import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.relational.RowExpression;
 import io.trino.sql.relational.SqlToRowExpressionTranslator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 import java.math.BigDecimal;
-import java.util.Map;
 
 import static io.trino.SessionTestUtils.TEST_SESSION;
 import static io.trino.spi.type.BigintType.BIGINT;
@@ -48,13 +43,10 @@ public class TestSqlToRowExpressionTranslator
     public void testPossibleExponentialOptimizationTime()
     {
         Expression expression = new Constant(BIGINT, 1L);
-        ImmutableMap.Builder<NodeRef<Expression>, Type> types = ImmutableMap.builder();
-        types.put(NodeRef.of(expression), BIGINT);
         for (int i = 0; i < 100; i++) {
-            expression = new CoalesceExpression(expression, new Constant(BIGINT, 2L));
-            types.put(NodeRef.of(expression), BIGINT);
+            expression = new Coalesce(expression, new Constant(BIGINT, 2L));
         }
-        translateAndOptimize(expression, types.buildOrThrow());
+        translateAndOptimize(expression);
     }
 
     @Test
@@ -83,14 +75,8 @@ public class TestSqlToRowExpressionTranslator
 
     private RowExpression translateAndOptimize(Expression expression)
     {
-        return translateAndOptimize(expression, getExpressionTypes(expression));
-    }
-
-    private RowExpression translateAndOptimize(Expression expression, Map<NodeRef<Expression>, Type> types)
-    {
         return SqlToRowExpressionTranslator.translate(
                 expression,
-                types,
                 ImmutableMap.of(),
                 PLANNER_CONTEXT.getMetadata(),
                 PLANNER_CONTEXT.getFunctionManager(),
@@ -102,18 +88,11 @@ public class TestSqlToRowExpressionTranslator
     private Expression simplifyExpression(Expression expression)
     {
         // Testing simplified expressions is important, since simplification may create CASTs or function calls that cannot be simplified by the ExpressionOptimizer
-
-        Map<NodeRef<Expression>, Type> expressionTypes = getExpressionTypes(expression);
-        IrExpressionInterpreter interpreter = new IrExpressionInterpreter(expression, PLANNER_CONTEXT, TEST_SESSION, expressionTypes);
+        IrExpressionInterpreter interpreter = new IrExpressionInterpreter(expression, PLANNER_CONTEXT, TEST_SESSION);
         Object value = interpreter.optimize(NoOpSymbolResolver.INSTANCE);
 
         return value instanceof Expression optimized ?
                 optimized :
-                new Constant(expressionTypes.get(NodeRef.of(expression)), value);
-    }
-
-    private Map<NodeRef<Expression>, Type> getExpressionTypes(Expression expression)
-    {
-        return new IrTypeAnalyzer(PLANNER_CONTEXT).getTypes(TypeProvider.empty(), expression);
+                new Constant(expression.type(), value);
     }
 }

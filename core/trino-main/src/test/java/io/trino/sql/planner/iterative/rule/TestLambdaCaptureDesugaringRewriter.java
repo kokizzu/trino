@@ -14,24 +14,20 @@
 package io.trino.sql.planner.iterative.rule;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import io.trino.metadata.ResolvedFunction;
 import io.trino.metadata.TestingFunctionResolution;
 import io.trino.spi.function.OperatorType;
-import io.trino.spi.type.BigintType;
-import io.trino.spi.type.Type;
-import io.trino.sql.ir.ArithmeticBinaryExpression;
-import io.trino.sql.ir.BindExpression;
-import io.trino.sql.ir.LambdaExpression;
-import io.trino.sql.ir.SymbolReference;
+import io.trino.sql.ir.Arithmetic;
+import io.trino.sql.ir.Bind;
+import io.trino.sql.ir.Lambda;
+import io.trino.sql.ir.Reference;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.SymbolAllocator;
 import org.junit.jupiter.api.Test;
 
-import java.util.Map;
-
+import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.IntegerType.INTEGER;
-import static io.trino.sql.ir.ArithmeticBinaryExpression.Operator.ADD;
+import static io.trino.sql.ir.Arithmetic.Operator.ADD;
 import static io.trino.sql.planner.iterative.rule.LambdaCaptureDesugaringRewriter.rewrite;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -43,18 +39,16 @@ public class TestLambdaCaptureDesugaringRewriter
     @Test
     public void testRewriteBasicLambda()
     {
-        Map<Symbol, Type> symbols = ImmutableMap.of(new Symbol("a"), BigintType.BIGINT);
-        SymbolAllocator allocator = new SymbolAllocator(symbols);
+        SymbolAllocator allocator = new SymbolAllocator(ImmutableList.of(new Symbol(BIGINT, "a")));
 
         assertThat(
                 rewrite(
-                        new LambdaExpression(ImmutableList.of("x"), new ArithmeticBinaryExpression(ADD_INTEGER, ADD, new SymbolReference("a"), new SymbolReference("x"))),
-                        allocator.getTypes(),
+                        new Lambda(ImmutableList.of(new Symbol(INTEGER, "x")), new Arithmetic(ADD_INTEGER, ADD, new Reference(INTEGER, "a"), new Reference(INTEGER, "x"))),
                         allocator))
-                .isEqualTo(new BindExpression(
-                        ImmutableList.of(new SymbolReference("a")),
-                        new LambdaExpression(
-                                ImmutableList.of("a_0", "x"),
-                                new ArithmeticBinaryExpression(ADD_INTEGER, ADD, new SymbolReference("a_0"), new SymbolReference("x")))));
+                .isEqualTo(new Bind(
+                        ImmutableList.of(new Reference(INTEGER, "a")),
+                        new Lambda(
+                                ImmutableList.of(new Symbol(INTEGER, "a_0"), new Symbol(INTEGER, "x")),
+                                new Arithmetic(ADD_INTEGER, ADD, new Reference(INTEGER, "a_0"), new Reference(INTEGER, "x")))));
     }
 }

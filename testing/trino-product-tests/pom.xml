@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>443-SNAPSHOT</version>
+        <version>444-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -287,24 +287,6 @@
         <dependency>
             <groupId>io.trino.hive</groupId>
             <artifactId>hive-apache-jdbc</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>javax.ws.rs</groupId>
-            <artifactId>javax.ws.rs-api</artifactId>
-            <version>2.1.1</version>
-            <!--
-            It is required by SchemaRegistryClient. The actual dependencies
-            are excluded from SchemaRegistryClient as it conflicts with Trino's dependency
-            -->
-            <scope>runtime</scope>
-        </dependency>
-
-        <!-- TODO: move it to airlift -->
-        <dependency>
-            <groupId>org.codehaus.plexus</groupId>
-            <artifactId>plexus-xml</artifactId>
             <scope>runtime</scope>
         </dependency>
 

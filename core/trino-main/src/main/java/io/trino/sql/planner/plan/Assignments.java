@@ -20,8 +20,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import io.trino.spi.type.Type;
 import io.trino.sql.ir.Expression;
-import io.trino.sql.ir.SymbolReference;
-import io.trino.sql.planner.IrTypeAnalyzer;
+import io.trino.sql.ir.Reference;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.SymbolAllocator;
 
@@ -79,12 +78,12 @@ public class Assignments
         return builder().put(symbol1, expression1).put(symbol2, expression2).build();
     }
 
-    public static Assignments of(Collection<? extends Expression> expressions, SymbolAllocator symbolAllocator, IrTypeAnalyzer typeAnalyzer)
+    public static Assignments of(Collection<? extends Expression> expressions, SymbolAllocator symbolAllocator)
     {
         Assignments.Builder assignments = Assignments.builder();
 
         for (Expression expression : expressions) {
-            Type type = typeAnalyzer.getType(symbolAllocator.getTypes(), expression);
+            Type type = expression.type();
             assignments.put(symbolAllocator.newSymbol(expression, type), expression);
         }
 
@@ -133,7 +132,7 @@ public class Assignments
     {
         Expression expression = assignments.get(output);
 
-        return expression instanceof SymbolReference && ((SymbolReference) expression).getName().equals(output.getName());
+        return expression instanceof Reference && ((Reference) expression).name().equals(output.getName());
     }
 
     public boolean isIdentity()
@@ -141,7 +140,7 @@ public class Assignments
         for (Map.Entry<Symbol, Expression> entry : assignments.entrySet()) {
             Expression expression = entry.getValue();
             Symbol symbol = entry.getKey();
-            if (!(expression instanceof SymbolReference && ((SymbolReference) expression).getName().equals(symbol.getName()))) {
+            if (!(expression instanceof Reference && ((Reference) expression).name().equals(symbol.getName()))) {
                 return false;
             }
         }
@@ -262,7 +261,7 @@ public class Assignments
                 checkState(
                         assignment.equals(expression),
                         "Symbol %s already has assignment %s, while adding %s",
-                        symbol,
+                        symbol.getName(),
                         assignment,
                         expression);
             }

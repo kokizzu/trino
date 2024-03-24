@@ -19,10 +19,10 @@ import io.trino.spi.type.BigintType;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
 import io.trino.sql.ir.ExpressionTreeRewriter;
-import io.trino.sql.ir.IsNullPredicate;
-import io.trino.sql.ir.NotExpression;
+import io.trino.sql.ir.IsNull;
+import io.trino.sql.ir.Not;
+import io.trino.sql.ir.Reference;
 import io.trino.sql.ir.Row;
-import io.trino.sql.ir.SymbolReference;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.assertions.PlanMatchPattern;
 import io.trino.sql.planner.iterative.rule.test.BaseRuleTest;
@@ -31,8 +31,9 @@ import io.trino.sql.planner.plan.Assignments;
 import org.junit.jupiter.api.Test;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.IntegerType.INTEGER;
-import static io.trino.sql.ir.BooleanLiteral.TRUE_LITERAL;
+import static io.trino.sql.ir.Booleans.TRUE;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.expression;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.filter;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.patternRecognition;
@@ -56,7 +57,7 @@ public class TestExpressionRewriteRuleSet
                 public Expression rewriteRow(Row node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
                 {
                     // rewrite Row items to preserve Row structure of ValuesNode
-                    return new Row(node.getItems().stream().map(item -> new Constant(INTEGER, 0L)).collect(toImmutableList()));
+                    return new Row(node.items().stream().map(item -> new Constant(INTEGER, 0L)).collect(toImmutableList()));
                 }
             }, expression));
 
@@ -65,7 +66,7 @@ public class TestExpressionRewriteRuleSet
     {
         tester().assertThat(zeroRewriter.projectExpressionRewrite())
                 .on(p -> p.project(
-                        Assignments.of(p.symbol("y"), new NotExpression(new IsNullPredicate(new SymbolReference("x")))),
+                        Assignments.of(p.symbol("y"), new Not(new IsNull(new Reference(BIGINT, "x")))),
                         p.values(p.symbol("x"))))
                 .matches(
                         project(ImmutableMap.of("y", expression(new Constant(INTEGER, 0L))), values("x")));
@@ -84,13 +85,13 @@ public class TestExpressionRewriteRuleSet
     @Test
     public void testAggregationExpressionRewrite()
     {
-        ExpressionRewriteRuleSet functionCallRewriter = new ExpressionRewriteRuleSet((expression, context) -> new SymbolReference("y"));
+        ExpressionRewriteRuleSet functionCallRewriter = new ExpressionRewriteRuleSet((expression, context) -> new Reference(BIGINT, "y"));
         tester().assertThat(functionCallRewriter.aggregationExpressionRewrite())
                 .on(p -> p.aggregation(a -> a
                         .globalGrouping()
                         .addAggregation(
                                 p.symbol("count_1", BigintType.BIGINT),
-                                PlanBuilder.aggregation("count", ImmutableList.of(new SymbolReference("x"))),
+                                PlanBuilder.aggregation("count", ImmutableList.of(new Reference(BIGINT, "x"))),
                                 ImmutableList.of(BigintType.BIGINT))
                         .source(
                                 p.values(p.symbol("x"), p.symbol("y")))))
@@ -146,10 +147,10 @@ public class TestExpressionRewriteRuleSet
         tester().assertThat(zeroRewriter.patternRecognitionExpressionRewrite())
                 .on(p -> p.patternRecognition(
                         builder -> builder
-                                .addMeasure(p.symbol("measure_1"), new Constant(INTEGER, 1L), INTEGER)
+                                .addMeasure(p.symbol("measure_1", INTEGER), new Constant(INTEGER, 1L))
                                 .pattern(label("X"))
-                                .addVariableDefinition(label("X"), TRUE_LITERAL)
-                                .source(p.values(p.symbol("a")))))
+                                .addVariableDefinition(label("X"), TRUE)
+                                .source(p.values(p.symbol("a", INTEGER)))))
                 .matches(
                         patternRecognition(
                                 builder -> builder
@@ -165,7 +166,7 @@ public class TestExpressionRewriteRuleSet
         tester().assertThat(zeroRewriter.patternRecognitionExpressionRewrite())
                 .on(p -> p.patternRecognition(
                         builder -> builder
-                                .addMeasure(p.symbol("measure_1"), new Constant(INTEGER, 0L), INTEGER)
+                                .addMeasure(p.symbol("measure_1"), new Constant(INTEGER, 0L))
                                 .pattern(label("X"))
                                 .addVariableDefinition(label("X"), new Constant(INTEGER, 0L))
                                 .source(p.values(p.symbol("a")))))

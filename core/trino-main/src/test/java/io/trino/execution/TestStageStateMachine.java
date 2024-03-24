@@ -385,14 +385,14 @@ public class TestStageStateMachine
 
     private static PlanFragment createValuesPlan()
     {
-        Symbol symbol = new Symbol("column");
+        Symbol symbol = new Symbol(VARCHAR, "column");
         PlanNodeId valuesNodeId = new PlanNodeId("plan");
         PlanFragment planFragment = new PlanFragment(
                 new PlanFragmentId("plan"),
                 new ValuesNode(valuesNodeId,
                         ImmutableList.of(symbol),
                         ImmutableList.of(new Row(ImmutableList.of(new Constant(VARCHAR, Slices.utf8Slice("foo")))))),
-                ImmutableMap.of(symbol, VARCHAR),
+                ImmutableSet.of(symbol),
                 SOURCE_DISTRIBUTION,
                 Optional.empty(),
                 ImmutableList.of(valuesNodeId),

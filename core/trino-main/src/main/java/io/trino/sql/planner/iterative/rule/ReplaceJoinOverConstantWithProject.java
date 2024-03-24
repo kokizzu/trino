@@ -32,7 +32,7 @@ import java.util.List;
 import java.util.Map;
 
 import static com.google.common.collect.Iterables.getOnlyElement;
-import static io.trino.sql.ir.BooleanLiteral.TRUE_LITERAL;
+import static io.trino.sql.ir.Booleans.TRUE;
 import static io.trino.sql.planner.DeterminismEvaluator.isDeterministic;
 import static io.trino.sql.planner.optimizations.QueryCardinalityUtil.extractCardinality;
 import static io.trino.sql.planner.plan.Patterns.join;
@@ -147,7 +147,7 @@ public class ReplaceJoinOverConstantWithProject
     private static boolean isUnconditional(JoinNode joinNode)
     {
         return joinNode.getCriteria().isEmpty() &&
-                (joinNode.getFilter().isEmpty() || joinNode.getFilter().get().equals(TRUE_LITERAL));
+                (joinNode.getFilter().isEmpty() || joinNode.getFilter().get().equals(TRUE));
     }
 
     private boolean canInlineJoinSource(PlanNode source)
@@ -186,7 +186,7 @@ public class ReplaceJoinOverConstantWithProject
 
         Map<Symbol, Expression> mapping = new HashMap<>();
         for (int i = 0; i < values.getOutputSymbols().size(); i++) {
-            mapping.put(values.getOutputSymbols().get(i), row.getItems().get(i));
+            mapping.put(values.getOutputSymbols().get(i), row.items().get(i));
         }
 
         Assignments.Builder assignments = Assignments.builder()

@@ -61,12 +61,12 @@ import io.trino.sql.analyzer.Field;
 import io.trino.sql.analyzer.RelationId;
 import io.trino.sql.analyzer.RelationType;
 import io.trino.sql.analyzer.Scope;
+import io.trino.sql.ir.Call;
 import io.trino.sql.ir.Cast;
-import io.trino.sql.ir.CoalesceExpression;
-import io.trino.sql.ir.ComparisonExpression;
+import io.trino.sql.ir.Coalesce;
+import io.trino.sql.ir.Comparison;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
-import io.trino.sql.ir.FunctionCall;
 import io.trino.sql.ir.Row;
 import io.trino.sql.planner.StatisticsAggregationPlanner.TableStatisticAggregation;
 import io.trino.sql.planner.iterative.IterativeOptimizer;
@@ -144,8 +144,8 @@ import static io.trino.spi.type.VarbinaryType.VARBINARY;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static io.trino.sql.analyzer.SemanticExceptions.semanticException;
 import static io.trino.sql.analyzer.TypeSignatureProvider.fromTypes;
-import static io.trino.sql.ir.BooleanLiteral.TRUE_LITERAL;
-import static io.trino.sql.ir.ComparisonExpression.Operator.GREATER_THAN_OR_EQUAL;
+import static io.trino.sql.ir.Booleans.TRUE;
+import static io.trino.sql.ir.Comparison.Operator.GREATER_THAN_OR_EQUAL;
 import static io.trino.sql.ir.IrExpressions.ifExpression;
 import static io.trino.sql.planner.LogicalPlanner.Stage.OPTIMIZED;
 import static io.trino.sql.planner.LogicalPlanner.Stage.OPTIMIZED_AND_VALIDATED;
@@ -179,7 +179,6 @@ public class LogicalPlanner
     private final SymbolAllocator symbolAllocator = new SymbolAllocator();
     private final Metadata metadata;
     private final PlannerContext plannerContext;
-    private final IrTypeAnalyzer typeAnalyzer;
     private final StatisticsAggregationPlanner statisticsAggregationPlanner;
     private final StatsCalculator statsCalculator;
     private final CostCalculator costCalculator;
@@ -192,14 +191,13 @@ public class LogicalPlanner
             List<PlanOptimizer> planOptimizers,
             PlanNodeIdAllocator idAllocator,
             PlannerContext plannerContext,
-            IrTypeAnalyzer typeAnalyzer,
             StatsCalculator statsCalculator,
             CostCalculator costCalculator,
             WarningCollector warningCollector,
             PlanOptimizersStatsCollector planOptimizersStatsCollector,
             CachingTableStatsProvider tableStatsProvider)
     {
-        this(session, planOptimizers, DISTRIBUTED_PLAN_SANITY_CHECKER, idAllocator, plannerContext, typeAnalyzer, statsCalculator, costCalculator, warningCollector, planOptimizersStatsCollector, tableStatsProvider);
+        this(session, planOptimizers, DISTRIBUTED_PLAN_SANITY_CHECKER, idAllocator, plannerContext, statsCalculator, costCalculator, warningCollector, planOptimizersStatsCollector, tableStatsProvider);
     }
 
     public LogicalPlanner(
@@ -208,7 +206,6 @@ public class LogicalPlanner
             PlanSanityChecker planSanityChecker,
             PlanNodeIdAllocator idAllocator,
             PlannerContext plannerContext,
-            IrTypeAnalyzer typeAnalyzer,
             StatsCalculator statsCalculator,
             CostCalculator costCalculator,
             WarningCollector warningCollector,
@@ -221,7 +218,6 @@ public class LogicalPlanner
         this.idAllocator = requireNonNull(idAllocator, "idAllocator is null");
         this.plannerContext = requireNonNull(plannerContext, "plannerContext is null");
         this.metadata = plannerContext.getMetadata();
-        this.typeAnalyzer = requireNonNull(typeAnalyzer, "typeAnalyzer is null");
         this.statisticsAggregationPlanner = new StatisticsAggregationPlanner(symbolAllocator, plannerContext, session);
         this.statsCalculator = requireNonNull(statsCalculator, "statsCalculator is null");
         this.costCalculator = requireNonNull(costCalculator, "costCalculator is null");
@@ -250,7 +246,6 @@ public class LogicalPlanner
         if (LOG.isDebugEnabled()) {
             LOG.debug("Initial plan:\n%s", PlanPrinter.textLogicalPlan(
                     root,
-                    symbolAllocator.getTypes(),
                     metadata,
                     plannerContext.getFunctionManager(),
                     StatsAndCosts.empty(),
@@ -260,7 +255,7 @@ public class LogicalPlanner
         }
 
         try (var ignored = scopedSpan(plannerContext.getTracer(), "validate-intermediate")) {
-            planSanityChecker.validateIntermediatePlan(root, session, plannerContext, typeAnalyzer, symbolAllocator.getTypes(), warningCollector);
+            planSanityChecker.validateIntermediatePlan(root, session, plannerContext, warningCollector);
         }
 
         if (stage.ordinal() >= OPTIMIZED.ordinal()) {
@@ -274,11 +269,9 @@ public class LogicalPlanner
         if (stage.ordinal() >= OPTIMIZED_AND_VALIDATED.ordinal()) {
             // make sure we produce a valid plan after optimizations run. This is mainly to catch programming errors
             try (var ignored = scopedSpan(plannerContext.getTracer(), "validate-final")) {
-                planSanityChecker.validateFinalPlan(root, session, plannerContext, typeAnalyzer, symbolAllocator.getTypes(), warningCollector);
+                planSanityChecker.validateFinalPlan(root, session, plannerContext, warningCollector);
             }
         }
-
-        TypeProvider types = symbolAllocator.getTypes();
 
         TableStatsProvider collectTableStatsProvider;
         if (collectPlanStatistics) {
@@ -292,12 +285,12 @@ public class LogicalPlanner
         }
 
         StatsAndCosts statsAndCosts;
-        StatsProvider statsProvider = new CachingStatsProvider(statsCalculator, session, types, collectTableStatsProvider);
-        CostProvider costProvider = new CachingCostProvider(costCalculator, statsProvider, Optional.empty(), session, types);
+        StatsProvider statsProvider = new CachingStatsProvider(statsCalculator, session, collectTableStatsProvider);
+        CostProvider costProvider = new CachingCostProvider(costCalculator, statsProvider, Optional.empty(), session);
         try (var ignored = scopedSpan(plannerContext.getTracer(), "plan-stats")) {
             statsAndCosts = StatsAndCosts.create(root, statsProvider, costProvider);
         }
-        return new Plan(root, types, statsAndCosts);
+        return new Plan(root, statsAndCosts);
     }
 
     @Nonnull
@@ -305,7 +298,7 @@ public class LogicalPlanner
     {
         PlanNode result;
         try (var ignored = optimizerSpan(optimizer)) {
-            result = optimizer.optimize(root, new PlanOptimizer.Context(session, symbolAllocator.getTypes(), symbolAllocator, idAllocator, warningCollector, planOptimizersStatsCollector, tableStatsProvider, RuntimeInfoProvider.noImplementation()));
+            result = optimizer.optimize(root, new PlanOptimizer.Context(session, symbolAllocator, idAllocator, warningCollector, planOptimizersStatsCollector, tableStatsProvider, RuntimeInfoProvider.noImplementation()));
         }
         if (result == null) {
             throw new NullPointerException(optimizer.getClass().getName() + " returned a null plan");
@@ -314,7 +307,6 @@ public class LogicalPlanner
         if (LOG.isDebugEnabled()) {
             LOG.debug("%s:\n%s", optimizer.getClass().getName(), PlanPrinter.textLogicalPlan(
                     result,
-                    symbolAllocator.getTypes(),
                     metadata,
                     plannerContext.getFunctionManager(),
                     StatsAndCosts.empty(),
@@ -476,7 +468,7 @@ public class LogicalPlanner
         forEachPair(tableMetadata.getColumns().stream(), visibleFieldMappings.stream(), (column, fieldMapping) -> {
             assignmentsBuilder.put(
                     symbolAllocator.newSymbol(column.getName(), column.getType()),
-                    coerceOrCastToTableType(fieldMapping, column.getType(), symbolAllocator.getTypes().get(fieldMapping)));
+                    coerceOrCastToTableType(fieldMapping, column.getType(), fieldMapping.getType()));
             finalColumnsBuilder.add(column);
         });
 
@@ -546,12 +538,12 @@ public class LogicalPlanner
             }
             else {
                 Symbol input = visibleFieldMappings.get(index);
-                Type queryType = symbolAllocator.getTypes().get(input);
+                Type queryType = input.getType();
 
                 expression = coerceOrCastToTableType(input, tableType, queryType);
             }
             if (!column.isNullable()) {
-                expression = new CoalesceExpression(expression, createNullNotAllowedFailExpression(column.getName(), tableType));
+                expression = new Coalesce(expression, createNullNotAllowedFailExpression(column.getName(), tableType));
             }
             assignments.put(output, expression);
             insertedColumnsBuilder.add(column);
@@ -638,11 +630,11 @@ public class LogicalPlanner
 
     private static Function<Expression, Expression> failIfPredicateIsNotMet(Metadata metadata, ErrorCodeSupplier errorCode, String errorMessage)
     {
-        FunctionCall fail = failFunction(metadata, errorCode, errorMessage);
-        return predicate -> ifExpression(predicate, TRUE_LITERAL, new Cast(fail, BOOLEAN));
+        Call fail = failFunction(metadata, errorCode, errorMessage);
+        return predicate -> ifExpression(predicate, TRUE, new Cast(fail, BOOLEAN));
     }
 
-    public static FunctionCall failFunction(Metadata metadata, ErrorCodeSupplier errorCode, String errorMessage)
+    public static Call failFunction(Metadata metadata, ErrorCodeSupplier errorCode, String errorMessage)
     {
         Object rawValue = Slices.utf8Slice(errorMessage);
         return BuiltinFunctionCallBuilder.resolve(metadata)
@@ -820,11 +812,11 @@ public class LogicalPlanner
 
         return ifExpression(
                 // check if the trimmed value fits in the target type
-                new ComparisonExpression(
+                new Comparison(
                         GREATER_THAN_OR_EQUAL,
                         new Constant(BIGINT, (long) targetLength),
-                        new CoalesceExpression(
-                                new FunctionCall(
+                        new Coalesce(
+                                new Call(
                                         spaceTrimmedLength,
                                         ImmutableList.of(new Cast(expression, VARCHAR))),
                                 new Constant(BIGINT, 0L))),

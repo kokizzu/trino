@@ -16,7 +16,6 @@ package io.trino.cost;
 import io.trino.Session;
 import io.trino.cost.StatsCalculator.Context;
 import io.trino.matching.Pattern;
-import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.FilterNode;
 import io.trino.sql.planner.plan.PlanNode;
@@ -68,25 +67,25 @@ public class FilterProjectAggregationStatsRule
                 return Optional.empty();
             }
             PlanNode projectNodeSource = context.lookup().resolve(projectNode.getSource());
-            if (!(projectNodeSource instanceof AggregationNode)) {
+            if (!(projectNodeSource instanceof AggregationNode value)) {
                 return Optional.empty();
             }
-            aggregationNode = (AggregationNode) projectNodeSource;
+            aggregationNode = value;
         }
-        else if (nodeSource instanceof AggregationNode) {
-            aggregationNode = (AggregationNode) nodeSource;
+        else if (nodeSource instanceof AggregationNode value) {
+            aggregationNode = value;
         }
         else {
             return Optional.empty();
         }
 
-        return calculate(node, aggregationNode, context.statsProvider(), context.session(), context.types());
+        return calculate(node, aggregationNode, context.statsProvider(), context.session());
     }
 
-    private Optional<PlanNodeStatsEstimate> calculate(FilterNode filterNode, AggregationNode aggregationNode, StatsProvider statsProvider, Session session, TypeProvider types)
+    private Optional<PlanNodeStatsEstimate> calculate(FilterNode filterNode, AggregationNode aggregationNode, StatsProvider statsProvider, Session session)
     {
         // We assume here that due to predicate pushdown all the filters left are on the aggregation result
-        PlanNodeStatsEstimate filteredStats = filterStatsCalculator.filterStats(statsProvider.getStats(filterNode.getSource()), filterNode.getPredicate(), session, types);
+        PlanNodeStatsEstimate filteredStats = filterStatsCalculator.filterStats(statsProvider.getStats(filterNode.getSource()), filterNode.getPredicate(), session);
         if (filteredStats.isOutputRowCountUnknown()) {
             PlanNodeStatsEstimate sourceStats = statsProvider.getStats(aggregationNode);
             if (sourceStats.isOutputRowCountUnknown()) {

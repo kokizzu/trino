@@ -13,26 +13,26 @@
  */
 package io.trino.sql.planner.assertions;
 
-import io.trino.sql.ir.ArithmeticBinaryExpression;
-import io.trino.sql.ir.ArithmeticNegation;
-import io.trino.sql.ir.BetweenPredicate;
+import io.trino.sql.ir.Arithmetic;
+import io.trino.sql.ir.Between;
+import io.trino.sql.ir.Call;
+import io.trino.sql.ir.Case;
 import io.trino.sql.ir.Cast;
-import io.trino.sql.ir.CoalesceExpression;
-import io.trino.sql.ir.ComparisonExpression;
+import io.trino.sql.ir.Coalesce;
+import io.trino.sql.ir.Comparison;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
-import io.trino.sql.ir.FunctionCall;
-import io.trino.sql.ir.InPredicate;
+import io.trino.sql.ir.FieldReference;
+import io.trino.sql.ir.In;
 import io.trino.sql.ir.IrVisitor;
-import io.trino.sql.ir.IsNullPredicate;
-import io.trino.sql.ir.LambdaExpression;
-import io.trino.sql.ir.LogicalExpression;
-import io.trino.sql.ir.NotExpression;
+import io.trino.sql.ir.IsNull;
+import io.trino.sql.ir.Lambda;
+import io.trino.sql.ir.Logical;
+import io.trino.sql.ir.Negation;
+import io.trino.sql.ir.Not;
+import io.trino.sql.ir.Reference;
 import io.trino.sql.ir.Row;
-import io.trino.sql.ir.SearchedCaseExpression;
-import io.trino.sql.ir.SimpleCaseExpression;
-import io.trino.sql.ir.SubscriptExpression;
-import io.trino.sql.ir.SymbolReference;
+import io.trino.sql.ir.Switch;
 import io.trino.sql.ir.WhenClause;
 
 import java.util.List;
@@ -82,18 +82,21 @@ public final class ExpressionVerifier
             return false;
         }
 
-        return Objects.equals(actual.getValue(), expected.getValue()) &&
-                actual.getType().equals(expected.getType());
+        return Objects.equals(actual.value(), expected.value()) &&
+                actual.type().equals(expected.type());
     }
 
     @Override
-    protected Boolean visitSymbolReference(SymbolReference actual, Expression expectedExpression)
+    protected Boolean visitReference(Reference actual, Expression expectedExpression)
     {
-        if (!(expectedExpression instanceof SymbolReference expected)) {
+        if (!(expectedExpression instanceof Reference expected)) {
             return false;
         }
 
-        return symbolAliases.get(expected.getName()).equals(actual);
+        // TODO: verify types. This is currently hard to do because planner tests
+        //       are either missing types, have the wrong types, or they are unable to
+        //       provide types due to limitations in the matcher infrastructure
+        return symbolAliases.get(expected.name()).name().equals(actual.name());
     }
 
     @Override
@@ -107,109 +110,109 @@ public final class ExpressionVerifier
         // Here we're trying to verify its IR counterpart, but the plan testing framework goes directly
         // from SQL text -> IR-like expressions without doing all the proper canonicalizations. So we cheat
         // here and normalize everything to the same case before comparing
-        if (!actual.getType().toString().equalsIgnoreCase(expected.getType().toString())) {
+        if (!actual.type().toString().equalsIgnoreCase(expected.type().toString())) {
             return false;
         }
 
-        return process(actual.getExpression(), expected.getExpression());
+        return process(actual.expression(), expected.expression());
     }
 
     @Override
-    protected Boolean visitIsNullPredicate(IsNullPredicate actual, Expression expectedExpression)
+    protected Boolean visitIsNull(IsNull actual, Expression expectedExpression)
     {
-        if (!(expectedExpression instanceof IsNullPredicate expected)) {
+        if (!(expectedExpression instanceof IsNull expected)) {
             return false;
         }
 
-        return process(actual.getValue(), expected.getValue());
+        return process(actual.value(), expected.value());
     }
 
     @Override
-    protected Boolean visitInPredicate(InPredicate actual, Expression expectedExpression)
+    protected Boolean visitIn(In actual, Expression expectedExpression)
     {
-        if (!(expectedExpression instanceof InPredicate expected)) {
+        if (!(expectedExpression instanceof In expected)) {
             return false;
         }
 
-        return process(actual.getValue(), expected.getValue()) &&
-                process(actual.getValueList(), expected.getValueList());
+        return process(actual.value(), expected.value()) &&
+                process(actual.valueList(), expected.valueList());
     }
 
     @Override
-    protected Boolean visitComparisonExpression(ComparisonExpression actual, Expression expectedExpression)
+    protected Boolean visitComparison(Comparison actual, Expression expectedExpression)
     {
-        if (!(expectedExpression instanceof ComparisonExpression expected)) {
+        if (!(expectedExpression instanceof Comparison expected)) {
             return false;
         }
 
-        if (actual.getOperator() == expected.getOperator() &&
-                process(actual.getLeft(), expected.getLeft()) &&
-                process(actual.getRight(), expected.getRight())) {
+        if (actual.operator() == expected.operator() &&
+                process(actual.left(), expected.left()) &&
+                process(actual.right(), expected.right())) {
             return true;
         }
 
-        return actual.getOperator() == expected.getOperator().flip() &&
-                process(actual.getLeft(), expected.getRight()) &&
-                process(actual.getRight(), expected.getLeft());
+        return actual.operator() == expected.operator().flip() &&
+                process(actual.left(), expected.right()) &&
+                process(actual.right(), expected.left());
     }
 
     @Override
-    protected Boolean visitBetweenPredicate(BetweenPredicate actual, Expression expectedExpression)
+    protected Boolean visitBetween(Between actual, Expression expectedExpression)
     {
-        if (!(expectedExpression instanceof BetweenPredicate expected)) {
+        if (!(expectedExpression instanceof Between expected)) {
             return false;
         }
 
-        return process(actual.getValue(), expected.getValue()) &&
-                process(actual.getMin(), expected.getMin()) &&
-                process(actual.getMax(), expected.getMax());
+        return process(actual.value(), expected.value()) &&
+                process(actual.min(), expected.min()) &&
+                process(actual.max(), expected.max());
     }
 
     @Override
-    protected Boolean visitArithmeticNegation(ArithmeticNegation actual, Expression expectedExpression)
+    protected Boolean visitNegation(Negation actual, Expression expectedExpression)
     {
-        if (!(expectedExpression instanceof ArithmeticNegation expected)) {
+        if (!(expectedExpression instanceof Negation expected)) {
             return false;
         }
 
-        return process(actual.getValue(), expected.getValue());
+        return process(actual.value(), expected.value());
     }
 
     @Override
-    protected Boolean visitArithmeticBinary(ArithmeticBinaryExpression actual, Expression expectedExpression)
+    protected Boolean visitArithmetic(Arithmetic actual, Expression expectedExpression)
     {
-        if (!(expectedExpression instanceof ArithmeticBinaryExpression expected)) {
+        if (!(expectedExpression instanceof Arithmetic expected)) {
             return false;
         }
 
-        return actual.getOperator() == expected.getOperator() &&
-                process(actual.getLeft(), expected.getLeft()) &&
-                process(actual.getRight(), expected.getRight());
+        return actual.operator() == expected.operator() &&
+                process(actual.left(), expected.left()) &&
+                process(actual.right(), expected.right());
     }
 
     @Override
-    protected Boolean visitNotExpression(NotExpression actual, Expression expectedExpression)
+    protected Boolean visitNot(Not actual, Expression expectedExpression)
     {
-        if (!(expectedExpression instanceof NotExpression expected)) {
+        if (!(expectedExpression instanceof Not expected)) {
             return false;
         }
 
-        return process(actual.getValue(), expected.getValue());
+        return process(actual.value(), expected.value());
     }
 
     @Override
-    protected Boolean visitLogicalExpression(LogicalExpression actual, Expression expectedExpression)
+    protected Boolean visitLogical(Logical actual, Expression expectedExpression)
     {
-        if (!(expectedExpression instanceof LogicalExpression expected)) {
+        if (!(expectedExpression instanceof Logical expected)) {
             return false;
         }
 
-        if (actual.getTerms().size() != expected.getTerms().size() || actual.getOperator() != expected.getOperator()) {
+        if (actual.terms().size() != expected.terms().size() || actual.operator() != expected.operator()) {
             return false;
         }
 
-        for (int i = 0; i < actual.getTerms().size(); i++) {
-            if (!process(actual.getTerms().get(i), expected.getTerms().get(i))) {
+        for (int i = 0; i < actual.terms().size(); i++) {
+            if (!process(actual.terms().get(i), expected.terms().get(i))) {
                 return false;
             }
         }
@@ -218,18 +221,18 @@ public final class ExpressionVerifier
     }
 
     @Override
-    protected Boolean visitCoalesceExpression(CoalesceExpression actual, Expression expectedExpression)
+    protected Boolean visitCoalesce(Coalesce actual, Expression expectedExpression)
     {
-        if (!(expectedExpression instanceof CoalesceExpression expected)) {
+        if (!(expectedExpression instanceof Coalesce expected)) {
             return false;
         }
 
-        if (actual.getOperands().size() != expected.getOperands().size()) {
+        if (actual.operands().size() != expected.operands().size()) {
             return false;
         }
 
-        for (int i = 0; i < actual.getOperands().size(); i++) {
-            if (!process(actual.getOperands().get(i), expected.getOperands().get(i))) {
+        for (int i = 0; i < actual.operands().size(); i++) {
+            if (!process(actual.operands().get(i), expected.operands().get(i))) {
                 return false;
             }
         }
@@ -237,70 +240,78 @@ public final class ExpressionVerifier
     }
 
     @Override
-    protected Boolean visitSimpleCaseExpression(SimpleCaseExpression actual, Expression expectedExpression)
+    protected Boolean visitSwitch(Switch actual, Expression expectedExpression)
     {
-        if (!(expectedExpression instanceof SimpleCaseExpression expected)) {
+        if (!(expectedExpression instanceof Switch expected)) {
             return false;
         }
 
-        return process(actual.getOperand(), expected.getOperand()) &&
-                process(actual.getWhenClauses(), expected.getWhenClauses()) &&
-                process(actual.getDefaultValue(), expected.getDefaultValue());
+        return process(actual.operand(), expected.operand()) &&
+                processWhenClauses(actual.whenClauses(), expected.whenClauses()) &&
+                process(actual.defaultValue(), expected.defaultValue());
     }
 
     @Override
-    protected Boolean visitSearchedCaseExpression(SearchedCaseExpression actual, Expression expected)
+    protected Boolean visitCase(Case actual, Expression expected)
     {
-        if (!(expected instanceof SearchedCaseExpression expectedCase)) {
+        if (!(expected instanceof Case expectedCase)) {
             return false;
         }
 
-        if (!process(actual.getWhenClauses(), expectedCase.getWhenClauses())) {
+        if (!processWhenClauses(actual.whenClauses(), expectedCase.whenClauses())) {
             return false;
         }
 
-        if (actual.getDefaultValue().isPresent() != expectedCase.getDefaultValue().isPresent()) {
+        if (actual.defaultValue().isPresent() != expectedCase.defaultValue().isPresent()) {
             return false;
         }
 
-        return process(actual.getDefaultValue(), expectedCase.getDefaultValue());
+        return process(actual.defaultValue(), expectedCase.defaultValue());
     }
 
-    @Override
-    protected Boolean visitWhenClause(WhenClause actual, Expression expectedExpression)
+    private boolean processWhenClauses(List<WhenClause> actual, List<WhenClause> expected)
     {
-        if (!(expectedExpression instanceof WhenClause expected)) {
+        if (actual.size() != expected.size()) {
             return false;
         }
+        for (int i = 0; i < actual.size(); i++) {
+            if (!process(actual.get(i), expected.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
 
+    private boolean process(WhenClause actual, WhenClause expected)
+    {
         return process(actual.getOperand(), expected.getOperand()) &&
                 process(actual.getResult(), expected.getResult());
     }
 
     @Override
-    protected Boolean visitFunctionCall(FunctionCall actual, Expression expectedExpression)
+    protected Boolean visitCall(Call actual, Expression expectedExpression)
     {
-        if (!(expectedExpression instanceof FunctionCall expected)) {
+        if (!(expectedExpression instanceof Call expected)) {
             return false;
         }
 
-        return actual.getFunction().getName().equals(expected.getFunction().getName()) &&
-                process(actual.getArguments(), expected.getArguments());
+        return actual.function().getName().equals(expected.function().getName()) &&
+                process(actual.arguments(), expected.arguments());
     }
 
     @Override
-    protected Boolean visitLambdaExpression(LambdaExpression actual, Expression expected)
+    protected Boolean visitLambda(Lambda actual, Expression expected)
     {
-        if (!(expected instanceof LambdaExpression lambdaExpression)) {
+        if (!(expected instanceof Lambda lambda)) {
             return false;
         }
 
         // todo this should allow the arguments to have different names
-        if (!actual.getArguments().equals(lambdaExpression.getArguments())) {
+        if (!actual.arguments().equals(lambda.arguments())) {
             return false;
         }
 
-        return process(actual.getBody(), lambdaExpression.getBody());
+        return process(actual.body(), lambda.body());
     }
 
     @Override
@@ -310,17 +321,17 @@ public final class ExpressionVerifier
             return false;
         }
 
-        return process(actual.getItems(), expected.getItems());
+        return process(actual.items(), expected.items());
     }
 
     @Override
-    protected Boolean visitSubscriptExpression(SubscriptExpression actual, Expression expectedExpression)
+    protected Boolean visitFieldReference(FieldReference actual, Expression expectedExpression)
     {
-        if (!(expectedExpression instanceof SubscriptExpression expected)) {
+        if (!(expectedExpression instanceof FieldReference expected)) {
             return false;
         }
 
-        return process(actual.getBase(), expected.getBase()) && process(actual.getIndex(), expected.getIndex());
+        return process(actual.base(), expected.base()) && actual.field() == expected.field();
     }
 
     private <T extends Expression> boolean process(List<T> actuals, List<T> expecteds)

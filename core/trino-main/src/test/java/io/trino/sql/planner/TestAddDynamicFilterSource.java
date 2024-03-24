@@ -24,12 +24,12 @@ import io.trino.metadata.TestingFunctionResolution;
 import io.trino.operator.RetryPolicy;
 import io.trino.spi.function.OperatorType;
 import io.trino.sql.DynamicFilters;
-import io.trino.sql.ir.ArithmeticBinaryExpression;
-import io.trino.sql.ir.BetweenPredicate;
-import io.trino.sql.ir.ComparisonExpression;
+import io.trino.sql.ir.Arithmetic;
+import io.trino.sql.ir.Between;
+import io.trino.sql.ir.Comparison;
 import io.trino.sql.ir.Constant;
-import io.trino.sql.ir.LogicalExpression;
-import io.trino.sql.ir.SymbolReference;
+import io.trino.sql.ir.Logical;
+import io.trino.sql.ir.Reference;
 import io.trino.sql.planner.OptimizerConfig.JoinDistributionType;
 import io.trino.sql.planner.OptimizerConfig.JoinReorderingStrategy;
 import io.trino.sql.planner.assertions.BasePlanTest;
@@ -51,14 +51,15 @@ import static io.trino.SystemSessionProperties.JOIN_DISTRIBUTION_TYPE;
 import static io.trino.SystemSessionProperties.JOIN_REORDERING_STRATEGY;
 import static io.trino.SystemSessionProperties.RETRY_POLICY;
 import static io.trino.spi.type.BigintType.BIGINT;
+import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.IntegerType.INTEGER;
-import static io.trino.sql.ir.ArithmeticBinaryExpression.Operator.MODULUS;
-import static io.trino.sql.ir.ArithmeticBinaryExpression.Operator.SUBTRACT;
-import static io.trino.sql.ir.BooleanLiteral.TRUE_LITERAL;
-import static io.trino.sql.ir.ComparisonExpression.Operator.EQUAL;
-import static io.trino.sql.ir.ComparisonExpression.Operator.GREATER_THAN_OR_EQUAL;
-import static io.trino.sql.ir.ComparisonExpression.Operator.LESS_THAN_OR_EQUAL;
-import static io.trino.sql.ir.LogicalExpression.Operator.AND;
+import static io.trino.sql.ir.Arithmetic.Operator.MODULUS;
+import static io.trino.sql.ir.Arithmetic.Operator.SUBTRACT;
+import static io.trino.sql.ir.Booleans.TRUE;
+import static io.trino.sql.ir.Comparison.Operator.EQUAL;
+import static io.trino.sql.ir.Comparison.Operator.GREATER_THAN_OR_EQUAL;
+import static io.trino.sql.ir.Comparison.Operator.LESS_THAN_OR_EQUAL;
+import static io.trino.sql.ir.Logical.Operator.AND;
 import static io.trino.sql.planner.OptimizerConfig.JoinDistributionType.BROADCAST;
 import static io.trino.sql.planner.OptimizerConfig.JoinDistributionType.PARTITIONED;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.DynamicFilterPattern;
@@ -82,7 +83,7 @@ public class TestAddDynamicFilterSource
 {
     private static final TestingFunctionResolution FUNCTIONS = new TestingFunctionResolution();
     private static final ResolvedFunction SUBTRACT_BIGINT = FUNCTIONS.resolveOperator(OperatorType.ADD, ImmutableList.of(BIGINT, BIGINT));
-    private static final ResolvedFunction MODULUS_INTEGER = FUNCTIONS.resolveOperator(OperatorType.ADD, ImmutableList.of(BIGINT, BIGINT));
+    private static final ResolvedFunction MODULUS_INTEGER = FUNCTIONS.resolveOperator(OperatorType.ADD, ImmutableList.of(INTEGER, INTEGER));
 
     public TestAddDynamicFilterSource()
     {
@@ -101,7 +102,7 @@ public class TestAddDynamicFilterSource
                 anyTree(
                         join(INNER, builder -> builder
                                 .equiCriteria("LINEITEM_SK", "SUPPLIER_SK")
-                                .dynamicFilter("LINEITEM_SK", "SUPPLIER_SK")
+                                .dynamicFilter(BIGINT, "LINEITEM_SK", "SUPPLIER_SK")
                                 .left(
                                         node(
                                                 FilterNode.class,
@@ -127,7 +128,7 @@ public class TestAddDynamicFilterSource
                 anyTree(
                         join(INNER, builder -> builder
                                 .equiCriteria("LINEITEM_SK", "SUPPLIER_SK")
-                                .dynamicFilter("LINEITEM_SK", "SUPPLIER_SK")
+                                .dynamicFilter(BIGINT, "LINEITEM_SK", "SUPPLIER_SK")
                                 .left(
                                         exchange(
                                                 REMOTE,
@@ -159,7 +160,7 @@ public class TestAddDynamicFilterSource
                     noSemiJoinRewrite(joinDistributionType),
                     anyTree(
                             filter(
-                                    new SymbolReference("S"),
+                                    new Reference(BOOLEAN, "S"),
                                     semiJoin("X", "Y", "S", Optional.of(semiJoinDistributionType), Optional.of(true),
                                             node(
                                                     FilterNode.class,
@@ -174,7 +175,7 @@ public class TestAddDynamicFilterSource
                                                                     DynamicFilterSourceNode.class,
                                                                     project(
                                                                             filter(
-                                                                                    new ComparisonExpression(EQUAL, new ArithmeticBinaryExpression(MODULUS_INTEGER, MODULUS, new SymbolReference("Z"), new Constant(INTEGER, 4L)), new Constant(INTEGER, 0L)),
+                                                                                    new Comparison(EQUAL, new Arithmetic(MODULUS_INTEGER, MODULUS, new Reference(INTEGER, "Z"), new Constant(INTEGER, 4L)), new Constant(INTEGER, 0L)),
                                                                                     tableScan("lineitem", ImmutableMap.of("Y", "orderkey", "Z", "linenumber")))))))))));
         }
     }
@@ -188,7 +189,7 @@ public class TestAddDynamicFilterSource
                 anyTree(
                         join(INNER, builder -> builder
                                 .equiCriteria("LINEITEM_SK", "SUPPLIER_SK")
-                                .dynamicFilter("LINEITEM_SK", "SUPPLIER_SK")
+                                .dynamicFilter(BIGINT, "LINEITEM_SK", "SUPPLIER_SK")
                                 .left(
                                         anyTree(
                                                 tableScan("lineitem", ImmutableMap.of("LINEITEM_SK", "suppkey"))))
@@ -243,14 +244,14 @@ public class TestAddDynamicFilterSource
                 "SELECT o.orderkey FROM orders o, lineitem l WHERE o.orderkey BETWEEN l.orderkey AND l.partkey",
                 anyTree(
                         filter(
-                                new BetweenPredicate(new SymbolReference("O_ORDERKEY"), new SymbolReference("L_ORDERKEY"), new SymbolReference("L_PARTKEY")),
+                                new Between(new Reference(BIGINT, "O_ORDERKEY"), new Reference(BIGINT, "L_ORDERKEY"), new Reference(BIGINT, "L_PARTKEY")),
                                 join(INNER, builder -> builder
                                         .dynamicFilter(ImmutableList.of(
-                                                new DynamicFilterPattern(new SymbolReference("L_ORDERKEY"), LESS_THAN_OR_EQUAL, "O_ORDERKEY"),
-                                                new DynamicFilterPattern(new SymbolReference("L_PARTKEY"), GREATER_THAN_OR_EQUAL, "O_ORDERKEY")))
+                                                new DynamicFilterPattern(new Reference(BIGINT, "L_ORDERKEY"), LESS_THAN_OR_EQUAL, "O_ORDERKEY"),
+                                                new DynamicFilterPattern(new Reference(BIGINT, "L_PARTKEY"), GREATER_THAN_OR_EQUAL, "O_ORDERKEY")))
                                         .left(
                                                 filter(
-                                                        TRUE_LITERAL,
+                                                        TRUE,
                                                         tableScan("lineitem", ImmutableMap.of("L_ORDERKEY", "orderkey", "L_PARTKEY", "partkey"))))
                                         .right(
                                                 exchange(
@@ -266,7 +267,7 @@ public class TestAddDynamicFilterSource
                 withJoinDistributionType(PARTITIONED),
                 anyTree(
                         filter(
-                                new LogicalExpression(AND, ImmutableList.of(new ComparisonExpression(GREATER_THAN_OR_EQUAL, new SymbolReference("O_ORDERKEY"), new SymbolReference("L_ORDERKEY")), new ComparisonExpression(LESS_THAN_OR_EQUAL, new SymbolReference("O_ORDERKEY"), new SymbolReference("expr")))),
+                                new Logical(AND, ImmutableList.of(new Comparison(GREATER_THAN_OR_EQUAL, new Reference(BIGINT, "O_ORDERKEY"), new Reference(BIGINT, "L_ORDERKEY")), new Comparison(LESS_THAN_OR_EQUAL, new Reference(BIGINT, "O_ORDERKEY"), new Reference(BIGINT, "expr")))),
                                 join(INNER, builder -> builder
                                         .left(
                                                 tableScan("orders", ImmutableMap.of("O_ORDERKEY", "orderkey")))
@@ -274,7 +275,7 @@ public class TestAddDynamicFilterSource
                                                 exchange(
                                                         LOCAL,
                                                         project(
-                                                                ImmutableMap.of("expr", expression(new ArithmeticBinaryExpression(SUBTRACT_BIGINT, SUBTRACT, new SymbolReference("L_PARTKEY"), new Constant(BIGINT, 1L)))),
+                                                                ImmutableMap.of("expr", expression(new Arithmetic(SUBTRACT_BIGINT, SUBTRACT, new Reference(BIGINT, "L_PARTKEY"), new Constant(BIGINT, 1L)))),
                                                                 exchange(
                                                                         REMOTE,
                                                                         tableScan("lineitem", ImmutableMap.of("L_ORDERKEY", "orderkey", "L_PARTKEY", "partkey"))))))))));

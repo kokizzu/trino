@@ -22,10 +22,8 @@ import io.trino.plugin.tpch.TpchColumnHandle;
 import io.trino.plugin.tpch.TpchTableHandle;
 import io.trino.spi.connector.CatalogHandle;
 import io.trino.sql.PlannerContext;
-import io.trino.sql.planner.IrTypeAnalyzer;
 import io.trino.sql.planner.PlanNodeIdAllocator;
 import io.trino.sql.planner.Symbol;
-import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.planner.assertions.BasePlanTest;
 import io.trino.sql.planner.iterative.rule.test.PlanBuilder;
 import io.trino.sql.planner.plan.PlanNode;
@@ -43,6 +41,7 @@ import static io.trino.sql.planner.plan.ExchangeNode.Scope.LOCAL;
 import static io.trino.sql.planner.plan.ExchangeNode.Scope.REMOTE;
 import static io.trino.sql.planner.plan.ExchangeNode.Type.REPARTITION;
 import static io.trino.sql.planner.plan.JoinType.INNER;
+import static io.trino.type.UnknownType.UNKNOWN;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 public class TestValidateAggregationsWithDefaultValues
@@ -64,7 +63,7 @@ public class TestValidateAggregationsWithDefaultValues
                 new TpchTableHandle("sf1", "nation", 1.0),
                 TestingTransactionHandle.create());
         TpchColumnHandle nationkeyColumnHandle = new TpchColumnHandle("nationkey", BIGINT);
-        symbol = new Symbol("nationkey");
+        symbol = new Symbol(UNKNOWN, "nationkey");
         tableScanNode = builder.tableScan(nationTableHandle, ImmutableList.of(symbol), ImmutableMap.of(symbol, nationkeyColumnHandle));
     }
 
@@ -114,7 +113,7 @@ public class TestValidateAggregationsWithDefaultValues
     @Test
     public void testGloballyDistributedFinalAggregationSeparatedFromPartialAggregationByRemoteHashExchange()
     {
-        Symbol symbol = new Symbol("symbol");
+        Symbol symbol = new Symbol(UNKNOWN, "symbol");
         PlanNode root = builder.aggregation(
                 af -> af.step(FINAL)
                         .groupingSets(groupingSets(ImmutableList.of(symbol), 2, ImmutableSet.of(0)))
@@ -133,7 +132,7 @@ public class TestValidateAggregationsWithDefaultValues
     @Test
     public void testSingleNodeFinalAggregationSeparatedFromPartialAggregationByLocalHashExchange()
     {
-        Symbol symbol = new Symbol("symbol");
+        Symbol symbol = new Symbol(UNKNOWN, "symbol");
         PlanNode root = builder.aggregation(
                 af -> af.step(FINAL)
                         .groupingSets(groupingSets(ImmutableList.of(symbol), 2, ImmutableSet.of(0)))
@@ -152,7 +151,7 @@ public class TestValidateAggregationsWithDefaultValues
     @Test
     public void testWithPartialAggregationBelowJoin()
     {
-        Symbol symbol = new Symbol("symbol");
+        Symbol symbol = new Symbol(UNKNOWN, "symbol");
         PlanNode root = builder.aggregation(
                 af -> af.step(FINAL)
                         .groupingSets(groupingSets(ImmutableList.of(symbol), 2, ImmutableSet.of(0)))
@@ -174,7 +173,7 @@ public class TestValidateAggregationsWithDefaultValues
     @Test
     public void testWithPartialAggregationBelowJoinWithoutSeparatingExchange()
     {
-        Symbol symbol = new Symbol("symbol");
+        Symbol symbol = new Symbol(UNKNOWN, "symbol");
         PlanNode root = builder.aggregation(
                 af -> af.step(FINAL)
                         .groupingSets(groupingSets(ImmutableList.of(symbol), 2, ImmutableSet.of(0)))
@@ -199,8 +198,6 @@ public class TestValidateAggregationsWithDefaultValues
                     root,
                     session,
                     plannerContext,
-                    new IrTypeAnalyzer(plannerContext),
-                    TypeProvider.empty(),
                     WarningCollector.NOOP);
             return null;
         });

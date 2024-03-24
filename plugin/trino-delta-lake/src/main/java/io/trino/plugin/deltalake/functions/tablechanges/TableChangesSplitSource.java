@@ -102,7 +102,7 @@ public class TableChangesSplitSource
                                         cdcEntry.getPath(),
                                         cdcEntry.getCanonicalPartitionValues()));
                             }
-                            if (entry.getRemove() != null && entry.getRemove().isDataChange()) {
+                            if (entry.getRemove() != null && entry.getRemove().dataChange()) {
                                 containsRemoveEntry = true;
                             }
                         }
@@ -154,9 +154,9 @@ public class TableChangesSplitSource
                 path,
                 length,
                 canonicalPartitionValues,
-                commitInfoEntry.getTimestamp(),
+                commitInfoEntry.timestamp(),
                 source,
-                commitInfoEntry.getVersion());
+                commitInfoEntry.version());
     }
 
     @Override

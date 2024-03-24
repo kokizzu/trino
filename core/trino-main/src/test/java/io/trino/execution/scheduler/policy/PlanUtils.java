@@ -15,9 +15,9 @@ package io.trino.execution.scheduler.policy;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import io.trino.cost.StatsAndCosts;
 import io.trino.operator.RetryPolicy;
-import io.trino.spi.type.Type;
 import io.trino.sql.planner.Partitioning;
 import io.trino.sql.planner.PartitioningScheme;
 import io.trino.sql.planner.PlanFragment;
@@ -34,7 +34,6 @@ import io.trino.testing.TestingMetadata;
 
 import java.util.Optional;
 
-import static io.trino.spi.type.VarcharType.VARCHAR;
 import static io.trino.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.SOURCE_DISTRIBUTION;
 import static io.trino.sql.planner.plan.AggregationNode.Step.FINAL;
@@ -45,6 +44,7 @@ import static io.trino.sql.planner.plan.JoinNode.DistributionType.PARTITIONED;
 import static io.trino.sql.planner.plan.JoinNode.DistributionType.REPLICATED;
 import static io.trino.sql.planner.plan.JoinType.INNER;
 import static io.trino.testing.TestingHandles.TEST_TABLE_HANDLE;
+import static io.trino.type.UnknownType.UNKNOWN;
 
 final class PlanUtils
 {
@@ -68,7 +68,7 @@ final class PlanUtils
 
     static PlanFragment createBroadcastJoinPlanFragment(String name, PlanFragment buildFragment)
     {
-        Symbol symbol = new Symbol("column");
+        Symbol symbol = new Symbol(UNKNOWN, "column");
         PlanNode tableScan = TableScanNode.newInstance(
                 new PlanNodeId(name),
                 TEST_TABLE_HANDLE,
@@ -173,7 +173,7 @@ final class PlanUtils
 
     static PlanFragment createTableScanPlanFragment(String name)
     {
-        Symbol symbol = new Symbol("column");
+        Symbol symbol = new Symbol(UNKNOWN, "column");
         PlanNode planNode = TableScanNode.newInstance(
                 new PlanNodeId(name),
                 TEST_TABLE_HANDLE,
@@ -187,14 +187,10 @@ final class PlanUtils
 
     private static PlanFragment createFragment(PlanNode planNode)
     {
-        ImmutableMap.Builder<Symbol, Type> types = ImmutableMap.builder();
-        for (Symbol symbol : planNode.getOutputSymbols()) {
-            types.put(symbol, VARCHAR);
-        }
         return new PlanFragment(
                 new PlanFragmentId(planNode.getId() + "_fragment_id"),
                 planNode,
-                types.buildOrThrow(),
+                ImmutableSet.copyOf(planNode.getOutputSymbols()),
                 SOURCE_DISTRIBUTION,
                 Optional.empty(),
                 ImmutableList.of(planNode.getId()),

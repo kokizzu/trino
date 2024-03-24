@@ -77,7 +77,7 @@ public class ValuesNode
             List<Integer> rowSizes = rows.get().stream()
                     .map(row -> requireNonNull(row, "row is null"))
                     .filter(expression -> expression instanceof Row)
-                    .map(expression -> ((Row) expression).getItems().size())
+                    .map(expression -> ((Row) expression).items().size())
                     .distinct()
                     .collect(toImmutableList());
             checkState(rowSizes.size() <= 1, "mismatched rows. All rows must be the same size");
@@ -88,10 +88,10 @@ public class ValuesNode
             }
         }
         else {
-            checkArgument(outputSymbols.size() == 0, "missing rows specification for Values with non-empty output symbols");
+            checkArgument(outputSymbols.isEmpty(), "missing rows specification for Values with non-empty output symbols");
         }
 
-        if (outputSymbols.size() == 0) {
+        if (outputSymbols.isEmpty()) {
             this.rows = Optional.empty();
         }
         else {

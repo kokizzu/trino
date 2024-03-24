@@ -22,12 +22,9 @@ import io.trino.Session;
 import io.trino.metadata.FunctionManager;
 import io.trino.metadata.Metadata;
 import io.trino.spi.function.CatalogSchemaFunctionName;
-import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeManager;
 import io.trino.sql.ir.Expression;
-import io.trino.sql.planner.IrTypeAnalyzer;
 import io.trino.sql.planner.Symbol;
-import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.relational.CallExpression;
 import io.trino.sql.relational.ConstantExpression;
 import io.trino.sql.relational.InputReferenceExpression;
@@ -42,10 +39,8 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.metadata.GlobalFunctionCatalog.builtinFunctionName;
 import static io.trino.spi.function.OperatorType.EQUAL;
@@ -63,28 +58,26 @@ public class ExpressionEquivalence
     private final Metadata metadata;
     private final FunctionManager functionManager;
     private final TypeManager typeManager;
-    private final IrTypeAnalyzer typeAnalyzer;
     private final CanonicalizationVisitor canonicalizationVisitor;
 
-    public ExpressionEquivalence(Metadata metadata, FunctionManager functionManager, TypeManager typeManager, IrTypeAnalyzer typeAnalyzer)
+    public ExpressionEquivalence(Metadata metadata, FunctionManager functionManager, TypeManager typeManager)
     {
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.functionManager = requireNonNull(functionManager, "functionManager is null");
         this.typeManager = requireNonNull(typeManager, "typeManager is null");
-        this.typeAnalyzer = requireNonNull(typeAnalyzer, "typeAnalyzer is null");
         this.canonicalizationVisitor = new CanonicalizationVisitor();
     }
 
-    public boolean areExpressionsEquivalent(Session session, Expression leftExpression, Expression rightExpression, TypeProvider types)
+    public boolean areExpressionsEquivalent(Session session, Expression leftExpression, Expression rightExpression, Set<Symbol> symbols)
     {
         Map<Symbol, Integer> symbolInput = new HashMap<>();
         int inputId = 0;
-        for (Entry<Symbol, Type> entry : types.allTypes().entrySet()) {
-            symbolInput.put(entry.getKey(), inputId);
+        for (Symbol entry : symbols) {
+            symbolInput.put(entry, inputId);
             inputId++;
         }
-        RowExpression leftRowExpression = toRowExpression(session, leftExpression, symbolInput, types);
-        RowExpression rightRowExpression = toRowExpression(session, rightExpression, symbolInput, types);
+        RowExpression leftRowExpression = toRowExpression(session, leftExpression, symbolInput);
+        RowExpression rightRowExpression = toRowExpression(session, rightExpression, symbolInput);
 
         RowExpression canonicalizedLeft = leftRowExpression.accept(canonicalizationVisitor, null);
         RowExpression canonicalizedRight = rightRowExpression.accept(canonicalizationVisitor, null);
@@ -92,11 +85,10 @@ public class ExpressionEquivalence
         return canonicalizedLeft.equals(canonicalizedRight);
     }
 
-    private RowExpression toRowExpression(Session session, Expression expression, Map<Symbol, Integer> symbolInput, TypeProvider types)
+    private RowExpression toRowExpression(Session session, Expression expression, Map<Symbol, Integer> symbolInput)
     {
         return translate(
                 expression,
-                typeAnalyzer.getTypes(types, expression),
                 symbolInput,
                 metadata,
                 functionManager,
@@ -190,7 +182,7 @@ public class ExpressionEquivalence
         @Override
         public RowExpression visitLambda(LambdaDefinitionExpression lambda, Void context)
         {
-            return new LambdaDefinitionExpression(lambda.getArgumentTypes(), lambda.getArguments(), lambda.getBody().accept(this, context));
+            return new LambdaDefinitionExpression(lambda.getArguments(), lambda.getBody().accept(this, context));
         }
 
         @Override
@@ -284,13 +276,9 @@ public class ExpressionEquivalence
 
                 return ComparisonChain.start()
                         .compare(
-                                leftLambda.getArgumentTypes(),
-                                rightLambda.getArgumentTypes(),
-                                new ListComparator<>(Comparator.comparing(Object::toString)))
-                        .compare(
                                 leftLambda.getArguments(),
                                 rightLambda.getArguments(),
-                                new ListComparator<>(Comparator.<String>naturalOrder()))
+                                new ListComparator<>(Comparator.<Symbol>naturalOrder()))
                         .compare(leftLambda.getBody(), rightLambda.getBody(), this)
                         .result();
             }
@@ -330,12 +318,5 @@ public class ExpressionEquivalence
             }
             return Integer.compare(left.size(), right.size());
         }
-    }
-
-    private static <T> List<T> swapPair(List<T> pair)
-    {
-        requireNonNull(pair, "pair is null");
-        checkArgument(pair.size() == 2, "Expected pair to have two elements");
-        return ImmutableList.of(pair.get(1), pair.get(0));
     }
 }

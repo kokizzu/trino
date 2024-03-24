@@ -18,8 +18,8 @@ import com.google.common.collect.Multiset;
 import io.trino.sql.ir.Expression;
 import io.trino.sql.ir.ExpressionRewriter;
 import io.trino.sql.ir.ExpressionTreeRewriter;
-import io.trino.sql.ir.LambdaExpression;
-import io.trino.sql.ir.SymbolReference;
+import io.trino.sql.ir.Lambda;
+import io.trino.sql.ir.Reference;
 
 import java.util.Map;
 import java.util.function.Function;
@@ -57,24 +57,27 @@ public final class ExpressionSymbolInliner
         private final Multiset<String> excludedNames = HashMultiset.create();
 
         @Override
-        public Expression rewriteSymbolReference(SymbolReference node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
+        public Expression rewriteReference(Reference node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
         {
-            if (excludedNames.contains(node.getName())) {
+            if (excludedNames.contains(node.name())) {
                 return node;
             }
 
             Expression expression = mapping.apply(Symbol.from(node));
-            checkState(expression != null, "Cannot resolve symbol %s", node.getName());
+            checkState(expression != null, "Cannot resolve symbol %s", node.name());
             return expression;
         }
 
         @Override
-        public Expression rewriteLambdaExpression(LambdaExpression node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
+        public Expression rewriteLambda(Lambda node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
         {
-            excludedNames.addAll(node.getArguments());
+            excludedNames.addAll(node.arguments().stream()
+                    .map(Symbol::getName)
+                    .toList());
+
             Expression result = treeRewriter.defaultRewrite(node, context);
-            for (String argument : node.getArguments()) {
-                verify(excludedNames.remove(argument));
+            for (Symbol argument : node.arguments()) {
+                verify(excludedNames.remove(argument.getName()));
             }
             return result;
         }
