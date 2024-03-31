@@ -13,6 +13,7 @@
  */
 package io.trino.sql.ir;
 
+import com.google.common.base.CharMatcher;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import io.trino.sql.planner.Symbol;
@@ -21,11 +22,19 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
 
+import static io.trino.metadata.GlobalFunctionCatalog.isBuiltinFunctionName;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
 
 public final class ExpressionFormatter
 {
+    private static final CharMatcher UNAMBIGUOUS_REFERENCE_NAME_CHARACTERS =
+            CharMatcher.inRange('a', 'z')
+                    .or(CharMatcher.inRange('A', 'Z'))
+                    .or(CharMatcher.inRange('0', '9'))
+                    .or(CharMatcher.anyOf("_$"))
+                    .precomputed();
+
     private ExpressionFormatter() {}
 
     public static String formatExpression(Expression expression)
@@ -85,7 +94,11 @@ public final class ExpressionFormatter
         @Override
         protected String visitCall(Call node, Void context)
         {
-            return node.function().getName().toString() + '(' + joinExpressions(node.arguments()) + ')';
+            String name = isBuiltinFunctionName(node.function().getName()) ?
+                    node.function().getName().getFunctionName() :
+                    node.function().getName().toString();
+
+            return name + '(' + joinExpressions(node.arguments()) + ')';
         }
 
         @Override
@@ -105,7 +118,11 @@ public final class ExpressionFormatter
             if (symbolReferenceFormatter.isPresent()) {
                 return symbolReferenceFormatter.get().apply(node);
             }
-            return node.name();
+            String name = node.name();
+            if (UNAMBIGUOUS_REFERENCE_NAME_CHARACTERS.matchesAllOf(name)) {
+                return name;
+            }
+            return "\"" + name.replace("\"", "\"\"") + "\"";
         }
 
         @Override
@@ -164,18 +181,6 @@ public final class ExpressionFormatter
         }
 
         @Override
-        protected String visitNegation(Negation node, Void context)
-        {
-            return "-(" + process(node.value(), context) + ")";
-        }
-
-        @Override
-        protected String visitArithmetic(Arithmetic node, Void context)
-        {
-            return formatBinaryExpression(node.operator().getValue(), node.left(), node.right());
-        }
-
-        @Override
         public String visitCast(Cast node, Void context)
         {
             return (node.safe() ? "TRY_CAST" : "CAST") +
@@ -191,9 +196,7 @@ public final class ExpressionFormatter
                 parts.add(format(whenClause, context));
             }
 
-            node.defaultValue()
-                    .ifPresent(value -> parts.add("ELSE").add(process(value, context)));
-
+            parts.add("ELSE").add(process(node.defaultValue(), context));
             parts.add("END");
 
             return "(" + Joiner.on(' ').join(parts.build()) + ")";
@@ -211,9 +214,7 @@ public final class ExpressionFormatter
                 parts.add(format(whenClause, context));
             }
 
-            node.defaultValue()
-                    .ifPresent(value -> parts.add("ELSE").add(process(value, context)));
-
+            parts.add("ELSE").add(process(node.defaultValue(), context));
             parts.add("END");
 
             return "(" + Joiner.on(' ').join(parts.build()) + ")";

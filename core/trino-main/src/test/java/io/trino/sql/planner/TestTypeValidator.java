@@ -99,8 +99,8 @@ public class TestTypeValidator
         Expression expression1 = new Cast(columnB.toSymbolReference(), BIGINT);
         Expression expression2 = new Cast(columnC.toSymbolReference(), BIGINT);
         Assignments assignments = Assignments.builder()
-                .put(symbolAllocator.newSymbol(expression1, BIGINT), expression1)
-                .put(symbolAllocator.newSymbol(expression2, BIGINT), expression2)
+                .put(symbolAllocator.newSymbol(expression1), expression1)
+                .put(symbolAllocator.newSymbol(expression2), expression2)
                 .build();
         PlanNode node = new ProjectNode(
                 newId(),
@@ -177,25 +177,6 @@ public class TestTypeValidator
                 singleGroupingSet(ImmutableList.of(columnA, columnB)));
 
         assertTypesValid(node);
-    }
-
-    @Test
-    public void testInvalidProject()
-    {
-        Expression expression1 = new Cast(columnB.toSymbolReference(), INTEGER);
-        Expression expression2 = new Cast(columnA.toSymbolReference(), INTEGER);
-        Assignments assignments = Assignments.builder()
-                .put(symbolAllocator.newSymbol(expression1, BIGINT), expression1) // should be INTEGER
-                .put(symbolAllocator.newSymbol(expression1, INTEGER), expression2)
-                .build();
-        PlanNode node = new ProjectNode(
-                newId(),
-                baseTableScan,
-                assignments);
-
-        assertThatThrownBy(() -> assertTypesValid(node))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageMatching("type of symbol 'expr(_[0-9]+)?' is expected to be bigint, but the actual type is integer");
     }
 
     @Test

@@ -15,6 +15,7 @@ package io.trino.cost;
 
 import com.google.inject.Inject;
 import io.trino.Session;
+import io.trino.spi.function.CatalogSchemaFunctionName;
 import io.trino.spi.type.BigintType;
 import io.trino.spi.type.DecimalType;
 import io.trino.spi.type.IntegerType;
@@ -22,21 +23,25 @@ import io.trino.spi.type.SmallintType;
 import io.trino.spi.type.TinyintType;
 import io.trino.spi.type.Type;
 import io.trino.sql.PlannerContext;
-import io.trino.sql.ir.Arithmetic;
 import io.trino.sql.ir.Call;
 import io.trino.sql.ir.Cast;
 import io.trino.sql.ir.Coalesce;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
 import io.trino.sql.ir.IrVisitor;
-import io.trino.sql.ir.Negation;
 import io.trino.sql.ir.Reference;
 import io.trino.sql.planner.IrExpressionInterpreter;
-import io.trino.sql.planner.NoOpSymbolResolver;
 import io.trino.sql.planner.Symbol;
 
 import java.util.OptionalDouble;
 
+import static io.trino.metadata.GlobalFunctionCatalog.builtinFunctionName;
+import static io.trino.spi.function.OperatorType.ADD;
+import static io.trino.spi.function.OperatorType.DIVIDE;
+import static io.trino.spi.function.OperatorType.MODULUS;
+import static io.trino.spi.function.OperatorType.MULTIPLY;
+import static io.trino.spi.function.OperatorType.NEGATION;
+import static io.trino.spi.function.OperatorType.SUBTRACT;
 import static io.trino.spi.statistics.StatsUtil.toStatsRepresentation;
 import static io.trino.util.MoreMath.max;
 import static io.trino.util.MoreMath.min;
@@ -109,23 +114,35 @@ public class ScalarStatsCalculator
         @Override
         protected SymbolStatsEstimate visitCall(Call node, Void context)
         {
-            IrExpressionInterpreter interpreter = new IrExpressionInterpreter(node, plannerContext, session);
-            Object value = interpreter.optimize(NoOpSymbolResolver.INSTANCE);
+            if (node.function().getName().equals(builtinFunctionName(NEGATION))) {
+                SymbolStatsEstimate stats = process(node.arguments().getFirst());
+                return SymbolStatsEstimate.buildFrom(stats)
+                        .setLowValue(-stats.getHighValue())
+                        .setHighValue(-stats.getLowValue())
+                        .build();
+            }
+            else if (node.function().getName().equals(builtinFunctionName(ADD)) ||
+                    node.function().getName().equals(builtinFunctionName(SUBTRACT)) ||
+                    node.function().getName().equals(builtinFunctionName(MULTIPLY)) ||
+                    node.function().getName().equals(builtinFunctionName(DIVIDE)) ||
+                    node.function().getName().equals(builtinFunctionName(MODULUS))) {
+                return processArithmetic(node);
+            }
 
-            if (value == null) {
+            Expression value = new IrExpressionInterpreter(node, plannerContext, session).optimize();
+
+            if (value instanceof Constant constant && constant.value() == null) {
                 return nullStatsEstimate();
             }
 
-            if (value instanceof Expression) {
-                // value is not a constant
-                return SymbolStatsEstimate.unknown();
+            if (value instanceof Constant) {
+                return SymbolStatsEstimate.builder()
+                        .setNullsFraction(0)
+                        .setDistinctValuesCount(1)
+                        .build();
             }
 
-            // value is a constant
-            return SymbolStatsEstimate.builder()
-                    .setNullsFraction(0)
-                    .setDistinctValuesCount(1)
-                    .build();
+            return SymbolStatsEstimate.unknown();
         }
 
         @Override
@@ -175,22 +192,11 @@ public class ScalarStatsCalculator
             return false;
         }
 
-        @Override
-        protected SymbolStatsEstimate visitNegation(Negation node, Void context)
-        {
-            SymbolStatsEstimate stats = process(node.value());
-            return SymbolStatsEstimate.buildFrom(stats)
-                    .setLowValue(-stats.getHighValue())
-                    .setHighValue(-stats.getLowValue())
-                    .build();
-        }
-
-        @Override
-        protected SymbolStatsEstimate visitArithmetic(Arithmetic node, Void context)
+        protected SymbolStatsEstimate processArithmetic(Call node)
         {
             requireNonNull(node, "node is null");
-            SymbolStatsEstimate left = process(node.left());
-            SymbolStatsEstimate right = process(node.right());
+            SymbolStatsEstimate left = process(node.arguments().get(0));
+            SymbolStatsEstimate right = process(node.arguments().get(1));
             if (left.isUnknown() || right.isUnknown()) {
                 return SymbolStatsEstimate.unknown();
             }
@@ -208,11 +214,11 @@ public class ScalarStatsCalculator
                 result.setLowValue(NaN)
                         .setHighValue(NaN);
             }
-            else if (node.operator() == Arithmetic.Operator.DIVIDE && rightLow < 0 && rightHigh > 0) {
+            else if (node.function().getName().equals(builtinFunctionName(DIVIDE)) && rightLow < 0 && rightHigh > 0) {
                 result.setLowValue(Double.NEGATIVE_INFINITY)
                         .setHighValue(Double.POSITIVE_INFINITY);
             }
-            else if (node.operator() == Arithmetic.Operator.MODULUS) {
+            else if (node.function().getName().equals(builtinFunctionName(MODULUS))) {
                 double maxDivisor = max(abs(rightLow), abs(rightHigh));
                 if (leftHigh <= 0) {
                     result.setLowValue(max(-maxDivisor, leftLow))
@@ -228,10 +234,10 @@ public class ScalarStatsCalculator
                 }
             }
             else {
-                double v1 = operate(node.operator(), leftLow, rightLow);
-                double v2 = operate(node.operator(), leftLow, rightHigh);
-                double v3 = operate(node.operator(), leftHigh, rightLow);
-                double v4 = operate(node.operator(), leftHigh, rightHigh);
+                double v1 = operate(node.function().getName(), leftLow, rightLow);
+                double v2 = operate(node.function().getName(), leftLow, rightHigh);
+                double v3 = operate(node.function().getName(), leftHigh, rightLow);
+                double v4 = operate(node.function().getName(), leftHigh, rightHigh);
                 double lowValue = min(v1, v2, v3, v4);
                 double highValue = max(v1, v2, v3, v4);
 
@@ -242,21 +248,16 @@ public class ScalarStatsCalculator
             return result.build();
         }
 
-        private double operate(Arithmetic.Operator operator, double left, double right)
+        private double operate(CatalogSchemaFunctionName function, double left, double right)
         {
-            switch (operator) {
-                case ADD:
-                    return left + right;
-                case SUBTRACT:
-                    return left - right;
-                case MULTIPLY:
-                    return left * right;
-                case DIVIDE:
-                    return left / right;
-                case MODULUS:
-                    return left % right;
-            }
-            throw new IllegalStateException("Unsupported ArithmeticBinaryExpression.Operator: " + operator);
+            return switch (function) {
+                case CatalogSchemaFunctionName name when name.equals(builtinFunctionName(ADD)) -> left + right;
+                case CatalogSchemaFunctionName name when name.equals(builtinFunctionName(SUBTRACT)) -> left - right;
+                case CatalogSchemaFunctionName name when name.equals(builtinFunctionName(MULTIPLY)) -> left * right;
+                case CatalogSchemaFunctionName name when name.equals(builtinFunctionName(DIVIDE)) -> left / right;
+                case CatalogSchemaFunctionName name when name.equals(builtinFunctionName(MODULUS)) -> left % right;
+                default -> throw new IllegalStateException("Unsupported binary arithmetic operation: " + function);
+            };
         }
 
         @Override

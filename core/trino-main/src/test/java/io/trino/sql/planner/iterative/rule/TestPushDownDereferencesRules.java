@@ -25,7 +25,6 @@ import io.trino.spi.function.OperatorType;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.RowType;
-import io.trino.sql.ir.Arithmetic;
 import io.trino.sql.ir.Call;
 import io.trino.sql.ir.Cast;
 import io.trino.sql.ir.Comparison;
@@ -55,7 +54,6 @@ import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.RowType.field;
 import static io.trino.spi.type.RowType.rowType;
 import static io.trino.sql.analyzer.TypeSignatureProvider.fromTypes;
-import static io.trino.sql.ir.Arithmetic.Operator.ADD;
 import static io.trino.sql.ir.Comparison.Operator.EQUAL;
 import static io.trino.sql.ir.Comparison.Operator.GREATER_THAN;
 import static io.trino.sql.ir.Comparison.Operator.NOT_EQUAL;
@@ -114,7 +112,7 @@ public class TestPushDownDereferencesRules
                 .on(p ->
                         p.project(
                                 Assignments.of(
-                                        p.symbol("expr_1"), new FieldReference(new Cast(new Row(ImmutableList.of(new Reference(ROW_TYPE, "a"), new Reference(BIGINT, "b"))), rowType(field("f1", rowType(field("x", BIGINT), field("y", BIGINT))), field("f2", BIGINT))), 0),
+                                        p.symbol("expr_1", rowType(field("x", BIGINT), field("y", BIGINT))), new FieldReference(new Cast(new Row(ImmutableList.of(new Reference(ROW_TYPE, "a"), new Reference(BIGINT, "b"))), rowType(field("f1", rowType(field("x", BIGINT), field("y", BIGINT))), field("f2", BIGINT))), 0),
                                         p.symbol("expr_2"), new FieldReference(new FieldReference(new Cast(new Row(ImmutableList.of(new Reference(ROW_TYPE, "a"), new Reference(BIGINT, "b"))), rowType(field("f1", rowType(field("x", BIGINT), field("y", BIGINT))), field("f2", BIGINT))), 0), 1)),
                                 p.project(
                                         Assignments.of(
@@ -202,19 +200,19 @@ public class TestPushDownDereferencesRules
                 .on(p ->
                         p.project(
                                 Assignments.of(
-                                        p.symbol("expr"), new FieldReference(new Reference(ROW_TYPE, "msg1"), 0),
-                                        p.symbol("expr_2"), new Reference(ROW_TYPE, "msg2")),
+                                        p.symbol("expr", ROW_TYPE.getFields().get(0).getType()), new FieldReference(new Reference(ROW_TYPE, "msg1"), 0),
+                                        p.symbol("expr_2", ROW_TYPE), new Reference(ROW_TYPE, "msg2")),
                                 p.join(INNER,
                                         p.values(p.symbol("msg1", ROW_TYPE)),
                                         p.values(p.symbol("msg2", ROW_TYPE)),
-                                        new Comparison(GREATER_THAN, new Arithmetic(ADD_BIGINT, ADD, new FieldReference(new Reference(ROW_TYPE, "msg1"), 0), new FieldReference(new Reference(ROW_TYPE, "msg2"), 1)), new Constant(BIGINT, 10L)))))
+                                        new Comparison(GREATER_THAN, new Call(ADD_BIGINT, ImmutableList.of(new FieldReference(new Reference(ROW_TYPE, "msg1"), 0), new FieldReference(new Reference(ROW_TYPE, "msg2"), 1))), new Constant(BIGINT, 10L)))))
                 .matches(
                         project(
                                 ImmutableMap.of(
                                         "expr", expression(new Reference(BIGINT, "msg1_x")),
                                         "expr_2", expression(new Reference(ROW_TYPE, "msg2"))),
                                 join(INNER, builder -> builder
-                                        .filter(new Comparison(GREATER_THAN, new Arithmetic(ADD_BIGINT, ADD, new Reference(BIGINT, "msg1_x"), new FieldReference(new Reference(ROW_TYPE, "msg2"), 1)), new Constant(BIGINT, 10L)))
+                                        .filter(new Comparison(GREATER_THAN, new Call(ADD_BIGINT, ImmutableList.of(new Reference(BIGINT, "msg1_x"), new FieldReference(new Reference(ROW_TYPE, "msg2"), 1))), new Constant(BIGINT, 10L)))
                                         .left(
                                                 strictProject(
                                                         ImmutableMap.of(
@@ -295,8 +293,8 @@ public class TestPushDownDereferencesRules
                 .on(p ->
                         p.project(
                                 Assignments.of(
-                                        p.symbol("deref_replicate", BIGINT), new FieldReference(new Reference(rowType, "replicate"), 1),
-                                        p.symbol("deref_unnest", BIGINT), new Call(subscript, ImmutableList.of(new Reference(nestedColumnType, "unnested_row"), new Constant(BIGINT, 2L)))),
+                                        p.symbol("deref_replicate", rowType.getFields().get(1).getType()), new FieldReference(new Reference(rowType, "replicate"), 1),
+                                        p.symbol("deref_unnest", nestedColumnType.getElementType()), new Call(subscript, ImmutableList.of(new Reference(nestedColumnType, "unnested_row"), new Constant(BIGINT, 2L)))),
                                 p.unnest(
                                         ImmutableList.of(p.symbol("replicate", rowType)),
                                         ImmutableList.of(
@@ -733,26 +731,25 @@ public class TestPushDownDereferencesRules
                 .on(p ->
                         p.project(
                                 Assignments.of(
-                                        p.symbol("expr_1"), new FieldReference(new Reference(complexType, "a"), 0),
-                                        p.symbol("expr_2"), new Arithmetic(
+                                        p.symbol("expr_1", complexType.getFields().get(0).getType()), new FieldReference(new Reference(complexType, "a"), 0),
+                                        p.symbol("expr_2"), new Call(
                                                 ADD_BIGINT,
-                                                ADD,
-                                                new Arithmetic(
-                                                        ADD_BIGINT,
-                                                        ADD,
-                                                        new Arithmetic(
+                                                ImmutableList.of(
+                                                        new Call(
                                                                 ADD_BIGINT,
-                                                                ADD,
-                                                                new FieldReference(
-                                                                        new FieldReference(new Reference(complexType, "a"), 0),
-                                                                        0),
-                                                                new Constant(BIGINT, 2L)),
+                                                                ImmutableList.of(
+                                                                        new Call(
+                                                                                ADD_BIGINT,
+                                                                                ImmutableList.of(
+                                                                                        new FieldReference(new FieldReference(new Reference(complexType, "a"), 0), 0),
+                                                                                        new Constant(BIGINT, 2L))),
+                                                                        new FieldReference(
+                                                                                new FieldReference(new Reference(complexType, "b"), 0), 0))),
                                                         new FieldReference(
-                                                                new FieldReference(new Reference(complexType, "b"), 0),
-                                                                0)),
-                                                new FieldReference(
-                                                        new FieldReference(new Reference(complexType, "b"), 0),
-                                                        1))),
+                                                                new FieldReference(
+                                                                        new Reference(complexType, "b"),
+                                                                        0),
+                                                                1)))),
                                 p.project(
                                         Assignments.identity(ImmutableList.of(p.symbol("a", complexType), p.symbol("b", complexType))),
                                         p.values(p.symbol("a", complexType), p.symbol("b", complexType)))))
@@ -760,7 +757,7 @@ public class TestPushDownDereferencesRules
                         strictProject(
                                 ImmutableMap.of(
                                         "expr_1", expression(new Reference(complexType.getFields().get(0).getType(), "a_f1")),
-                                        "expr_2", expression(new Arithmetic(ADD_BIGINT, ADD, new Arithmetic(ADD_BIGINT, ADD, new Arithmetic(ADD_BIGINT, ADD, new FieldReference(new Reference(complexType.getFields().get(0).getType(), "a_f1"), 0), new Constant(BIGINT, 2L)), new Reference(BIGINT, "b_f1_f1")), new Reference(BIGINT, "b_f1_f2")))),
+                                        "expr_2", expression(new Call(ADD_BIGINT, ImmutableList.of(new Call(ADD_BIGINT, ImmutableList.of(new Call(ADD_BIGINT, ImmutableList.of(new FieldReference(new Reference(complexType.getFields().get(0).getType(), "a_f1"), 0), new Constant(BIGINT, 2L))), new Reference(BIGINT, "b_f1_f1"))), new Reference(BIGINT, "b_f1_f2"))))),
                                 strictProject(
                                         ImmutableMap.of(
                                                 "a", expression(new Reference(complexType, "a")),

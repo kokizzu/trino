@@ -40,7 +40,6 @@ import io.trino.sql.analyzer.Analysis;
 import io.trino.sql.analyzer.ResolvedField;
 import io.trino.sql.analyzer.Scope;
 import io.trino.sql.analyzer.TypeSignatureTranslator;
-import io.trino.sql.ir.Arithmetic;
 import io.trino.sql.ir.Between;
 import io.trino.sql.ir.Call;
 import io.trino.sql.ir.Case;
@@ -52,7 +51,6 @@ import io.trino.sql.ir.In;
 import io.trino.sql.ir.IsNull;
 import io.trino.sql.ir.Lambda;
 import io.trino.sql.ir.Logical;
-import io.trino.sql.ir.Negation;
 import io.trino.sql.ir.Not;
 import io.trino.sql.ir.NullIf;
 import io.trino.sql.ir.Reference;
@@ -380,7 +378,9 @@ public class TranslationMap
     {
         return switch (expression.getSign()) {
             case PLUS -> translateExpression(expression.getValue());
-            case MINUS -> new Negation(translateExpression(expression.getValue()));
+            case MINUS -> new io.trino.sql.ir.Call(
+                    plannerContext.getMetadata().resolveOperator(OperatorType.NEGATION, ImmutableList.of(analysis.getType(expression.getValue()))),
+                    ImmutableList.of(translateExpression(expression.getValue())));
         };
     }
 
@@ -405,7 +405,9 @@ public class TranslationMap
                                 translateExpression(clause.getOperand()),
                                 translateExpression(clause.getResult())))
                         .collect(toImmutableList()),
-                expression.getDefaultValue().map(this::translateExpression));
+                expression.getDefaultValue()
+                        .map(this::translateExpression)
+                        .orElse(new Constant(analysis.getType(expression), null)));
     }
 
     private io.trino.sql.ir.Expression translate(SimpleCaseExpression expression)
@@ -417,7 +419,9 @@ public class TranslationMap
                                 translateExpression(clause.getOperand()),
                                 translateExpression(clause.getResult())))
                         .collect(toImmutableList()),
-                expression.getDefaultValue().map(this::translateExpression));
+                expression.getDefaultValue()
+                        .map(this::translateExpression)
+                        .orElse(new Constant(analysis.getType(expression), null)));
     }
 
     private io.trino.sql.ir.Expression translate(InPredicate expression)
@@ -578,17 +582,11 @@ public class TranslationMap
             case MODULUS -> OperatorType.MODULUS;
         };
 
-        return new Arithmetic(
+        return new Call(
                 plannerContext.getMetadata().resolveOperator(operatorType, ImmutableList.of(getCoercedType(expression.getLeft()), getCoercedType(expression.getRight()))),
-                switch (expression.getOperator()) {
-                    case ADD -> Arithmetic.Operator.ADD;
-                    case SUBTRACT -> Arithmetic.Operator.SUBTRACT;
-                    case MULTIPLY -> Arithmetic.Operator.MULTIPLY;
-                    case DIVIDE -> Arithmetic.Operator.DIVIDE;
-                    case MODULUS -> Arithmetic.Operator.MODULUS;
-                },
-                translateExpression(expression.getLeft()),
-                translateExpression(expression.getRight()));
+                ImmutableList.of(
+                        translateExpression(expression.getLeft()),
+                        translateExpression(expression.getRight())));
     }
 
     private Type getCoercedType(Expression left)

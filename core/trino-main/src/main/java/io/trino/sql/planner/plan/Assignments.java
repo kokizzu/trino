@@ -18,7 +18,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-import io.trino.spi.type.Type;
 import io.trino.sql.ir.Expression;
 import io.trino.sql.ir.Reference;
 import io.trino.sql.planner.Symbol;
@@ -35,6 +34,7 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collector;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Arrays.asList;
 import static java.util.Objects.requireNonNull;
@@ -83,8 +83,7 @@ public class Assignments
         Assignments.Builder assignments = Assignments.builder();
 
         for (Expression expression : expressions) {
-            Type type = expression.type();
-            assignments.put(symbolAllocator.newSymbol(expression, type), expression);
+            assignments.put(symbolAllocator.newSymbol(expression), expression);
         }
 
         return assignments.build();
@@ -256,6 +255,8 @@ public class Assignments
 
         public Builder put(Symbol symbol, Expression expression)
         {
+            checkArgument(symbol.getType().equals(expression.type()), "Types don't match: %s vs %s, for %s and %s", symbol.getType(), expression.type(), symbol, expression);
+
             if (assignments.containsKey(symbol)) {
                 Expression assignment = assignments.get(symbol);
                 checkState(

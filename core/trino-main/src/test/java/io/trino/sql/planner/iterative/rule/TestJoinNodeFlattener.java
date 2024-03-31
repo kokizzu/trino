@@ -18,11 +18,10 @@ import com.google.common.collect.ImmutableList;
 import io.trino.metadata.ResolvedFunction;
 import io.trino.metadata.TestingFunctionResolution;
 import io.trino.spi.function.OperatorType;
-import io.trino.sql.ir.Arithmetic;
+import io.trino.sql.ir.Call;
 import io.trino.sql.ir.Comparison;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
-import io.trino.sql.ir.Negation;
 import io.trino.sql.planner.Plan;
 import io.trino.sql.planner.PlanNodeIdAllocator;
 import io.trino.sql.planner.Symbol;
@@ -53,8 +52,6 @@ import static io.trino.cost.PlanNodeStatsEstimate.unknown;
 import static io.trino.cost.StatsAndCosts.empty;
 import static io.trino.metadata.AbstractMockMetadata.dummyMetadata;
 import static io.trino.spi.type.BigintType.BIGINT;
-import static io.trino.sql.ir.Arithmetic.Operator.ADD;
-import static io.trino.sql.ir.Arithmetic.Operator.SUBTRACT;
 import static io.trino.sql.ir.Comparison.Operator.EQUAL;
 import static io.trino.sql.ir.Comparison.Operator.GREATER_THAN;
 import static io.trino.sql.ir.Comparison.Operator.LESS_THAN;
@@ -80,6 +77,7 @@ public class TestJoinNodeFlattener
     private static final TestingFunctionResolution FUNCTIONS = new TestingFunctionResolution();
     private static final ResolvedFunction ADD_BIGINT = FUNCTIONS.resolveOperator(OperatorType.ADD, ImmutableList.of(BIGINT, BIGINT));
     private static final ResolvedFunction SUBTRACT_BIGINT = FUNCTIONS.resolveOperator(OperatorType.SUBTRACT, ImmutableList.of(BIGINT, BIGINT));
+    private static final ResolvedFunction NEGATION_BIGINT = FUNCTIONS.resolveOperator(OperatorType.NEGATION, ImmutableList.of(BIGINT));
 
     private static final int DEFAULT_JOIN_LIMIT = 10;
 
@@ -166,7 +164,7 @@ public class TestJoinNodeFlattener
         JoinNode joinNode = p.join(
                 INNER,
                 p.project(
-                        Assignments.of(d, new Negation(a.toSymbolReference())),
+                        Assignments.of(d, new Call(NEGATION_BIGINT, ImmutableList.of(a.toSymbolReference()))),
                         p.join(
                                 INNER,
                                 valuesA,
@@ -210,7 +208,7 @@ public class TestJoinNodeFlattener
         JoinNode joinNode = p.join(
                 INNER,
                 p.project(
-                        Assignments.of(d, new Arithmetic(SUBTRACT_BIGINT, SUBTRACT, a.toSymbolReference(), b.toSymbolReference())),
+                        Assignments.of(d, new Call(SUBTRACT_BIGINT, ImmutableList.of(a.toSymbolReference(), b.toSymbolReference()))),
                         p.join(
                                 INNER,
                                 valuesA,
@@ -290,7 +288,7 @@ public class TestJoinNodeFlattener
                 new Comparison(GREATER_THAN, b2.toSymbolReference(), c2.toSymbolReference()));
         Comparison abcFilter = new Comparison(
                 LESS_THAN,
-                new Arithmetic(ADD_BIGINT, ADD, a1.toSymbolReference(), c1.toSymbolReference()),
+                new Call(ADD_BIGINT, ImmutableList.of(a1.toSymbolReference(), c1.toSymbolReference())),
                 b1.toSymbolReference());
         JoinNode joinNode = p.join(
                 INNER,

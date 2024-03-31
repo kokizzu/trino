@@ -66,10 +66,8 @@ public class TestSnowflakeConnectorTest
     protected boolean hasBehavior(TestingConnectorBehavior connectorBehavior)
     {
         return switch (connectorBehavior) {
-            case SUPPORTS_AGGREGATION_PUSHDOWN -> true;
             case SUPPORTS_ADD_COLUMN_WITH_COMMENT,
                     SUPPORTS_AGGREGATION_PUSHDOWN_CORRELATION,
-                    SUPPORTS_AGGREGATION_PUSHDOWN_COUNT_DISTINCT,
                     SUPPORTS_AGGREGATION_PUSHDOWN_COVARIANCE,
                     SUPPORTS_AGGREGATION_PUSHDOWN_REGRESSION,
                     SUPPORTS_AGGREGATION_PUSHDOWN_STDDEV,
@@ -79,10 +77,10 @@ public class TestSnowflakeConnectorTest
                     SUPPORTS_COMMENT_ON_TABLE,
                     SUPPORTS_CREATE_TABLE_WITH_COLUMN_COMMENT,
                     SUPPORTS_CREATE_TABLE_WITH_TABLE_COMMENT,
-                    SUPPORTS_PREDICATE_PUSHDOWN,
+                    SUPPORTS_PREDICATE_PUSHDOWN_WITH_VARCHAR_EQUALITY,
+                    SUPPORTS_PREDICATE_PUSHDOWN_WITH_VARCHAR_INEQUALITY,
                     SUPPORTS_ROW_TYPE,
-                    SUPPORTS_SET_COLUMN_TYPE,
-                    SUPPORTS_TOPN_PUSHDOWN -> false;
+                    SUPPORTS_SET_COLUMN_TYPE -> false;
             default -> super.hasBehavior(connectorBehavior);
         };
     }
@@ -190,13 +188,10 @@ public class TestSnowflakeConnectorTest
                         ")");
     }
 
-    @Test
     @Override
-    public void testAddNotNullColumn()
+    protected void verifyAddNotNullColumnToNonEmptyTableFailurePermissible(Throwable e)
     {
-        assertThatThrownBy(super::testAddNotNullColumn)
-                .isInstanceOf(AssertionError.class)
-                .hasMessage("Unexpected failure when adding not null column");
+        assertThat(e).hasMessageMatching("SQL compilation error: Non-nullable column .* cannot be added to non-empty table .* unless it has a non-null default value.");
     }
 
     @Test
@@ -209,33 +204,10 @@ public class TestSnowflakeConnectorTest
                 .hasMessageContaining("Expected rows");
     }
 
-    @Test
     @Override
-    public void testCountDistinctWithStringTypes()
+    protected String errorMessageForInsertIntoNotNullColumn(String columnName)
     {
-        abort("TODO");
-    }
-
-    @Test
-    @Override
-    public void testDistinctAggregationPushdown()
-    {
-        abort("TODO");
-    }
-
-    @Test
-    @Override
-    public void testNumericAggregationPushdown()
-    {
-        abort("TODO");
-    }
-
-    @Test
-    @Override
-    public void testInsertIntoNotNullColumn()
-    {
-        // TODO: java.lang.UnsupportedOperationException: This method should be overridden
-        assertThatThrownBy(super::testInsertIntoNotNullColumn);
+        return "NULL result in a non-nullable column";
     }
 
     @Test
@@ -351,14 +323,6 @@ public class TestSnowflakeConnectorTest
 
     @Test
     @Override
-    public void testInsertArray()
-    {
-        // Snowflake does not support this feature.
-        abort("Not supported");
-    }
-
-    @Test
-    @Override
     public void testInsertRowConcurrently()
     {
         abort("TODO: Connection is already closed");
@@ -389,7 +353,7 @@ public class TestSnowflakeConnectorTest
     @Override
     public void testCharTrailingSpace()
     {
-        assertThatThrownBy(super::testCharVarcharComparison)
+        assertThatThrownBy(super::testCharTrailingSpace)
                 .hasMessageContaining("For query")
                 .hasMessageContaining("Actual rows")
                 .hasMessageContaining("Expected rows");

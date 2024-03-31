@@ -19,11 +19,9 @@ import io.trino.metadata.ResolvedFunction;
 import io.trino.metadata.TestingFunctionResolution;
 import io.trino.spi.connector.SortOrder;
 import io.trino.spi.function.OperatorType;
-import io.trino.sql.ir.Arithmetic;
 import io.trino.sql.ir.Call;
 import io.trino.sql.ir.Cast;
 import io.trino.sql.ir.Constant;
-import io.trino.sql.ir.Negation;
 import io.trino.sql.ir.Reference;
 import io.trino.sql.planner.assertions.BasePlanTest;
 import io.trino.sql.planner.assertions.PlanMatchPattern;
@@ -36,7 +34,6 @@ import java.util.Optional;
 
 import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.spi.type.IntegerType.INTEGER;
-import static io.trino.sql.ir.Arithmetic.Operator.ADD;
 import static io.trino.sql.planner.LogicalPlanner.Stage.CREATED;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.any;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.anyTree;
@@ -64,6 +61,7 @@ public class TestWindowClause
     private static final ResolvedFunction ADD_INTEGER = FUNCTIONS.resolveOperator(OperatorType.ADD, ImmutableList.of(INTEGER, INTEGER));
     private static final ResolvedFunction SUBTRACT_INTEGER = FUNCTIONS.resolveOperator(OperatorType.SUBTRACT, ImmutableList.of(INTEGER, INTEGER));
     private static final ResolvedFunction ADD_DOUBLE = FUNCTIONS.resolveOperator(OperatorType.ADD, ImmutableList.of(DOUBLE, DOUBLE));
+    private static final ResolvedFunction NEGATION_INTEGER = FUNCTIONS.resolveOperator(OperatorType.NEGATION, ImmutableList.of(INTEGER));
 
     @Test
     public void testPreprojectExpression()
@@ -81,7 +79,7 @@ public class TestWindowClause
                                                 "max_result",
                                                 windowFunction("max", ImmutableList.of("b"), DEFAULT_FRAME)),
                                 anyTree(project(
-                                        ImmutableMap.of("expr", expression(new Arithmetic(ADD_INTEGER, ADD, new Reference(INTEGER, "a"), new Constant(INTEGER, 1L)))),
+                                        ImmutableMap.of("expr", expression(new Call(ADD_INTEGER, ImmutableList.of(new Reference(INTEGER, "a"), new Constant(INTEGER, 1L))))),
                                         anyTree(values("a", "b"))))));
 
         assertPlan(sql, CREATED, pattern);
@@ -116,9 +114,9 @@ public class TestWindowClause
                                         ImmutableMap.of("frame_start", expression(new Call(SUBTRACT_INTEGER, ImmutableList.of(new Reference(INTEGER, "expr_b"), new Reference(INTEGER, "expr_c"))))),
                                         anyTree(project(
                                                 ImmutableMap.of(
-                                                        "expr_a", expression(new Arithmetic(ADD_INTEGER, ADD, new Reference(INTEGER, "a"), new Constant(INTEGER, 1L))),
-                                                        "expr_b", expression(new Arithmetic(ADD_INTEGER, ADD, new Reference(INTEGER, "b"), new Constant(INTEGER, 2L))),
-                                                        "expr_c", expression(new Arithmetic(ADD_INTEGER, ADD, new Reference(INTEGER, "c"), new Constant(INTEGER, 3L)))),
+                                                        "expr_a", expression(new Call(ADD_INTEGER, ImmutableList.of(new Reference(INTEGER, "a"), new Constant(INTEGER, 1L)))),
+                                                        "expr_b", expression(new Call(ADD_INTEGER, ImmutableList.of(new Reference(INTEGER, "b"), new Constant(INTEGER, 2L)))),
+                                                        "expr_c", expression(new Call(ADD_INTEGER, ImmutableList.of(new Reference(INTEGER, "c"), new Constant(INTEGER, 3L))))),
                                                 anyTree(values("a", "b", "c")))))));
 
         assertPlan(sql, CREATED, pattern);
@@ -141,9 +139,9 @@ public class TestWindowClause
                                                 "max_result",
                                                 windowFunction("max", ImmutableList.of("minus_a"), DEFAULT_FRAME)),
                                 any(project(
-                                        ImmutableMap.of("order_by_window_sortkey", expression(new Arithmetic(ADD_INTEGER, ADD, new Reference(INTEGER, "minus_a"), new Constant(INTEGER, 1L)))),
+                                        ImmutableMap.of("order_by_window_sortkey", expression(new Call(ADD_INTEGER, ImmutableList.of(new Reference(INTEGER, "minus_a"), new Constant(INTEGER, 1L))))),
                                         project(
-                                                ImmutableMap.of("minus_a", expression(new Negation(new Reference(INTEGER, "a")))),
+                                                ImmutableMap.of("minus_a", expression(new Call(NEGATION_INTEGER, ImmutableList.of(new Reference(INTEGER, "a"))))),
                                                 window(
                                                         windowMatcherBuilder -> windowMatcherBuilder
                                                                 .specification(specification(
@@ -154,7 +152,7 @@ public class TestWindowClause
                                                                         "array_agg_result",
                                                                         windowFunction("array_agg", ImmutableList.of("a"), DEFAULT_FRAME)),
                                                         anyTree(project(
-                                                                ImmutableMap.of("select_window_sortkey", expression(new Arithmetic(ADD_INTEGER, ADD, new Reference(INTEGER, "a"), new Constant(INTEGER, 1L)))),
+                                                                ImmutableMap.of("select_window_sortkey", expression(new Call(ADD_INTEGER, ImmutableList.of(new Reference(INTEGER, "a"), new Constant(INTEGER, 1L))))),
                                                                 anyTree(values("a"))))))))))));
 
         assertPlan(sql, CREATED, pattern);
@@ -194,9 +192,9 @@ public class TestWindowClause
                                                         project(project(
                                                                 ImmutableMap.of(
                                                                         // sort key based on "a" in source scope
-                                                                        "sortkey", expression(new Arithmetic(ADD_INTEGER, ADD, new Reference(INTEGER, "a"), new Constant(INTEGER, 1L))),
+                                                                        "sortkey", expression(new Call(ADD_INTEGER, ImmutableList.of(new Reference(INTEGER, "a"), new Constant(INTEGER, 1L)))),
                                                                         // frame offset based on "a" in output scope
-                                                                        "frame_offset", expression(new Arithmetic(ADD_DOUBLE, ADD, new Reference(DOUBLE, "new_a"), new Constant(DOUBLE, 1.0)))),
+                                                                        "frame_offset", expression(new Call(ADD_DOUBLE, ImmutableList.of(new Reference(DOUBLE, "new_a"), new Constant(DOUBLE, 1.0))))),
                                                                 project(// output expression
                                                                         ImmutableMap.of("new_a", expression(new Constant(DOUBLE, 2E0))),
                                                                         project(project(values("a")))))))))))));

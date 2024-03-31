@@ -36,12 +36,11 @@ import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.security.PrincipalType;
 import io.trino.spi.type.RowType;
 import io.trino.spi.type.Type;
-import io.trino.sql.ir.Arithmetic;
+import io.trino.sql.ir.Call;
 import io.trino.sql.ir.Comparison;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
 import io.trino.sql.ir.FieldReference;
-import io.trino.sql.ir.Negation;
 import io.trino.sql.ir.Reference;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.iterative.rule.PruneTableScanColumns;
@@ -70,7 +69,6 @@ import static io.trino.plugin.hive.TestingHiveUtils.getConnectorService;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.spi.type.RowType.field;
-import static io.trino.sql.ir.Arithmetic.Operator.ADD;
 import static io.trino.sql.ir.Comparison.Operator.EQUAL;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.expression;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.filter;
@@ -86,6 +84,7 @@ public class TestConnectorPushdownRulesWithHive
 {
     private static final TestingFunctionResolution FUNCTIONS = new TestingFunctionResolution();
     private static final ResolvedFunction ADD_BIGINT = FUNCTIONS.resolveOperator(OperatorType.ADD, ImmutableList.of(BIGINT, BIGINT));
+    private static final ResolvedFunction NEGATION_BIGINT = FUNCTIONS.resolveOperator(OperatorType.NEGATION, ImmutableList.of(BIGINT));
 
     private static final String SCHEMA_NAME = "test_schema";
 
@@ -261,7 +260,7 @@ public class TestConnectorPushdownRulesWithHive
                     Symbol symbolA = p.symbol("a", INTEGER);
                     Symbol symbolB = p.symbol("b", INTEGER);
                     return p.project(
-                            Assignments.of(p.symbol("x"), symbolA.toSymbolReference()),
+                            Assignments.of(p.symbol("x", INTEGER), symbolA.toSymbolReference()),
                             p.tableScan(
                                     table,
                                     ImmutableList.of(symbolA, symbolB),
@@ -313,7 +312,7 @@ public class TestConnectorPushdownRulesWithHive
         tester().assertThat(pushProjectionIntoTableScan)
                 .on(p -> {
                     Reference column = p.symbol("just_bigint", BIGINT).toSymbolReference();
-                    Expression negation = new Negation(column);
+                    Expression negation = new Call(NEGATION_BIGINT, ImmutableList.of(column));
                     return p.project(
                             Assignments.of(
                                     // The column reference is part of both the assignments
@@ -327,7 +326,7 @@ public class TestConnectorPushdownRulesWithHive
                 .matches(project(
                         ImmutableMap.of(
                                 "column_ref", expression(new Reference(BIGINT, "just_bigint_0")),
-                                "negated_column_ref", expression(new Negation(new Reference(BIGINT, "just_bigint_0")))),
+                                "negated_column_ref", expression(new Call(NEGATION_BIGINT, ImmutableList.of(new Reference(BIGINT, "just_bigint_0"))))),
                         tableScan(
                                 hiveTable.withProjectedColumns(ImmutableSet.of(bigintColumn))::equals,
                                 TupleDomain.all(),
@@ -337,7 +336,7 @@ public class TestConnectorPushdownRulesWithHive
         tester().assertThat(pushProjectionIntoTableScan)
                 .on(p -> {
                     FieldReference fieldReference = new FieldReference(p.symbol("struct_of_bigint", ROW_TYPE).toSymbolReference(), 0);
-                    Expression sum = new Arithmetic(ADD_BIGINT, ADD, fieldReference, new Constant(BIGINT, 2L));
+                    Expression sum = new Call(ADD_BIGINT, ImmutableList.of(fieldReference, new Constant(BIGINT, 2L)));
                     return p.project(
                             Assignments.of(
                                     // The subscript expression instance is part of both the assignments
@@ -351,7 +350,7 @@ public class TestConnectorPushdownRulesWithHive
                 .matches(project(
                         ImmutableMap.of(
                                 "expr_deref", expression(new Reference(BIGINT, "struct_of_bigint#a")),
-                                "expr_deref_2", expression(new Arithmetic(ADD_BIGINT, ADD, new Reference(BIGINT, "struct_of_bigint#a"), new Constant(BIGINT, 2L)))),
+                                "expr_deref_2", expression(new Call(ADD_BIGINT, ImmutableList.of(new Reference(BIGINT, "struct_of_bigint#a"), new Constant(BIGINT, 2L))))),
                         tableScan(
                                 hiveTable.withProjectedColumns(ImmutableSet.of(partialColumn))::equals,
                                 TupleDomain.all(),

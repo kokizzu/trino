@@ -30,6 +30,7 @@ import io.trino.spi.type.RowType;
 import io.trino.spi.type.Type;
 import io.trino.sql.PlannerContext;
 import io.trino.sql.ir.Comparison;
+import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
 import io.trino.sql.ir.Reference;
 import io.trino.sql.ir.Row;
@@ -97,33 +98,29 @@ public class EffectivePredicateExtractor
             };
 
     private final PlannerContext plannerContext;
-    private final DomainTranslator domainTranslator;
     private final boolean useTableProperties;
 
-    public EffectivePredicateExtractor(DomainTranslator domainTranslator, PlannerContext plannerContext, boolean useTableProperties)
+    public EffectivePredicateExtractor(PlannerContext plannerContext, boolean useTableProperties)
     {
         this.plannerContext = requireNonNull(plannerContext, "plannerContext is null");
-        this.domainTranslator = requireNonNull(domainTranslator, "domainTranslator is null");
         this.useTableProperties = useTableProperties;
     }
 
     public Expression extract(Session session, PlanNode node)
     {
-        return node.accept(new Visitor(domainTranslator, plannerContext, session, useTableProperties), null);
+        return node.accept(new Visitor(plannerContext, session, useTableProperties), null);
     }
 
     private static class Visitor
             extends PlanVisitor<Expression, Void>
     {
-        private final DomainTranslator domainTranslator;
         private final PlannerContext plannerContext;
         private final Metadata metadata;
         private final Session session;
         private final boolean useTableProperties;
 
-        public Visitor(DomainTranslator domainTranslator, PlannerContext plannerContext, Session session, boolean useTableProperties)
+        public Visitor(PlannerContext plannerContext, Session session, boolean useTableProperties)
         {
-            this.domainTranslator = requireNonNull(domainTranslator, "domainTranslator is null");
             this.plannerContext = requireNonNull(plannerContext, "plannerContext is null");
             this.metadata = plannerContext.getMetadata();
             this.session = requireNonNull(session, "session is null");
@@ -158,12 +155,13 @@ public class EffectivePredicateExtractor
         {
             Expression underlyingPredicate = node.getSource().accept(this, context);
 
-            Expression predicate = node.getPredicate();
+            DomainTranslator.ExtractionResult underlying = DomainTranslator.getExtractionResult(plannerContext, session, filterDeterministicConjuncts(underlyingPredicate));
+            DomainTranslator.ExtractionResult current = DomainTranslator.getExtractionResult(plannerContext, session, filterDeterministicConjuncts(node.getPredicate()));
 
-            // Remove non-deterministic conjuncts
-            predicate = filterDeterministicConjuncts(metadata, predicate);
-
-            return combineConjuncts(predicate, underlyingPredicate);
+            return combineConjuncts(
+                    DomainTranslator.toPredicate(underlying.getTupleDomain().intersect(current.getTupleDomain())),
+                    underlying.getRemainingExpression(),
+                    current.getRemainingExpression());
         }
 
         @Override
@@ -252,7 +250,7 @@ public class EffectivePredicateExtractor
             }
 
             // TODO: replace with metadata.getTableProperties() when table layouts are fully removed
-            return domainTranslator.toPredicate(predicate.simplify()
+            return DomainTranslator.toPredicate(predicate.simplify()
                     .filter((columnHandle, domain) -> assignments.containsKey(columnHandle))
                     .transformKeys(assignments::get));
         }
@@ -352,12 +350,11 @@ public class EffectivePredicateExtractor
                             nonDeterministic[i] = true;
                         }
                         else {
-                            IrExpressionInterpreter interpreter = new IrExpressionInterpreter(value, plannerContext, session);
-                            Object item = interpreter.optimize(NoOpSymbolResolver.INSTANCE);
-                            if (item instanceof Expression) {
+                            Expression item = new IrExpressionInterpreter(value, plannerContext, session).optimize();
+                            if (!(item instanceof Constant constant)) {
                                 return TRUE;
                             }
-                            if (item == null) {
+                            if (constant.value() == null) {
                                 hasNull[i] = true;
                             }
                             else {
@@ -365,15 +362,15 @@ public class EffectivePredicateExtractor
                                 if (!type.isComparable() && !type.isOrderable()) {
                                     return TRUE;
                                 }
-                                if (hasNestedNulls(type, item)) {
+                                if (hasNestedNulls(type, ((Constant) item).value())) {
                                     // Workaround solution to deal with array and row comparisons don't support null elements currently.
                                     // TODO: remove when comparisons are fixed
                                     return TRUE;
                                 }
-                                if (isFloatingPointNaN(type, item)) {
+                                if (isFloatingPointNaN(type, ((Constant) item).value())) {
                                     hasNaN[i] = true;
                                 }
-                                valuesBuilders.get(i).add(item);
+                                valuesBuilders.get(i).add(((Constant) item).value());
                             }
                         }
                     }
@@ -382,12 +379,11 @@ public class EffectivePredicateExtractor
                     if (!DeterminismEvaluator.isDeterministic(expression)) {
                         return TRUE;
                     }
-                    IrExpressionInterpreter interpreter = new IrExpressionInterpreter(expression, plannerContext, session);
-                    Object evaluated = interpreter.optimize(NoOpSymbolResolver.INSTANCE);
-                    if (evaluated instanceof Expression) {
+                    Expression evaluated = new IrExpressionInterpreter(expression, plannerContext, session).optimize();
+                    if (!(evaluated instanceof Constant constant)) {
                         return TRUE;
                     }
-                    SqlRow sqlRow = (SqlRow) evaluated;
+                    SqlRow sqlRow = (SqlRow) constant.value();
                     int rawIndex = sqlRow.getRawIndex();
                     for (int i = 0; i < node.getOutputSymbols().size(); i++) {
                         Type type = node.getOutputSymbols().get(i).getType();
@@ -446,7 +442,7 @@ public class EffectivePredicateExtractor
             }
 
             // simplify to avoid a large expression if there are many rows in ValuesNode
-            return domainTranslator.toPredicate(TupleDomain.withColumnDomains(domains.buildOrThrow()).simplify());
+            return DomainTranslator.toPredicate(TupleDomain.withColumnDomains(domains.buildOrThrow()).simplify());
         }
 
         private boolean hasNestedNulls(Type type, Object value)

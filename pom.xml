@@ -183,7 +183,7 @@
         <dep.alluxio.version>311</dep.alluxio.version>
         <dep.antlr.version>4.13.1</dep.antlr.version>
         <dep.avro.version>1.11.3</dep.avro.version>
-        <dep.aws-sdk.version>1.12.682</dep.aws-sdk.version>
+        <dep.aws-sdk.version>1.12.689</dep.aws-sdk.version>
         <dep.cassandra.version>4.17.0</dep.cassandra.version>
         <dep.confluent.version>7.5.1</dep.confluent.version>
         <dep.docker.images.version>92</dep.docker.images.version>
@@ -201,7 +201,7 @@
         <dep.parquet.version>1.13.1</dep.parquet.version>
         <dep.plugin.failsafe.version>${dep.plugin.surefire.version}</dep.plugin.failsafe.version>
         <dep.protobuf.version>3.25.3</dep.protobuf.version>
-        <dep.swagger.version>2.2.20</dep.swagger.version>
+        <dep.swagger.version>2.2.21</dep.swagger.version>
         <dep.takari.version>2.1.4</dep.takari.version>
         <dep.tcnative.version>2.0.65.Final</dep.tcnative.version>
         <dep.tempto.version>202</dep.tempto.version>
@@ -215,7 +215,7 @@
             <dependency>
                 <groupId>com.azure</groupId>
                 <artifactId>azure-sdk-bom</artifactId>
-                <version>1.2.21</version>
+                <version>1.2.22</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -255,7 +255,7 @@
             <dependency>
                 <groupId>io.grpc</groupId>
                 <artifactId>grpc-bom</artifactId>
-                <version>1.61.1</version>
+                <version>1.62.2</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -263,7 +263,7 @@
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-bom</artifactId>
-                <version>4.1.107.Final</version>
+                <version>4.1.108.Final</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -287,7 +287,7 @@
             <dependency>
                 <groupId>org.ow2.asm</groupId>
                 <artifactId>asm-bom</artifactId>
-                <version>9.6</version>
+                <version>9.7</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -303,7 +303,7 @@
             <dependency>
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
-                <version>2.25.12</version>
+                <version>2.25.19</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -453,7 +453,7 @@
             <dependency>
                 <groupId>com.clickhouse</groupId>
                 <artifactId>clickhouse-jdbc</artifactId>
-                <version>0.6.0-patch1</version>
+                <version>0.6.0-patch2</version>
                 <classifier>all</classifier>
             </dependency>
 
@@ -502,7 +502,7 @@
             <dependency>
                 <groupId>com.github.luben</groupId>
                 <artifactId>zstd-jni</artifactId>
-                <version>1.5.5-11</version>
+                <version>1.5.6-1</version>
             </dependency>
 
             <dependency>
@@ -1683,7 +1683,7 @@
             <dependency>
                 <groupId>net.minidev</groupId>
                 <artifactId>json-smart</artifactId>
-                <version>2.5.0</version>
+                <version>2.5.1</version>
             </dependency>
 
             <dependency>
@@ -1991,7 +1991,7 @@
             <dependency>
                 <groupId>org.apache.thrift</groupId>
                 <artifactId>libthrift</artifactId>
-                <version>0.19.0</version>
+                <version>0.20.0</version>
             </dependency>
 
             <dependency>
@@ -2182,7 +2182,7 @@
             <dependency>
                 <groupId>org.threeten</groupId>
                 <artifactId>threetenbp</artifactId>
-                <version>1.6.8</version>
+                <version>1.6.9</version>
             </dependency>
 
             <dependency>
@@ -2674,6 +2674,7 @@
                                     -Xep:NarrowingCompoundAssignment:ERROR \
                                     -Xep:NullOptional:ERROR \
                                     -Xep:NullableOptional:ERROR \
+                                    -Xep:NullablePrimitive:ERROR \
                                     -Xep:ObjectToString:ERROR \
                                     -Xep:OptionalNotPresent:ERROR \
                                     -Xep:OrphanedFormatString:ERROR \

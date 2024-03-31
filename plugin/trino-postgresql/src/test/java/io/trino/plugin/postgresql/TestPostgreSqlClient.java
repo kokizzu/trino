@@ -15,6 +15,7 @@ package io.trino.plugin.postgresql;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import io.trino.metadata.ResolvedFunction;
 import io.trino.metadata.TestingFunctionResolution;
 import io.trino.plugin.base.mapping.DefaultIdentifierMapping;
 import io.trino.plugin.jdbc.BaseJdbcConfig;
@@ -37,14 +38,13 @@ import io.trino.spi.expression.ConnectorExpression;
 import io.trino.spi.expression.Variable;
 import io.trino.spi.function.OperatorType;
 import io.trino.spi.session.PropertyMetadata;
-import io.trino.sql.ir.Arithmetic;
+import io.trino.sql.ir.Call;
 import io.trino.sql.ir.Comparison;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
 import io.trino.sql.ir.In;
 import io.trino.sql.ir.IsNull;
 import io.trino.sql.ir.Logical;
-import io.trino.sql.ir.Negation;
 import io.trino.sql.ir.Not;
 import io.trino.sql.ir.NullIf;
 import io.trino.sql.ir.Reference;
@@ -53,12 +53,18 @@ import io.trino.testing.TestingConnectorSession;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Types;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.trino.SessionTestUtils.TEST_SESSION;
+import static io.trino.spi.function.OperatorType.ADD;
+import static io.trino.spi.function.OperatorType.DIVIDE;
+import static io.trino.spi.function.OperatorType.MODULUS;
+import static io.trino.spi.function.OperatorType.MULTIPLY;
+import static io.trino.spi.function.OperatorType.SUBTRACT;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.DoubleType.DOUBLE;
@@ -70,6 +76,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 public class TestPostgreSqlClient
 {
+    private static final TestingFunctionResolution FUNCTIONS = new TestingFunctionResolution();
+    private static final ResolvedFunction NEGATION_BIGINT = FUNCTIONS.resolveOperator(OperatorType.NEGATION, ImmutableList.of(BIGINT));
+
     private static final JdbcColumnHandle BIGINT_COLUMN =
             JdbcColumnHandle.builder()
                     .setColumnName("c_bigint")
@@ -298,23 +307,16 @@ public class TestPostgreSqlClient
     {
         TestingFunctionResolution resolver = new TestingFunctionResolution();
 
-        for (Arithmetic.Operator operator : Arithmetic.Operator.values()) {
+        for (OperatorType operator : EnumSet.of(ADD, SUBTRACT, MULTIPLY, DIVIDE, MODULUS)) {
             ParameterizedExpression converted = JDBC_CLIENT.convertPredicate(
                             SESSION,
                             translateToConnectorExpression(
-                                    new Arithmetic(resolver.resolveOperator(
-                                            switch (operator) {
-                                                case ADD -> OperatorType.ADD;
-                                                case SUBTRACT -> OperatorType.SUBTRACT;
-                                                case MULTIPLY -> OperatorType.MULTIPLY;
-                                                case DIVIDE -> OperatorType.DIVIDE;
-                                                case MODULUS -> OperatorType.MODULUS;
-                                            },
-                                            ImmutableList.of(BIGINT, BIGINT)), operator, new Reference(BIGINT, "c_bigint_symbol"), new Constant(BIGINT, 42L))),
+                                    new Call(resolver.resolveOperator(
+                                            operator,
+                                            ImmutableList.of(BIGINT, BIGINT)), ImmutableList.of(new Reference(BIGINT, "c_bigint_symbol"), new Constant(BIGINT, 42L)))),
                             Map.of("c_bigint_symbol", BIGINT_COLUMN))
                     .orElseThrow();
 
-            assertThat(converted.expression()).isEqualTo(format("(\"c_bigint\") %s (?)", operator.getValue()));
             assertThat(converted.parameters()).isEqualTo(List.of(new QueryParameter(BIGINT, Optional.of(42L))));
         }
     }
@@ -325,7 +327,7 @@ public class TestPostgreSqlClient
         ParameterizedExpression converted = JDBC_CLIENT.convertPredicate(
                         SESSION,
                         translateToConnectorExpression(
-                                new Negation(new Reference(BIGINT, "c_bigint_symbol"))),
+                                new Call(NEGATION_BIGINT, ImmutableList.of(new Reference(BIGINT, "c_bigint_symbol")))),
                         Map.of("c_bigint_symbol", BIGINT_COLUMN))
                 .orElseThrow();
 

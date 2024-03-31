@@ -341,7 +341,7 @@ class QueryPlanner
         List<NodeAndMappings> recursionStepsToUnion = recursionSteps.build();
 
         List<Symbol> unionOutputSymbols = anchorPlan.getFieldMappings().stream()
-                .map(symbol -> symbolAllocator.newSymbol(symbol, "_expanded"))
+                .map(symbol -> symbolAllocator.newSymbol("expanded_" + symbol.getName(), symbol.getType()))
                 .collect(toImmutableList());
 
         ImmutableListMultimap.Builder<Symbol, Symbol> unionSymbolMapping = ImmutableListMultimap.builder();
@@ -861,7 +861,7 @@ class QueryPlanner
         // The case number
         rowBuilder.add(new Constant(INTEGER, -1L));
 
-        Case caseExpression = new Case(whenClauses.build(), Optional.of(new Row(rowBuilder.build())));
+        Case caseExpression = new Case(whenClauses.build(), new Row(rowBuilder.build()));
 
         Symbol mergeRowSymbol = symbolAllocator.newSymbol("merge_row", mergeAnalysis.getMergeRowType());
         Symbol caseNumberSymbol = symbolAllocator.newSymbol("case_number", INTEGER);
@@ -1144,7 +1144,7 @@ class QueryPlanner
         Symbol[] fields = new Symbol[subPlan.getTranslations().getFieldSymbols().size()];
         for (FieldId field : groupingSetAnalysis.getAllFields()) {
             Symbol input = subPlan.getTranslations().getFieldSymbols().get(field.getFieldIndex());
-            Symbol output = symbolAllocator.newSymbol(input, "gid");
+            Symbol output = symbolAllocator.newSymbol(input.getName() + "_gid", input.getType());
             fields[field.getFieldIndex()] = output;
             groupingSetMappings.put(output, input);
         }
@@ -1153,7 +1153,7 @@ class QueryPlanner
         for (io.trino.sql.tree.Expression expression : groupingSetAnalysis.getComplexExpressions()) {
             if (!complexExpressions.containsKey(scopeAwareKey(expression, analysis, subPlan.getScope()))) {
                 Symbol input = subPlan.translate(expression);
-                Symbol output = symbolAllocator.newSymbol("expr", analysis.getType(expression), "gid");
+                Symbol output = symbolAllocator.newSymbol("gid", analysis.getType(expression));
                 complexExpressions.put(scopeAwareKey(expression, analysis, subPlan.getScope()), output);
                 groupingSetMappings.put(output, input);
             }
@@ -1550,7 +1550,7 @@ class QueryPlanner
                         coercions.get(sortKey).toSymbolReference(),
                         expectedType,
                         false);
-                sortKeyCoercedForFrameBoundCalculation = symbolAllocator.newSymbol(cast, expectedType);
+                sortKeyCoercedForFrameBoundCalculation = symbolAllocator.newSymbol(cast);
                 sortKeyCoercions.put(expectedType, sortKeyCoercedForFrameBoundCalculation);
                 subPlan = subPlan.withNewRoot(new ProjectNode(
                         idAllocator.getNextId(),
@@ -1570,7 +1570,7 @@ class QueryPlanner
                 ImmutableList.of(
                         sortKeyCoercedForFrameBoundCalculation.toSymbolReference(),
                         offsetSymbol.toSymbolReference()));
-        Symbol frameBoundSymbol = symbolAllocator.newSymbol(functionCall, function.getSignature().getReturnType());
+        Symbol frameBoundSymbol = symbolAllocator.newSymbol(functionCall);
         subPlan = subPlan.withNewRoot(new ProjectNode(
                 idAllocator.getNextId(),
                 subPlan.getRoot(),
@@ -1593,7 +1593,7 @@ class QueryPlanner
                         coercions.get(sortKey).toSymbolReference(),
                         expectedType,
                         false);
-                Symbol castSymbol = symbolAllocator.newSymbol(cast, expectedType);
+                Symbol castSymbol = symbolAllocator.newSymbol(cast);
                 sortKeyCoercions.put(expectedType, castSymbol);
                 subPlan = subPlan.withNewRoot(new ProjectNode(
                         idAllocator.getNextId(),
@@ -1663,7 +1663,7 @@ class QueryPlanner
                     false);
         }
 
-        Symbol coercedOffsetSymbol = symbolAllocator.newSymbol(offsetToBigint, BIGINT);
+        Symbol coercedOffsetSymbol = symbolAllocator.newSymbol(offsetToBigint);
         subPlan = subPlan.withNewRoot(new ProjectNode(
                 idAllocator.getNextId(),
                 subPlan.getRoot(),

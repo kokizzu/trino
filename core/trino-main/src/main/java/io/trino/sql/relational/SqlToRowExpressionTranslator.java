@@ -20,7 +20,6 @@ import io.trino.metadata.Metadata;
 import io.trino.metadata.ResolvedFunction;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeManager;
-import io.trino.sql.ir.Arithmetic;
 import io.trino.sql.ir.Between;
 import io.trino.sql.ir.Bind;
 import io.trino.sql.ir.Call;
@@ -37,7 +36,6 @@ import io.trino.sql.ir.IrVisitor;
 import io.trino.sql.ir.IsNull;
 import io.trino.sql.ir.Lambda;
 import io.trino.sql.ir.Logical;
-import io.trino.sql.ir.Negation;
 import io.trino.sql.ir.Not;
 import io.trino.sql.ir.NullIf;
 import io.trino.sql.ir.Reference;
@@ -58,13 +56,11 @@ import static io.trino.spi.function.OperatorType.EQUAL;
 import static io.trino.spi.function.OperatorType.HASH_CODE;
 import static io.trino.spi.function.OperatorType.INDETERMINATE;
 import static io.trino.spi.function.OperatorType.LESS_THAN_OR_EQUAL;
-import static io.trino.spi.function.OperatorType.NEGATION;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.sql.analyzer.TypeSignatureProvider.fromTypes;
 import static io.trino.sql.relational.Expressions.call;
 import static io.trino.sql.relational.Expressions.constant;
-import static io.trino.sql.relational.Expressions.constantNull;
 import static io.trino.sql.relational.Expressions.field;
 import static io.trino.sql.relational.SpecialForm.Form.AND;
 import static io.trino.sql.relational.SpecialForm.Form.BETWEEN;
@@ -213,27 +209,6 @@ public final class SqlToRowExpressionTranslator
         }
 
         @Override
-        protected RowExpression visitArithmetic(Arithmetic node, Void context)
-        {
-            RowExpression left = process(node.left(), context);
-            RowExpression right = process(node.right(), context);
-
-            return call(
-                    standardFunctionResolution.arithmeticFunction(node.operator(), left.getType(), right.getType()),
-                    left,
-                    right);
-        }
-
-        @Override
-        protected RowExpression visitNegation(Negation node, Void context)
-        {
-            RowExpression expression = process(node.value(), context);
-            return call(
-                    metadata.resolveOperator(NEGATION, ImmutableList.of(expression.getType())),
-                    expression);
-        }
-
-        @Override
         protected RowExpression visitLogical(Logical node, Void context)
         {
             Form form;
@@ -363,9 +338,7 @@ public final class SqlToRowExpressionTranslator
 
             Type returnType = ((Expression) node).type();
 
-            arguments.add(node.defaultValue()
-                    .map(defaultValue -> process(defaultValue, context))
-                    .orElse(constantNull(returnType)));
+            arguments.add(process(node.defaultValue(), context));
 
             return new SpecialForm(SWITCH, returnType, arguments.build(), functionDependencies.build());
         }
@@ -393,9 +366,7 @@ public final class SqlToRowExpressionTranslator
                                     value4)))
 
              */
-            RowExpression expression = node.defaultValue()
-                    .map(value -> process(value, context))
-                    .orElse(constantNull(((Expression) node).type()));
+            RowExpression expression = process(node.defaultValue(), context);
 
             for (WhenClause clause : node.whenClauses().reversed()) {
                 expression = new SpecialForm(

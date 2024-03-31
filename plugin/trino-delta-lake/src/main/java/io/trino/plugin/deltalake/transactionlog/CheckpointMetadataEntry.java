@@ -11,36 +11,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.tests.product.launcher.env.jdk;
+package io.trino.plugin.deltalake.transactionlog;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Ordering;
-import com.google.inject.Inject;
 
-import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-public class JdkProviderFactory
+// https://github.com/delta-io/delta/blob/master/PROTOCOL.md#checkpoint-metadata
+public record CheckpointMetadataEntry(long version, Optional<Map<String, String>> tags)
 {
-    private final Map<String, JdkProvider> providers;
-
-    @Inject
-    public JdkProviderFactory(Map<String, JdkProvider> providers)
+    public CheckpointMetadataEntry
     {
-        this.providers = ImmutableMap.copyOf(requireNonNull(providers, "providers is null"));
-    }
-
-    public JdkProvider get(String name)
-    {
-        checkArgument(providers.containsKey(name), "No JDK provider with name '%s'. Those do exist, however: %s", name, list());
-        return providers.get(name);
-    }
-
-    public List<String> list()
-    {
-        return Ordering.natural().sortedCopy(providers.keySet());
+        checkArgument(version > 0, "version is not positive: %s", version);
+        requireNonNull(tags, "tags is null");
+        tags = tags.map(ImmutableMap::copyOf);
     }
 }

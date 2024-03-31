@@ -85,8 +85,8 @@ public class RemoveRedundantPredicateAboveTableScan
         TableScanNode node = captures.get(TABLE_SCAN);
         Expression predicate = filterNode.getPredicate();
 
-        Expression deterministicPredicate = filterDeterministicConjuncts(plannerContext.getMetadata(), predicate);
-        Expression nonDeterministicPredicate = filterNonDeterministicConjuncts(plannerContext.getMetadata(), predicate);
+        Expression deterministicPredicate = filterDeterministicConjuncts(predicate);
+        Expression nonDeterministicPredicate = filterNonDeterministicConjuncts(predicate);
 
         ExtractionResult decomposedPredicate = getFullyExtractedPredicates(
                 session,
@@ -134,7 +134,7 @@ public class RemoveRedundantPredicateAboveTableScan
                 plannerContext,
                 session,
                 Booleans.TRUE, // Dynamic filters are included in decomposedPredicate.getRemainingExpression()
-                new DomainTranslator().toPredicate(unenforcedDomain.transformKeys(assignments::get)),
+                DomainTranslator.toPredicate(unenforcedDomain.transformKeys(assignments::get)),
                 nonDeterministicPredicate,
                 decomposedPredicate.getRemainingExpression());
 

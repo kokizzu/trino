@@ -11,23 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.tests.product.launcher.env.jdk;
+package io.trino.plugin.deltalake.transactionlog;
 
-import com.google.inject.Inject;
-import io.trino.tests.product.launcher.env.EnvironmentOptions;
+import static java.util.Objects.requireNonNull;
 
-public class Temurin22JdkProvider
-        extends AdoptiumApiResolvingJdkProvider
+public record V2Checkpoint(String path)
 {
-    @Inject
-    public Temurin22JdkProvider(EnvironmentOptions environmentOptions)
+    public V2Checkpoint
     {
-        super(environmentOptions);
-    }
-
-    @Override
-    protected String getReleaseName()
-    {
-        return "jdk-22+36";
+        requireNonNull(path, "path is null");
     }
 }

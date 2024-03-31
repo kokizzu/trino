@@ -13,14 +13,17 @@
  */
 package io.trino.plugin.deltalake.transactionlog.checkpoint;
 
+import io.trino.plugin.deltalake.transactionlog.V2Checkpoint;
+
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-public record LastCheckpoint(long version, long size, Optional<Integer> parts)
+public record LastCheckpoint(long version, long size, Optional<Integer> parts, Optional<V2Checkpoint> v2Checkpoint)
 {
     public LastCheckpoint
     {
         requireNonNull(parts, "parts is null");
+        requireNonNull(v2Checkpoint, "v2Checkpoint is null");
     }
 }

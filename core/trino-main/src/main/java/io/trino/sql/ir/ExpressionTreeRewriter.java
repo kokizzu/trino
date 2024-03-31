@@ -98,44 +98,6 @@ public final class ExpressionTreeRewriter<C>
         }
 
         @Override
-        protected Expression visitNegation(Negation node, Context<C> context)
-        {
-            if (!context.isDefaultRewrite()) {
-                Expression result = rewriter.rewriteNegation(node, context.get(), ExpressionTreeRewriter.this);
-                if (result != null) {
-                    return result;
-                }
-            }
-
-            Expression child = rewrite(node.value(), context.get());
-            if (child != node.value()) {
-                return new Negation(child);
-            }
-
-            return node;
-        }
-
-        @Override
-        public Expression visitArithmetic(Arithmetic node, Context<C> context)
-        {
-            if (!context.isDefaultRewrite()) {
-                Expression result = rewriter.rewriteArithmetic(node, context.get(), ExpressionTreeRewriter.this);
-                if (result != null) {
-                    return result;
-                }
-            }
-
-            Expression left = rewrite(node.left(), context.get());
-            Expression right = rewrite(node.right(), context.get());
-
-            if (left != node.left() || right != node.right()) {
-                return new Arithmetic(node.function(), node.operator(), left, right);
-            }
-
-            return node;
-        }
-
-        @Override
         protected Expression visitFieldReference(FieldReference node, Context<C> context)
         {
             if (!context.isDefaultRewrite()) {
@@ -286,10 +248,9 @@ public final class ExpressionTreeRewriter<C>
                 builder.add(rewriteWhenClause(expression, context));
             }
 
-            Optional<Expression> defaultValue = node.defaultValue()
-                    .map(value -> rewrite(value, context.get()));
+            Expression defaultValue = rewrite(node.defaultValue(), context.get());
 
-            if (!sameElements(node.defaultValue(), defaultValue) || !sameElements(node.whenClauses(), builder.build())) {
+            if (node.defaultValue() != defaultValue || !sameElements(node.whenClauses(), builder.build())) {
                 return new Case(builder.build(), defaultValue);
             }
 
@@ -313,11 +274,10 @@ public final class ExpressionTreeRewriter<C>
                 builder.add(rewriteWhenClause(expression, context));
             }
 
-            Optional<Expression> defaultValue = node.defaultValue()
-                    .map(value -> rewrite(value, context.get()));
+            Expression defaultValue = rewrite(node.defaultValue(), context.get());
 
             if (operand != node.operand() ||
-                    !sameElements(node.defaultValue(), defaultValue) ||
+                    node.defaultValue() != defaultValue ||
                     !sameElements(node.whenClauses(), builder.build())) {
                 return new Switch(operand, builder.build(), defaultValue);
             }

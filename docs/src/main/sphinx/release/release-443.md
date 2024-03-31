@@ -9,7 +9,7 @@
 
 ## Delta Lake connector
 
-* Automatically use `timestamp(3)` as type during table creation when other
+* Automatically use `timestamp(6)` as type during table creation when other
   timestamp precision is specified. ({issue}`19336`)
 * Ensure all files are deleted when native S3 file system support is enabled. ({issue}`21111`)
 
@@ -41,6 +41,3 @@
 
 * Add catalog store support for dynamic catalog storage implementation in
   connector plugins. ({issue}`21114`)
-
-
-Thanks again for presenting at Trino Summit last year .. sending you a reminder to register for Trino Fest in June ..https://trino.io/blog/2024/02/20/announcing-trino-fest-2024

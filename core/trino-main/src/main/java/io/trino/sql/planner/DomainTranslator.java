@@ -46,6 +46,7 @@ import io.trino.sql.ir.Comparison;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
 import io.trino.sql.ir.In;
+import io.trino.sql.ir.IrUtils;
 import io.trino.sql.ir.IrVisitor;
 import io.trino.sql.ir.IsNull;
 import io.trino.sql.ir.Logical;
@@ -59,6 +60,7 @@ import jakarta.annotation.Nullable;
 import java.lang.invoke.MethodHandle;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -105,7 +107,9 @@ import static java.util.stream.Collectors.toList;
 
 public final class DomainTranslator
 {
-    public Expression toPredicate(TupleDomain<Symbol> tupleDomain)
+    private DomainTranslator() {}
+
+    public static Expression toPredicate(TupleDomain<Symbol> tupleDomain)
     {
         if (tupleDomain.isNone()) {
             return FALSE;
@@ -113,11 +117,12 @@ public final class DomainTranslator
 
         Map<Symbol, Domain> domains = tupleDomain.getDomains().get();
         return domains.entrySet().stream()
+                .sorted(Comparator.comparing(e -> e.getKey().getName()))
                 .map(entry -> toPredicate(entry.getValue(), entry.getKey().toSymbolReference()))
-                .collect(collectingAndThen(toImmutableList(), expressions -> combineConjuncts(expressions)));
+                .collect(collectingAndThen(toImmutableList(), IrUtils::combineConjuncts));
     }
 
-    private Expression toPredicate(Domain domain, Reference reference)
+    private static Expression toPredicate(Domain domain, Reference reference)
     {
         if (domain.getValues().isNone()) {
             return domain.isNullAllowed() ? new IsNull(reference) : FALSE;
@@ -129,6 +134,11 @@ public final class DomainTranslator
 
         List<Expression> disjuncts = new ArrayList<>();
 
+        // Add nullability disjuncts
+        if (domain.isNullAllowed()) {
+            disjuncts.add(new IsNull(reference));
+        }
+
         disjuncts.addAll(domain.getValues().getValuesProcessor().transform(
                 ranges -> extractDisjuncts(domain.getType(), ranges, reference),
                 discreteValues -> extractDisjuncts(domain.getType(), discreteValues, reference),
@@ -136,15 +146,10 @@ public final class DomainTranslator
                     throw new IllegalStateException("Case should not be reachable");
                 }));
 
-        // Add nullability disjuncts
-        if (domain.isNullAllowed()) {
-            disjuncts.add(new IsNull(reference));
-        }
-
         return combineDisjunctsWithDefault(disjuncts, TRUE);
     }
 
-    private Expression processRange(Type type, Range range, Reference reference)
+    private static Expression processRange(Type type, Range range, Reference reference)
     {
         if (range.isAll()) {
             return TRUE;
@@ -176,7 +181,7 @@ public final class DomainTranslator
         return combineConjuncts(rangeConjuncts);
     }
 
-    private Expression combineRangeWithExcludedPoints(Type type, Reference reference, Range range, List<Expression> excludedPoints)
+    private static Expression combineRangeWithExcludedPoints(Type type, Reference reference, Range range, List<Expression> excludedPoints)
     {
         if (excludedPoints.isEmpty()) {
             return processRange(type, range, reference);
@@ -190,7 +195,7 @@ public final class DomainTranslator
         return combineConjuncts(processRange(type, range, reference), excludedPointsExpression);
     }
 
-    private List<Expression> extractDisjuncts(Type type, Ranges ranges, Reference reference)
+    private static List<Expression> extractDisjuncts(Type type, Ranges ranges, Reference reference)
     {
         List<Expression> disjuncts = new ArrayList<>();
         List<Expression> singleValues = new ArrayList<>();
@@ -252,7 +257,7 @@ public final class DomainTranslator
         return disjuncts;
     }
 
-    private List<Expression> extractDisjuncts(Type type, DiscreteValues discreteValues, Reference reference)
+    private static List<Expression> extractDisjuncts(Type type, DiscreteValues discreteValues, Reference reference)
     {
         List<Expression> values = discreteValues.getValues().stream()
                 .map(object -> new Constant(type, object))

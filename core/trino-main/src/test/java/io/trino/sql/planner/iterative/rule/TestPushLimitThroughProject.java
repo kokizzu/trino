@@ -19,7 +19,7 @@ import io.trino.metadata.ResolvedFunction;
 import io.trino.metadata.TestingFunctionResolution;
 import io.trino.spi.function.OperatorType;
 import io.trino.spi.type.RowType;
-import io.trino.sql.ir.Arithmetic;
+import io.trino.sql.ir.Call;
 import io.trino.sql.ir.FieldReference;
 import io.trino.sql.ir.Reference;
 import io.trino.sql.planner.Symbol;
@@ -30,7 +30,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Optional;
 
 import static io.trino.spi.type.BigintType.BIGINT;
-import static io.trino.sql.ir.Arithmetic.Operator.ADD;
+import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.sql.ir.Booleans.TRUE;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.expression;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.limit;
@@ -52,7 +52,7 @@ public class TestPushLimitThroughProject
     {
         tester().assertThat(new PushLimitThroughProject())
                 .on(p -> {
-                    Symbol a = p.symbol("a");
+                    Symbol a = p.symbol("a", BOOLEAN);
                     return p.limit(1,
                             p.project(
                                     Assignments.of(a, TRUE),
@@ -101,14 +101,14 @@ public class TestPushLimitThroughProject
                             p.project(
                                     Assignments.of(
                                             projectedA, new Reference(BIGINT, "a"),
-                                            projectedC, new Arithmetic(ADD_BIGINT, ADD, new Reference(BIGINT, "a"), new Reference(BIGINT, "b"))),
+                                            projectedC, new Call(ADD_BIGINT, ImmutableList.of(new Reference(BIGINT, "a"), new Reference(BIGINT, "b")))),
                                     p.values(a, b)));
                 })
                 .matches(
                         project(
                                 ImmutableMap.of(
                                         "projectedA", expression(new Reference(BIGINT, "a")),
-                                        "projectedC", expression(new Arithmetic(ADD_BIGINT, ADD, new Reference(BIGINT, "a"), new Reference(BIGINT, "b")))),
+                                        "projectedC", expression(new Call(ADD_BIGINT, ImmutableList.of(new Reference(BIGINT, "a"), new Reference(BIGINT, "b"))))),
                                 limit(1, ImmutableList.of(sort("a", ASCENDING, FIRST)), values("a", "b"))));
     }
 
@@ -127,7 +127,7 @@ public class TestPushLimitThroughProject
                             p.project(
                                     Assignments.of(
                                             projectedA, new Reference(BIGINT, "a"),
-                                            projectedC, new Arithmetic(ADD_BIGINT, ADD, new Reference(BIGINT, "a"), new Reference(BIGINT, "b"))),
+                                            projectedC, new Call(ADD_BIGINT, ImmutableList.of(new Reference(BIGINT, "a"), new Reference(BIGINT, "b")))),
                                     p.values(a, b)));
                 })
                 .doesNotFire();
@@ -181,7 +181,7 @@ public class TestPushLimitThroughProject
                             p.project(
                                     Assignments.of(
                                             projectedA, new Reference(BIGINT, "a"),
-                                            projectedC, new Arithmetic(ADD_BIGINT, ADD, new Reference(BIGINT, "a"), new Reference(BIGINT, "b"))),
+                                            projectedC, new Call(ADD_BIGINT, ImmutableList.of(new Reference(BIGINT, "a"), new Reference(BIGINT, "b")))),
                                     p.values(a, b)));
                 })
                 .doesNotFire();
@@ -200,12 +200,12 @@ public class TestPushLimitThroughProject
                             p.project(
                                     Assignments.of(
                                             projectedA, new Reference(BIGINT, "a"),
-                                            projectedC, new Arithmetic(ADD_BIGINT, ADD, new Reference(BIGINT, "a"), new Reference(BIGINT, "b"))),
+                                            projectedC, new Call(ADD_BIGINT, ImmutableList.of(new Reference(BIGINT, "a"), new Reference(BIGINT, "b")))),
                                     p.values(a, b)));
                 })
                 .matches(
                         project(
-                                ImmutableMap.of("projectedA", expression(new Reference(BIGINT, "a")), "projectedC", expression(new Arithmetic(ADD_BIGINT, ADD, new Reference(BIGINT, "a"), new Reference(BIGINT, "b")))),
+                                ImmutableMap.of("projectedA", expression(new Reference(BIGINT, "a")), "projectedC", expression(new Call(ADD_BIGINT, ImmutableList.of(new Reference(BIGINT, "a"), new Reference(BIGINT, "b"))))),
                                 limit(1, ImmutableList.of(), true, ImmutableList.of("a"), values("a", "b"))));
     }
 

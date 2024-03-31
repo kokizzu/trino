@@ -37,7 +37,6 @@ import io.trino.sql.ir.ExpressionTreeRewriter;
 import io.trino.sql.ir.IsNull;
 import io.trino.sql.ir.Not;
 import io.trino.sql.planner.IrExpressionInterpreter;
-import io.trino.sql.planner.NoOpSymbolResolver;
 
 import java.lang.invoke.MethodHandle;
 import java.time.LocalDate;
@@ -147,29 +146,22 @@ public class UnwrapDateTruncInComparison
             if (!(unitExpression.type() instanceof VarcharType) || !(unitExpression instanceof Constant)) {
                 return expression;
             }
-            Slice unitName = (Slice) new IrExpressionInterpreter(unitExpression, plannerContext, session)
-                    .optimize(NoOpSymbolResolver.INSTANCE);
+            Slice unitName = (Slice) new IrExpressionInterpreter(unitExpression, plannerContext, session).evaluate();
             if (unitName == null) {
                 return expression;
             }
 
             Expression argument = call.arguments().get(1);
-            Type argumentType = argument.type();
+            Expression right = new IrExpressionInterpreter(expression.right(), plannerContext, session).optimize();
 
-            Type rightType = expression.right().type();
-            verify(argumentType.equals(rightType), "Mismatched types: %s and %s", argumentType, rightType);
-
-            Object right = new IrExpressionInterpreter(expression.right(), plannerContext, session)
-                    .optimize(NoOpSymbolResolver.INSTANCE);
-
-            if (right == null) {
+            if (right instanceof Constant constant && constant.value() == null) {
                 return switch (expression.operator()) {
                     case EQUAL, NOT_EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL, GREATER_THAN, GREATER_THAN_OR_EQUAL -> new Constant(BOOLEAN, null);
                     case IS_DISTINCT_FROM -> new Not(new IsNull(argument));
                 };
             }
 
-            if (right instanceof Expression) {
+            if (!(right instanceof Constant(Type rightType, Object rightValue))) {
                 return expression;
             }
             if (rightType instanceof TimestampWithTimeZoneType) {
@@ -190,9 +182,9 @@ public class UnwrapDateTruncInComparison
                 return expression;
             }
 
-            Object rangeLow = functionInvoker.invoke(resolvedFunction, session.toConnectorSession(), ImmutableList.of(unitName, right));
-            int compare = compare(rightType, rangeLow, right);
-            verify(compare <= 0, "Truncation of %s value %s resulted in a bigger value %s", rightType, right, rangeLow);
+            Object rangeLow = functionInvoker.invoke(resolvedFunction, session.toConnectorSession(), ImmutableList.of(unitName, rightValue));
+            int compare = compare(rightType, rangeLow, rightValue);
+            verify(compare <= 0, "Truncation of %s value %s resulted in a bigger value %s", rightType, rightValue, rangeLow);
             boolean rightValueAtRangeLow = compare == 0;
 
             return switch (expression.operator()) {

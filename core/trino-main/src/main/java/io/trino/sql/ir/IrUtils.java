@@ -17,7 +17,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.graph.SuccessorsFunction;
 import com.google.common.graph.Traverser;
-import io.trino.metadata.Metadata;
 import io.trino.spi.type.Type;
 import io.trino.sql.planner.DeterminismEvaluator;
 import io.trino.sql.planner.Symbol;
@@ -202,14 +201,14 @@ public final class IrUtils
         return disjuncts.isEmpty() ? emptyDefault : or(disjuncts);
     }
 
-    public static Expression filterDeterministicConjuncts(Metadata metadata, Expression expression)
+    public static Expression filterDeterministicConjuncts(Expression expression)
     {
-        return filterConjuncts(expression, expression1 -> DeterminismEvaluator.isDeterministic(expression1));
+        return filterConjuncts(expression, DeterminismEvaluator::isDeterministic);
     }
 
-    public static Expression filterNonDeterministicConjuncts(Metadata metadata, Expression expression)
+    public static Expression filterNonDeterministicConjuncts(Expression expression)
     {
-        return filterConjuncts(expression, not(testExpression -> DeterminismEvaluator.isDeterministic(testExpression)));
+        return filterConjuncts(expression, not(DeterminismEvaluator::isDeterministic));
     }
 
     public static Expression filterConjuncts(Expression expression, Predicate<Expression> predicate)
