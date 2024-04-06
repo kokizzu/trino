@@ -33,7 +33,6 @@ final class TestGlueHiveMetastore
             throws IOException
     {
         tempDir = createTempDirectory("test");
-        tempDir.toFile().mkdirs();
         metastore = createTestingGlueHiveMetastore(tempDir);
     }
 

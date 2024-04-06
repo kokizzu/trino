@@ -11,17 +11,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.metadata;
+package io.trino.plugin.jdbc;
 
-import io.trino.sql.routine.ir.IrRoutine;
-
-import static java.util.Objects.requireNonNull;
-
-public record LanguageScalarFunctionData(ResolvedFunction resolvedFunction, IrRoutine routine)
+public enum TimestampTimeZoneDomain
 {
-    public LanguageScalarFunctionData
-    {
-        requireNonNull(resolvedFunction, "resolvedFunction is null");
-        requireNonNull(routine, "routine is null");
-    }
+    /**
+     * Connector can produce {@link io.trino.spi.type.TimestampWithTimeZoneType} values with varying zones.
+     */
+    ANY,
+
+    /**
+     * Connector can produce {@link io.trino.spi.type.TimestampWithTimeZoneType} values only with UTC zone.
+     */
+    UTC_ONLY,
 }

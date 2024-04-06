@@ -14,6 +14,7 @@
 package io.trino.plugin.base.security;
 
 import com.google.common.collect.ImmutableSet;
+import io.trino.spi.QueryId;
 import io.trino.spi.connector.CatalogSchemaName;
 import io.trino.spi.connector.CatalogSchemaRoutineName;
 import io.trino.spi.connector.CatalogSchemaTableName;
@@ -91,6 +92,11 @@ public class AllowAllSystemAccessControl
     }
 
     @Override
+    public void checkCanExecuteQuery(Identity identity, QueryId queryId)
+    {
+    }
+
+    @Override
     public void checkCanViewQueryOwnedBy(Identity identity, Identity queryOwner)
     {
     }
@@ -108,6 +114,11 @@ public class AllowAllSystemAccessControl
 
     @Override
     public void checkCanSetSystemSessionProperty(Identity identity, String propertyName)
+    {
+    }
+
+    @Override
+    public void checkCanSetSystemSessionProperty(Identity identity, QueryId queryId, String propertyName)
     {
     }
 

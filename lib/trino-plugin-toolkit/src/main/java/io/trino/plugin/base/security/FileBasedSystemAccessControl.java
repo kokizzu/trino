@@ -20,6 +20,7 @@ import io.airlift.bootstrap.Bootstrap;
 import io.airlift.bootstrap.LifeCycleManager;
 import io.trino.plugin.base.security.CatalogAccessControlRule.AccessMode;
 import io.trino.plugin.base.security.TableAccessControlRule.TablePrivilege;
+import io.trino.spi.QueryId;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.CatalogSchemaName;
 import io.trino.spi.connector.CatalogSchemaRoutineName;
@@ -307,6 +308,12 @@ public class FileBasedSystemAccessControl
     }
 
     @Override
+    public void checkCanExecuteQuery(Identity identity, QueryId queryId)
+    {
+        checkCanExecuteQuery(identity);
+    }
+
+    @Override
     public void checkCanViewQueryOwnedBy(Identity identity, Identity queryOwner)
     {
         if (!canAccessQuery(identity, Optional.of(queryOwner.getUser()), QueryAccessRule.AccessMode.VIEW)) {
@@ -385,6 +392,12 @@ public class FileBasedSystemAccessControl
         if (!allowed) {
             denySetSystemSessionProperty(propertyName);
         }
+    }
+
+    @Override
+    public void checkCanSetSystemSessionProperty(Identity identity, QueryId queryId, String propertyName)
+    {
+        checkCanSetSystemSessionProperty(identity, propertyName);
     }
 
     @Override

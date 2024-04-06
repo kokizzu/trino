@@ -342,7 +342,7 @@ public class PlanTester
                 () -> getPlannerContext().getFunctionManager());
         globalFunctionCatalog.addFunctions(SystemFunctionBundle.create(new FeaturesConfig(), typeOperators, blockTypeOperators, nodeManager.getCurrentNode().getNodeVersion()));
         TestingGroupProviderManager groupProvider = new TestingGroupProviderManager();
-        LanguageFunctionManager languageFunctionManager = new LanguageFunctionManager(sqlParser, typeManager, groupProvider);
+        LanguageFunctionManager languageFunctionManager = new LanguageFunctionManager(sqlParser, typeManager, groupProvider, blockEncodingSerde);
         Metadata metadata = new MetadataManager(
                 new DisabledSystemSecurityMetadata(),
                 transactionManager,
@@ -652,7 +652,7 @@ public class PlanTester
 
     public void executeStatement(@Language("SQL") String sql)
     {
-        accessControl.checkCanExecuteQuery(defaultSession.getIdentity());
+        accessControl.checkCanExecuteQuery(defaultSession.getIdentity(), defaultSession.getQueryId());
 
         inTransaction(defaultSession, transactionSession -> {
             try (Closer closer = Closer.create()) {

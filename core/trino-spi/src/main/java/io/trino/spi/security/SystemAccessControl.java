@@ -13,6 +13,7 @@
  */
 package io.trino.spi.security;
 
+import io.trino.spi.QueryId;
 import io.trino.spi.connector.CatalogSchemaName;
 import io.trino.spi.connector.CatalogSchemaRoutineName;
 import io.trino.spi.connector.CatalogSchemaTableName;
@@ -128,10 +129,22 @@ public interface SystemAccessControl
      * Checks if identity can execute a query.
      *
      * @throws AccessDeniedException if not allowed
+     * @deprecated use {@link #checkCanExecuteQuery(Identity, QueryId)}
      */
+    @Deprecated
     default void checkCanExecuteQuery(Identity identity)
     {
         denyExecuteQuery();
+    }
+
+    /**
+     * Checks if identity can execute a query.
+     *
+     * @throws AccessDeniedException if not allowed
+     */
+    default void checkCanExecuteQuery(Identity identity, QueryId queryId)
+    {
+        checkCanExecuteQuery(identity);
     }
 
     /**
@@ -192,10 +205,22 @@ public interface SystemAccessControl
      * Check if identity is allowed to set the specified system property.
      *
      * @throws AccessDeniedException if not allowed
+     * @deprecated use {@link #checkCanSetSystemSessionProperty(Identity, QueryId, String)}
      */
+    @Deprecated
     default void checkCanSetSystemSessionProperty(Identity identity, String propertyName)
     {
         denySetSystemSessionProperty(propertyName);
+    }
+
+    /**
+     * Check if identity is allowed to set the specified system property.
+     *
+     * @throws AccessDeniedException if not allowed
+     */
+    default void checkCanSetSystemSessionProperty(Identity identity, QueryId queryId, String propertyName)
+    {
+        checkCanSetSystemSessionProperty(identity, propertyName);
     }
 
     /**

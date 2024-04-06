@@ -69,7 +69,7 @@ Trino supports the following Snowflake data types:
 | `binary(n)`    | `varbinary`    |
 | `varbinary`    | `varbinary`    |
 | `date`         | `date`         |
-| `time`         | `time`         |
+| `time(n)`      | `time(n)`      |
 | `timestampntz` | `timestamp`    |
 
 Complete list of [Snowflake data types](https://docs.snowflake.com/en/sql-reference/intro-summary-data-types.html).
@@ -113,6 +113,17 @@ The connector supports pushdown for a number of operations:
 - {func}`max`
 - {func}`min`
 - {func}`sum`
+- {func}`stddev`
+- {func}`stddev_pop`
+- {func}`stddev_samp`
+- {func}`variance`
+- {func}`var_pop`
+- {func}`var_samp`
+- {func}`covar_pop`
+- {func}`covar_samp`
+- {func}`corr`
+- {func}`regr_intercept`
+- {func}`regr_slope`
 
 ```{include} pushdown-correctness-behavior.fragment
 ```
