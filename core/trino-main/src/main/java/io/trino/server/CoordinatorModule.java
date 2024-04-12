@@ -16,6 +16,7 @@ package io.trino.server;
 import com.google.common.collect.ImmutableList;
 import com.google.inject.Binder;
 import com.google.inject.Inject;
+import com.google.inject.Key;
 import com.google.inject.Provides;
 import com.google.inject.Scopes;
 import com.google.inject.Singleton;
@@ -196,7 +197,9 @@ public class CoordinatorModule
         jaxrsBinder(binder).bind(QueryStateInfoResource.class);
         jaxrsBinder(binder).bind(ResourceGroupStateInfoResource.class);
         binder.bind(QueryIdGenerator.class).in(Scopes.SINGLETON);
-        binder.bind(QueryManager.class).to(SqlQueryManager.class).in(Scopes.SINGLETON);
+        binder.bind(SqlQueryManager.class).in(Scopes.SINGLETON);
+        newExporter(binder).export(SqlQueryManager.class).withGeneratedName();
+        binder.bind(QueryManager.class).to(SqlQueryManager.class);
         binder.bind(QueryPreparer.class).in(Scopes.SINGLETON);
         OptionalBinder.newOptionalBinder(binder, SessionSupplier.class).setDefault().to(QuerySessionSupplier.class).in(Scopes.SINGLETON);
         binder.bind(ResourceGroupInfoProvider.class).to(ResourceGroupManager.class).in(Scopes.SINGLETON);
@@ -364,11 +367,10 @@ public class CoordinatorModule
         install(new QueryExecutionFactoryModule());
 
         // cleanup
-        closingBinder(binder)
-                .registerExecutor(ExecutorService.class, ForStatementResource.class)
-                .registerExecutor(ScheduledExecutorService.class, ForStatementResource.class)
-                .registerExecutor(ExecutorService.class, ForQueryExecution.class)
-                .registerExecutor(ScheduledExecutorService.class, ForScheduler.class);
+        closingBinder(binder).registerExecutor(Key.get(ExecutorService.class, ForStatementResource.class));
+        closingBinder(binder).registerExecutor(Key.get(ScheduledExecutorService.class, ForStatementResource.class));
+        closingBinder(binder).registerExecutor(Key.get(ExecutorService.class, ForQueryExecution.class));
+        closingBinder(binder).registerExecutor(Key.get(ScheduledExecutorService.class, ForScheduler.class));
     }
 
     // working around circular dependency Metadata <-> PlannerContext

@@ -14,6 +14,8 @@
 
     <properties>
         <air.main.basedir>${project.parent.basedir}</air.main.basedir>
+        <!-- TODO enable @GuardedBy checks in trino-main -->
+        <trino.error-prone.guarded-by>WARN</trino.error-prone.guarded-by>
     </properties>
 
     <dependencies>
@@ -206,12 +208,6 @@
         <dependency>
             <groupId>io.airlift.discovery</groupId>
             <artifactId>discovery-server</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>javax.validation</groupId>
-                    <artifactId>validation-api</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
 
         <dependency>

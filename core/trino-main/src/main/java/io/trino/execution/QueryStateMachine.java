@@ -1492,8 +1492,15 @@ public class QueryStateMachine
                 queryStats.getFailedPhysicalWrittenDataSize(),
                 queryStats.getStageGcStatistics(),
                 queryStats.getDynamicFiltersStats(),
-                ImmutableList.of(),
-                ImmutableList.of()); // Remove the operator summaries as OperatorInfo (especially DirectExchangeClientStatus) can hold onto a large amount of memory
+                ImmutableList.of(), // Remove the operator summaries as OperatorInfo (especially DirectExchangeClientStatus) can hold onto a large amount of memory
+                ImmutableList.of());
+    }
+
+    public boolean isQueryInfoPruned()
+    {
+        return finalQueryInfo.get()
+                .map(QueryInfo::isPruned)
+                .orElse(false);
     }
 
     private QueryOutputManager getOutputManager()

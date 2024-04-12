@@ -53,7 +53,6 @@ import org.intellij.lang.annotations.Language;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.Timeout;
 
 import java.time.Instant;
@@ -86,7 +85,6 @@ import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterrup
 import static io.airlift.concurrent.MoreFutures.tryGetFutureValue;
 import static io.airlift.units.Duration.nanosSince;
 import static io.trino.SystemSessionProperties.IGNORE_STATS_CALCULATOR_FAILURES;
-import static io.trino.SystemSessionProperties.LEGACY_MATERIALIZED_VIEW_GRACE_PERIOD;
 import static io.trino.connector.informationschema.InformationSchemaTable.INFORMATION_SCHEMA;
 import static io.trino.server.testing.TestingSystemSessionProperties.TESTING_SESSION_TIME;
 import static io.trino.spi.connector.ConnectorMetadata.MODIFYING_ROWS_MESSAGE;
@@ -172,12 +170,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Fail.fail;
 import static org.assertj.core.api.InstanceOfAssertFactories.ZONED_DATE_TIME;
 import static org.junit.jupiter.api.Assumptions.abort;
-import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS;
 
 /**
  * Generic test for connectors.
  */
-@TestInstance(PER_CLASS)
 public abstract class BaseConnectorTest
         extends AbstractTestQueries
 {
@@ -1302,9 +1298,6 @@ public abstract class BaseConnectorTest
                 "test_base_table",
                 "AS TABLE region")) {
             Session defaultSession = getSession();
-            Session legacySession = Session.builder(defaultSession)
-                    .setSystemProperty(LEGACY_MATERIALIZED_VIEW_GRACE_PERIOD, "true")
-                    .build();
             Session futureSession = Session.builder(defaultSession)
                     // This gets ignored: .setStart(...)
                     .setSystemProperty(TESTING_SESSION_TIME, Instant.now().plus(1, ChronoUnit.DAYS).toString())
@@ -1328,7 +1321,6 @@ public abstract class BaseConnectorTest
             assertThat(getMaterializedViewFreshness(viewName)).isEqualTo(STALE);
             assertThat(getMaterializedViewLastFreshTime(viewName)).isEmpty();
             assertThat(query(defaultSession, "TABLE " + viewName)).hasPlan(readFromBaseTables).matches(initialResults);
-            assertThat(query(legacySession, "TABLE " + viewName)).hasPlan(readFromBaseTables).matches(initialResults);
             assertThat(query(futureSession, "TABLE " + viewName)).hasPlan(readFromBaseTables).matches(initialResults);
 
             ZonedDateTime beforeRefresh = ZonedDateTime.now();
@@ -1348,7 +1340,6 @@ public abstract class BaseConnectorTest
                         .get(ZONED_DATE_TIME).isBetween(beforeRefresh, afterRefresh);
             }
             assertThat(query(defaultSession, "TABLE " + viewName)).hasPlan(readFromStorageTable).matches(initialResults);
-            assertThat(query(legacySession, "TABLE " + viewName)).hasPlan(readFromStorageTable).matches(initialResults);
             assertThat(query(futureSession, "TABLE " + viewName))
                     .hasPlan(supportsFresh ? readFromStorageTable : readFromBaseTables)
                     .matches(initialResults);
@@ -1366,9 +1357,6 @@ public abstract class BaseConnectorTest
                             supportsFresh ? beforeModification : beforeRefresh,
                             supportsFresh ? afterModification : afterRefresh);
             assertThat(query(defaultSession, "TABLE " + viewName)).hasPlan(readFromStorageTable).matches(initialResults);
-            assertThat(query(legacySession, "TABLE " + viewName))
-                    .hasPlan(supportsFresh ? readFromBaseTables : readFromStorageTable)
-                    .matches(supportsFresh ? updatedResults : initialResults);
             assertThat(query(futureSession, "TABLE " + viewName)).hasPlan(readFromBaseTables).matches(updatedResults);
 
             assertUpdate("REFRESH MATERIALIZED VIEW " + viewName, 6);
@@ -1384,7 +1372,6 @@ public abstract class BaseConnectorTest
             }
 
             assertThat(query(defaultSession, "TABLE " + viewName)).hasPlan(readFromStorageTable).matches(updatedResults);
-            assertThat(query(legacySession, "TABLE " + viewName)).hasPlan(readFromStorageTable).matches(updatedResults);
             assertThat(query(futureSession, "TABLE " + viewName))
                     .hasPlan(supportsFresh ? readFromStorageTable : readFromBaseTables)
                     .matches(updatedResults);
@@ -1411,9 +1398,6 @@ public abstract class BaseConnectorTest
         }
 
         Session defaultSession = getSession();
-        Session legacySession = Session.builder(defaultSession)
-                .setSystemProperty(LEGACY_MATERIALIZED_VIEW_GRACE_PERIOD, "true")
-                .build();
         Session futureSession = Session.builder(defaultSession)
                 // This gets ignored: .setStart(...)
                 .setSystemProperty(TESTING_SESSION_TIME, Instant.now().plus(1, ChronoUnit.DAYS).toString())
@@ -1438,7 +1422,6 @@ public abstract class BaseConnectorTest
                     assertThat(getMaterializedViewFreshness(viewName)).isEqualTo(STALE);
                     assertThat(getMaterializedViewLastFreshTime(viewName)).isEmpty();
                     assertThat(query(defaultSession, "TABLE " + viewName)).hasPlan(readFromBaseTables).matches(initialResults);
-                    assertThat(query(legacySession, "TABLE " + viewName)).hasPlan(readFromBaseTables).matches(initialResults);
                     assertThat(query(futureSession, "TABLE " + viewName)).hasPlan(readFromBaseTables).matches(initialResults);
 
                     ZonedDateTime beforeRefresh = ZonedDateTime.now();
@@ -1450,7 +1433,6 @@ public abstract class BaseConnectorTest
                     assertThat(getMaterializedViewLastFreshTime(viewName))
                             .get(ZONED_DATE_TIME).isBetween(beforeRefresh, afterRefresh);
                     assertThat(query(defaultSession, "TABLE " + viewName)).hasPlan(readFromStorageTable).matches(initialResults);
-                    assertThat(query(legacySession, "TABLE " + viewName)).hasPlan(readFromStorageTable).matches(initialResults);
                     assertThat(query(futureSession, "TABLE " + viewName)).hasPlan(readFromStorageTable).matches(initialResults);
 
                     // Change underlying state
@@ -1462,7 +1444,6 @@ public abstract class BaseConnectorTest
                     assertThat(getMaterializedViewLastFreshTime(viewName))
                             .get(ZONED_DATE_TIME).isBetween(beforeRefresh, afterRefresh);
                     assertThat(query(defaultSession, "TABLE " + viewName)).hasPlan(readFromStorageTable).matches(initialResults);
-                    assertThat(query(legacySession, "TABLE " + viewName)).hasPlan(readFromStorageTable).matches(initialResults);
                     assertThat(query(futureSession, "TABLE " + viewName)).hasPlan(readFromStorageTable).matches(initialResults);
 
                     ZonedDateTime beforeSecondRefresh = ZonedDateTime.now();
@@ -1474,7 +1455,6 @@ public abstract class BaseConnectorTest
                     assertThat(getMaterializedViewLastFreshTime(viewName))
                             .get(ZONED_DATE_TIME).isBetween(beforeSecondRefresh, afterSecondRefresh);
                     assertThat(query(defaultSession, "TABLE " + viewName)).hasPlan(readFromStorageTable).matches(updatedResults);
-                    assertThat(query(legacySession, "TABLE " + viewName)).hasPlan(readFromStorageTable).matches(updatedResults);
                     assertThat(query(futureSession, "TABLE " + viewName)).hasPlan(readFromStorageTable).matches(updatedResults);
 
                     assertUpdate("DROP MATERIALIZED VIEW " + viewName);
@@ -1496,9 +1476,6 @@ public abstract class BaseConnectorTest
                 "GROUP BY table_name"; // GROUP BY so that it is easy to distinguish between inlined view and reading materialization
 
         Session defaultSession = getSession();
-        Session legacySession = Session.builder(defaultSession)
-                .setSystemProperty(LEGACY_MATERIALIZED_VIEW_GRACE_PERIOD, "true")
-                .build();
         Session futureSession = Session.builder(defaultSession)
                 // This gets ignored: .setStart(...)
                 .setSystemProperty(TESTING_SESSION_TIME, Instant.now().plus(1, ChronoUnit.DAYS).toString())
@@ -1525,7 +1502,6 @@ public abstract class BaseConnectorTest
                     assertThat(getMaterializedViewFreshness(viewName)).isEqualTo(STALE);
                     assertThat(getMaterializedViewLastFreshTime(viewName)).isEmpty();
                     assertThat(query(defaultSession, "TABLE " + viewName)).hasPlan(readFromBaseTables).matches(initialResults);
-                    assertThat(query(legacySession, "TABLE " + viewName)).hasPlan(readFromBaseTables).matches(initialResults);
                     assertThat(query(futureSession, "TABLE " + viewName)).hasPlan(readFromBaseTables).matches(initialResults);
 
                     ZonedDateTime beforeRefresh = ZonedDateTime.now();
@@ -1537,7 +1513,6 @@ public abstract class BaseConnectorTest
                     assertThat(getMaterializedViewLastFreshTime(viewName))
                             .get(ZONED_DATE_TIME).isBetween(beforeRefresh, afterRefresh);
                     assertThat(query(defaultSession, "TABLE " + viewName)).hasPlan(readFromStorageTable).matches(initialResults);
-                    assertThat(query(legacySession, "TABLE " + viewName)).hasPlan(readFromStorageTable).matches(initialResults);
                     assertThat(query(futureSession, "TABLE " + viewName)).hasPlan(readFromBaseTables).matches(initialResults);
 
                     // Change underlying state
@@ -1549,7 +1524,6 @@ public abstract class BaseConnectorTest
                     assertThat(getMaterializedViewLastFreshTime(viewName))
                             .get(ZONED_DATE_TIME).isBetween(beforeRefresh, afterRefresh);
                     assertThat(query(defaultSession, "TABLE " + viewName)).hasPlan(readFromStorageTable).matches(initialResults);
-                    assertThat(query(legacySession, "TABLE " + viewName)).hasPlan(readFromStorageTable).matches(initialResults);
                     assertThat(query(futureSession, "TABLE " + viewName)).hasPlan(readFromBaseTables).matches(updatedResults);
 
                     ZonedDateTime beforeSecondRefresh = ZonedDateTime.now();
@@ -1561,7 +1535,6 @@ public abstract class BaseConnectorTest
                     assertThat(getMaterializedViewLastFreshTime(viewName))
                             .get(ZONED_DATE_TIME).isBetween(beforeSecondRefresh, afterSecondRefresh);
                     assertThat(query(defaultSession, "TABLE " + viewName)).hasPlan(readFromStorageTable).matches(updatedResults);
-                    assertThat(query(legacySession, "TABLE " + viewName)).hasPlan(readFromStorageTable).matches(updatedResults);
                     assertThat(query(futureSession, "TABLE " + viewName)).hasPlan(readFromBaseTables).matches(updatedResults);
 
                     assertUpdate("DROP MATERIALIZED VIEW " + viewName);
