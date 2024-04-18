@@ -157,6 +157,7 @@ import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.collect.Iterables.concat;
 import static com.google.common.collect.Iterables.getOnlyElement;
+import static io.trino.parquet.writer.ParquetWriter.SUPPORTED_BLOOM_FILTER_TYPES;
 import static io.trino.plugin.base.projection.ApplyProjectionUtil.extractSupportedProjectedColumns;
 import static io.trino.plugin.base.projection.ApplyProjectionUtil.replaceWithNewVariables;
 import static io.trino.plugin.hive.HiveAnalyzeProperties.getColumnNames;
@@ -211,6 +212,7 @@ import static io.trino.plugin.hive.HiveTableProperties.EXTERNAL_LOCATION_PROPERT
 import static io.trino.plugin.hive.HiveTableProperties.NULL_FORMAT_PROPERTY;
 import static io.trino.plugin.hive.HiveTableProperties.ORC_BLOOM_FILTER_COLUMNS;
 import static io.trino.plugin.hive.HiveTableProperties.ORC_BLOOM_FILTER_FPP;
+import static io.trino.plugin.hive.HiveTableProperties.PARQUET_BLOOM_FILTER_COLUMNS;
 import static io.trino.plugin.hive.HiveTableProperties.PARTITIONED_BY_PROPERTY;
 import static io.trino.plugin.hive.HiveTableProperties.REGEX_CASE_INSENSITIVE;
 import static io.trino.plugin.hive.HiveTableProperties.REGEX_PATTERN;
@@ -231,6 +233,7 @@ import static io.trino.plugin.hive.HiveTableProperties.getHiveStorageFormat;
 import static io.trino.plugin.hive.HiveTableProperties.getNullFormat;
 import static io.trino.plugin.hive.HiveTableProperties.getOrcBloomFilterColumns;
 import static io.trino.plugin.hive.HiveTableProperties.getOrcBloomFilterFpp;
+import static io.trino.plugin.hive.HiveTableProperties.getParquetBloomFilterColumns;
 import static io.trino.plugin.hive.HiveTableProperties.getPartitionedBy;
 import static io.trino.plugin.hive.HiveTableProperties.getRegexPattern;
 import static io.trino.plugin.hive.HiveTableProperties.getSingleCharacterProperty;
@@ -309,6 +312,7 @@ import static io.trino.spi.StandardErrorCode.INVALID_ANALYZE_PROPERTY;
 import static io.trino.spi.StandardErrorCode.INVALID_COLUMN_PROPERTY;
 import static io.trino.spi.StandardErrorCode.INVALID_SCHEMA_PROPERTY;
 import static io.trino.spi.StandardErrorCode.INVALID_TABLE_PROPERTY;
+import static io.trino.spi.StandardErrorCode.INVALID_VIEW_PROPERTY;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.StandardErrorCode.TABLE_NOT_FOUND;
 import static io.trino.spi.StandardErrorCode.UNSUPPORTED_TABLE_TYPE;
@@ -359,6 +363,8 @@ public class HiveMetadata
     private static final String CSV_SEPARATOR_KEY = "separatorChar";
     private static final String CSV_QUOTE_KEY = "quoteChar";
     private static final String CSV_ESCAPE_KEY = "escapeChar";
+
+    public static final String PARQUET_BLOOM_FILTER_COLUMNS_KEY = "parquet.bloom.filter.columns";
 
     private static final String REGEX_KEY = "input.regex";
     private static final String REGEX_CASE_SENSITIVE_KEY = "input.regex.case.insensitive";
@@ -884,11 +890,10 @@ public class HiveMetadata
             return TableStatistics.empty();
         }
         HiveTableHandle hiveTableHandle = (HiveTableHandle) tableHandle;
-        Set<ColumnHandle> projectedColumns = hiveTableHandle.getProjectedColumns();
+        Set<HiveColumnHandle> projectedColumns = hiveTableHandle.getProjectedColumns();
         // Return column statistics only for projectedColumns
         // plus, since column statistics are not supported for non-primitive types in hive, filter those out
         Map<String, ColumnHandle> columns = projectedColumns.stream()
-                .map(columnHandle -> (HiveColumnHandle) columnHandle)
                 .filter(entry -> !entry.isHidden() && entry.getHiveType().getCategory() == PRIMITIVE)
                 .collect(toImmutableMap(HiveColumnHandle::getName, identity()));
 
@@ -1107,12 +1112,20 @@ public class HiveMetadata
         bucketInfo.ifPresent(info -> tableProperties.put(BUCKETING_VERSION, String.valueOf(info.bucketingVersion().getVersion())));
 
         // ORC format specific properties
-        List<String> columns = getOrcBloomFilterColumns(tableMetadata.getProperties());
-        if (columns != null && !columns.isEmpty()) {
+        List<String> orcBloomFilterColumns = getOrcBloomFilterColumns(tableMetadata.getProperties());
+        if (orcBloomFilterColumns != null && !orcBloomFilterColumns.isEmpty()) {
             checkFormatForProperty(hiveStorageFormat, HiveStorageFormat.ORC, ORC_BLOOM_FILTER_COLUMNS);
-            validateOrcBloomFilterColumns(tableMetadata, columns);
-            tableProperties.put(ORC_BLOOM_FILTER_COLUMNS_KEY, Joiner.on(",").join(columns));
+            validateOrcBloomFilterColumns(tableMetadata, orcBloomFilterColumns);
+            tableProperties.put(ORC_BLOOM_FILTER_COLUMNS_KEY, Joiner.on(",").join(orcBloomFilterColumns));
             tableProperties.put(ORC_BLOOM_FILTER_FPP_KEY, String.valueOf(getOrcBloomFilterFpp(tableMetadata.getProperties())));
+        }
+
+        List<String> parquetBloomFilterColumns = getParquetBloomFilterColumns(tableMetadata.getProperties());
+        if (parquetBloomFilterColumns != null && !parquetBloomFilterColumns.isEmpty()) {
+            checkFormatForProperty(hiveStorageFormat, HiveStorageFormat.PARQUET, PARQUET_BLOOM_FILTER_COLUMNS);
+            validateParquetBloomFilterColumns(tableMetadata, parquetBloomFilterColumns);
+            tableProperties.put(PARQUET_BLOOM_FILTER_COLUMNS_KEY, Joiner.on(",").join(parquetBloomFilterColumns));
+            // TODO: Enable specifying FPP
         }
 
         // Avro specific properties
@@ -1276,6 +1289,21 @@ public class HiveMetadata
                 .collect(toImmutableSet());
         if (!allColumns.containsAll(orcBloomFilterColumns)) {
             throw new TrinoException(INVALID_TABLE_PROPERTY, format("Orc bloom filter columns %s not present in schema", Sets.difference(ImmutableSet.copyOf(orcBloomFilterColumns), allColumns)));
+        }
+    }
+
+    private static void validateParquetBloomFilterColumns(ConnectorTableMetadata tableMetadata, List<String> parquetBloomFilterColumns)
+    {
+        Map<String, Type> columnTypes = tableMetadata.getColumns().stream()
+                .collect(toImmutableMap(ColumnMetadata::getName, ColumnMetadata::getType));
+        for (String column : parquetBloomFilterColumns) {
+            Type type = columnTypes.get(column);
+            if (type == null) {
+                throw new TrinoException(INVALID_TABLE_PROPERTY, format("Parquet Bloom filter column %s not present in schema", column));
+            }
+            if (!SUPPORTED_BLOOM_FILTER_TYPES.contains(type)) {
+                throw new TrinoException(INVALID_TABLE_PROPERTY, format("Parquet Bloom filter column %s has unsupported type %s", column, type.getDisplayName()));
+            }
         }
     }
 
@@ -2672,19 +2700,41 @@ public class HiveMetadata
     }
 
     @Override
-    public void createView(ConnectorSession session, SchemaTableName viewName, ConnectorViewDefinition definition, boolean replace)
+    public void createView(
+            ConnectorSession session,
+            SchemaTableName viewName,
+            ConnectorViewDefinition definition,
+            Map<String, Object> viewProperties,
+            boolean replace)
     {
         if (accessControlMetadata.isUsingSystemSecurity()) {
             definition = definition.withoutOwner();
         }
 
-        Map<String, String> properties = ImmutableMap.<String, String>builder()
+        ImmutableMap.Builder<String, String> propertiesBuilder = ImmutableMap.builder();
+        propertiesBuilder
                 .put(TABLE_COMMENT, PRESTO_VIEW_COMMENT)
                 .put(PRESTO_VIEW_FLAG, "true")
                 .put(TRINO_CREATED_BY, "Trino Hive connector")
                 .put(TRINO_VERSION_NAME, trinoVersion)
-                .put(TRINO_QUERY_ID_NAME, session.getQueryId())
-                .buildOrThrow();
+                .put(TRINO_QUERY_ID_NAME, session.getQueryId());
+
+        Map<String, String> baseProperties = propertiesBuilder.buildOrThrow();
+
+        // Extra properties
+        Map<String, String> extraProperties = HiveViewProperties.getExtraProperties(viewProperties)
+                .orElseGet(ImmutableMap::of);
+        Set<String> illegalExtraProperties = Sets.intersection(
+                ImmutableSet.<String>builder()
+                        .addAll(baseProperties.keySet())
+                        .build(),
+                extraProperties.keySet());
+        if (!illegalExtraProperties.isEmpty()) {
+            throw new TrinoException(
+                    INVALID_VIEW_PROPERTY,
+                    "Illegal keys in extra_properties: " + illegalExtraProperties);
+        }
+        propertiesBuilder.putAll(extraProperties);
 
         Column dummyColumn = new Column("dummy", HIVE_STRING, Optional.empty(), ImmutableMap.of());
 
@@ -2695,7 +2745,7 @@ public class HiveMetadata
                 .setTableType(VIRTUAL_VIEW.name())
                 .setDataColumns(ImmutableList.of(dummyColumn))
                 .setPartitionColumns(ImmutableList.of())
-                .setParameters(properties)
+                .setParameters(propertiesBuilder.buildOrThrow())
                 .setViewOriginalText(Optional.of(encodeViewData(definition)))
                 .setViewExpandedText(Optional.of(PRESTO_VIEW_EXPANDED_TEXT_MARKER));
 
@@ -2761,6 +2811,14 @@ public class HiveMetadata
                 .filter(tableInfo -> tableInfo.extendedRelationType().toRelationType() == RelationType.VIEW)
                 .map(TableInfo::tableName)
                 .collect(toImmutableList());
+    }
+
+    @Override
+    public Map<String, Object> getViewProperties(ConnectorSession session, SchemaTableName viewName)
+    {
+        // The only currently existing view property (extra_properties) is hidden,
+        // no need to retrieve its value for SHOW CREATE VIEW.
+        return ImmutableMap.of();
     }
 
     @Override
@@ -3028,7 +3086,7 @@ public class HiveMetadata
         if (isQueryPartitionFilterRequiredForTable(session, handle.getSchemaTableName()) && handle.getAnalyzePartitionValues().isEmpty() && handle.getEnforcedConstraint().isAll()) {
             List<HiveColumnHandle> partitionColumns = handle.getPartitionColumns();
             if (!partitionColumns.isEmpty()) {
-                Set<ColumnHandle> referencedColumns = handle.getConstraintColumns();
+                Set<HiveColumnHandle> referencedColumns = handle.getConstraintColumns();
                 if (Collections.disjoint(referencedColumns, partitionColumns)) {
                     String partitionColumnNames = partitionColumns.stream()
                             .map(HiveColumnHandle::getName)
@@ -3064,7 +3122,9 @@ public class HiveMetadata
         HiveTableHandle hiveTableHandle = (HiveTableHandle) handle;
         // all references are simple variables
         if (columnProjections.values().stream().allMatch(ProjectedColumnRepresentation::isVariable)) {
-            Set<ColumnHandle> projectedColumns = ImmutableSet.copyOf(assignments.values());
+            Set<HiveColumnHandle> projectedColumns = assignments.values().stream()
+                    .map(HiveColumnHandle.class::cast)
+                    .collect(toImmutableSet());
             if (hiveTableHandle.getProjectedColumns().equals(projectedColumns)) {
                 return Optional.empty();
             }
@@ -3083,13 +3143,13 @@ public class HiveMetadata
 
         Map<String, Assignment> newAssignments = new HashMap<>();
         ImmutableMap.Builder<ConnectorExpression, Variable> newVariablesBuilder = ImmutableMap.builder();
-        ImmutableSet.Builder<ColumnHandle> projectedColumnsBuilder = ImmutableSet.builder();
+        ImmutableSet.Builder<HiveColumnHandle> projectedColumnsBuilder = ImmutableSet.builder();
 
         for (Entry<ConnectorExpression, ProjectedColumnRepresentation> entry : columnProjections.entrySet()) {
             ConnectorExpression expression = entry.getKey();
             ProjectedColumnRepresentation projectedColumn = entry.getValue();
 
-            ColumnHandle projectedColumnHandle;
+            HiveColumnHandle projectedColumnHandle;
             String projectedColumnName;
 
             // See if input already contains a columnhandle for this projected column, avoid creating duplicates.
@@ -3097,13 +3157,13 @@ public class HiveMetadata
 
             if (existingColumn.isPresent()) {
                 projectedColumnName = existingColumn.get();
-                projectedColumnHandle = assignments.get(projectedColumnName);
+                projectedColumnHandle = (HiveColumnHandle) assignments.get(projectedColumnName);
             }
             else {
                 // Create a new column handle
                 HiveColumnHandle oldColumnHandle = (HiveColumnHandle) assignments.get(projectedColumn.getVariable().getName());
                 projectedColumnHandle = createProjectedColumnHandle(oldColumnHandle, projectedColumn.getDereferenceIndices());
-                projectedColumnName = ((HiveColumnHandle) projectedColumnHandle).getName();
+                projectedColumnName = projectedColumnHandle.getName();
             }
 
             Variable projectedColumnVariable = new Variable(projectedColumnName, expression.getType());

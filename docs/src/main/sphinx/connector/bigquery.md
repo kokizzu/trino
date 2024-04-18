@@ -93,12 +93,12 @@ number of partitions based on server constraints.
 (bigquery-arrow-serialization-support)=
 ### Arrow serialization support
 
-This is an experimental feature which introduces support for using Apache Arrow
+This is a feature which introduces support for using Apache Arrow
 as the serialization format when reading from BigQuery.  Please note there are
 a few caveats:
 
 - Using Apache Arrow serialization is disabled by default. In order to enable
-  it, set the `bigquery.experimental.arrow-serialization.enabled`
+  it, set the `bigquery.arrow-serialization.enabled`
   configuration property to `true` and add
   `--add-opens=java.base/java.nio=ALL-UNNAMED` to the Trino
   {ref}`jvm-config`.
@@ -133,6 +133,7 @@ a few caveats:
 | `bigquery.view-materialization-project`             | The project where the materialized view is going to be created                                                                                                  | The view's project                                   |
 | `bigquery.view-materialization-dataset`             | The dataset where the materialized view is going to be created                                                                                                  | The view's dataset                                   |
 | `bigquery.skip-view-materialization`                | Use REST API to access views instead of Storage API. BigQuery `BIGNUMERIC` and `TIMESTAMP` types are unsupported.                                               | `false`                                              |
+| `bigqueryview-materialization-with-filter`          | Use filter conditions when materializng views.                                                                                                                  | `false`                                              |
 | `bigquery.views-cache-ttl`                          | Duration for which the materialization of a view will be cached and reused. Set to `0ms` to disable the cache.                                                  | `15m`                                                |
 | `bigquery.metadata.cache-ttl`                       | Duration for which metadata retrieved from BigQuery is cached and reused. Set to `0ms` to disable the cache.                                                    | `0ms`                                                |
 | `bigquery.max-read-rows-retries`                    | The number of retries in case of retryable server issues                                                                                                        | `3`                                                  |
@@ -140,7 +141,7 @@ a few caveats:
 | `bigquery.credentials-file`                         | The path to the JSON credentials file                                                                                                                           | None. See the [requirements](bigquery-requirements) section. |
 | `bigquery.case-insensitive-name-matching`           | Match dataset and table names case-insensitively                                                                                                                | `false`                                              |
 | `bigquery.query-results-cache.enabled`              | Enable [query results cache](https://cloud.google.com/bigquery/docs/cached-results)                                                                             | `false`                                              |
-| `bigquery.experimental.arrow-serialization.enabled` | Enable using Apache Arrow serialization when reading data from BigQuery. Please read this [section](bigquery-arrow-serialization-support) before enabling this feature. | `false`                                              |
+| `bigquery.arrow-serialization.enabled`              | Enable using Apache Arrow serialization when reading data from BigQuery. Please read this [section](bigquery-arrow-serialization-support) before enabling this feature. | `false`                                              |
 | `bigquery.rpc-proxy.enabled`                        | Use a proxy for communication with BigQuery.                                                                                                                    | `false`                                              |
 | `bigquery.rpc-proxy.uri`                            | Proxy URI to use if connecting through a proxy.                                                                                                                 |                                                      |
 | `bigquery.rpc-proxy.username`                       | Proxy user name to use if connecting through a proxy.                                                                                                           |                                                      |

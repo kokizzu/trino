@@ -19,11 +19,11 @@ import io.airlift.slice.Slices;
 import io.trino.Session;
 import io.trino.json.ir.IrJsonPath;
 import io.trino.metadata.ResolvedFunction;
-import io.trino.operator.scalar.ArrayConstructor;
 import io.trino.operator.scalar.FormatFunction;
 import io.trino.operator.scalar.TryFunction;
 import io.trino.plugin.base.util.JsonTypeUtil;
 import io.trino.spi.function.OperatorType;
+import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.DecimalParseResult;
 import io.trino.spi.type.DecimalType;
 import io.trino.spi.type.Decimals;
@@ -132,7 +132,6 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.airlift.slice.Slices.utf8Slice;
-import static io.trino.spi.StandardErrorCode.TOO_MANY_ARGUMENTS;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.spi.type.TimeWithTimeZoneType.createTimeWithTimeZoneType;
@@ -153,7 +152,6 @@ import static io.trino.type.LikeFunctions.LIKE_PATTERN_FUNCTION_NAME;
 import static io.trino.type.LikePatternType.LIKE_PATTERN;
 import static io.trino.util.DateTimeUtils.parseDayTimeInterval;
 import static io.trino.util.DateTimeUtils.parseYearMonthInterval;
-import static io.trino.util.Failures.checkCondition;
 import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
@@ -674,20 +672,12 @@ public class TranslationMap
 
     private io.trino.sql.ir.Expression translate(Array expression)
     {
-        checkCondition(expression.getValues().size() <= 254, TOO_MANY_ARGUMENTS, "Too many arguments for array constructor");
-
-        List<Type> types = expression.getValues().stream()
-                .map(analysis::getType)
-                .collect(toImmutableList());
-
         List<io.trino.sql.ir.Expression> values = expression.getValues().stream()
                 .map(this::translateExpression)
                 .collect(toImmutableList());
 
-        return BuiltinFunctionCallBuilder.resolve(plannerContext.getMetadata())
-                .setName(ArrayConstructor.NAME)
-                .setArguments(types, values)
-                .build();
+        Type type = analysis.getType(expression);
+        return new io.trino.sql.ir.Array(((ArrayType) type).getElementType(), values);
     }
 
     private io.trino.sql.ir.Expression translate(CurrentCatalog unused)
@@ -964,8 +954,8 @@ public class TranslationMap
         return new Call(
                 operator,
                 ImmutableList.of(
-                    new io.trino.sql.ir.Cast(translateExpression(node.getBase()), operator.getSignature().getArgumentType(0)),
-                    new io.trino.sql.ir.Cast(translateExpression(node.getIndex()), operator.getSignature().getArgumentType(1))));
+                    new io.trino.sql.ir.Cast(translateExpression(node.getBase()), operator.signature().getArgumentType(0)),
+                    new io.trino.sql.ir.Cast(translateExpression(node.getIndex()), operator.signature().getArgumentType(1))));
     }
 
     private io.trino.sql.ir.Expression translate(LambdaExpression node)
@@ -1005,7 +995,7 @@ public class TranslationMap
                 node.getJsonPathInvocation().getPathParameters().stream()
                         .map(parameter -> translateExpression(parameter.getParameter()))
                         .toList(),
-                resolvedFunction.getSignature().getArgumentType(2),
+                resolvedFunction.signature().getArgumentType(2),
                 failOnError);
 
         IrJsonPath path = new JsonPathTranslator(session, plannerContext).rewriteToIr(analysis.getJsonPathAnalysis(node), orderedParameters.getParametersOrder());
@@ -1039,7 +1029,7 @@ public class TranslationMap
                 node.getJsonPathInvocation().getPathParameters().stream()
                         .map(parameter -> translateExpression(parameter.getParameter()))
                         .toList(),
-                resolvedFunction.getSignature().getArgumentType(2),
+                resolvedFunction.signature().getArgumentType(2),
                 failOnError);
 
         IrJsonPath path = new JsonPathTranslator(session, plannerContext).rewriteToIr(analysis.getJsonPathAnalysis(node), orderedParameters.getParametersOrder());
@@ -1052,11 +1042,11 @@ public class TranslationMap
                 .add(new Constant(TINYINT, (long) node.getEmptyBehavior().ordinal()))
                 .add(node.getEmptyDefault()
                         .map(this::translateExpression)
-                        .orElseGet(() -> new Constant(resolvedFunction.getSignature().getReturnType(), null)))
+                        .orElseGet(() -> new Constant(resolvedFunction.signature().getReturnType(), null)))
                 .add(new Constant(TINYINT, (long) node.getErrorBehavior().ordinal()))
                 .add(node.getErrorDefault()
                         .map(this::translateExpression)
-                        .orElseGet(() -> new Constant(resolvedFunction.getSignature().getReturnType(), null)));
+                        .orElseGet(() -> new Constant(resolvedFunction.signature().getReturnType(), null)));
 
         return new Call(resolvedFunction, arguments.build());
     }
@@ -1080,7 +1070,7 @@ public class TranslationMap
                 node.getJsonPathInvocation().getPathParameters().stream()
                         .map(parameter -> translateExpression(parameter.getParameter()))
                         .toList(),
-                resolvedFunction.getSignature().getArgumentType(2),
+                resolvedFunction.signature().getArgumentType(2),
                 failOnError);
 
         IrJsonPath path = new JsonPathTranslator(session, plannerContext).rewriteToIr(analysis.getJsonPathAnalysis(node), orderedParameters.getParametersOrder());
@@ -1108,7 +1098,7 @@ public class TranslationMap
                 .map(plannerContext.getTypeManager()::getType)
                 .orElse(VARCHAR);
 
-        Type resultType = outputFunction.getSignature().getReturnType();
+        Type resultType = outputFunction.signature().getReturnType();
         if (!resultType.equals(returnedType)) {
             result = new io.trino.sql.ir.Cast(result, returnedType);
         }
@@ -1126,8 +1116,8 @@ public class TranslationMap
 
         // prepare keys and values as rows
         if (node.getMembers().isEmpty()) {
-            checkState(JSON_NO_PARAMETERS_ROW_TYPE.equals(resolvedFunction.getSignature().getArgumentType(0)));
-            checkState(JSON_NO_PARAMETERS_ROW_TYPE.equals(resolvedFunction.getSignature().getArgumentType(1)));
+            checkState(JSON_NO_PARAMETERS_ROW_TYPE.equals(resolvedFunction.signature().getArgumentType(0)));
+            checkState(JSON_NO_PARAMETERS_ROW_TYPE.equals(resolvedFunction.signature().getArgumentType(1)));
             keysRow = new Constant(JSON_NO_PARAMETERS_ROW_TYPE, null);
             valuesRow = new Constant(JSON_NO_PARAMETERS_ROW_TYPE, null);
         }
@@ -1175,7 +1165,7 @@ public class TranslationMap
                 .map(plannerContext.getTypeManager()::getType)
                 .orElse(VARCHAR);
 
-        Type resultType = outputFunction.getSignature().getReturnType();
+        Type resultType = outputFunction.signature().getReturnType();
         if (!resultType.equals(returnedType)) {
             result = new io.trino.sql.ir.Cast(result, returnedType);
         }
@@ -1192,7 +1182,7 @@ public class TranslationMap
 
         // prepare elements as row
         if (node.getElements().isEmpty()) {
-            checkState(JSON_NO_PARAMETERS_ROW_TYPE.equals(resolvedFunction.getSignature().getArgumentType(0)));
+            checkState(JSON_NO_PARAMETERS_ROW_TYPE.equals(resolvedFunction.signature().getArgumentType(0)));
             elementsRow = new Constant(JSON_NO_PARAMETERS_ROW_TYPE, null);
         }
         else {
@@ -1231,7 +1221,7 @@ public class TranslationMap
                 .map(plannerContext.getTypeManager()::getType)
                 .orElse(VARCHAR);
 
-        Type resultType = outputFunction.getSignature().getReturnType();
+        Type resultType = outputFunction.signature().getReturnType();
         if (!resultType.equals(returnedType)) {
             result = new io.trino.sql.ir.Cast(result, returnedType);
         }

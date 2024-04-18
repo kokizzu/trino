@@ -39,6 +39,7 @@ import io.trino.metadata.SessionPropertyManager.SessionPropertyValue;
 import io.trino.metadata.TableHandle;
 import io.trino.metadata.TablePropertyManager;
 import io.trino.metadata.ViewDefinition;
+import io.trino.metadata.ViewPropertyManager;
 import io.trino.security.AccessControl;
 import io.trino.spi.StandardErrorCode;
 import io.trino.spi.TrinoException;
@@ -130,6 +131,7 @@ import static io.trino.spi.StandardErrorCode.INVALID_MATERIALIZED_VIEW_PROPERTY;
 import static io.trino.spi.StandardErrorCode.INVALID_SCHEMA_PROPERTY;
 import static io.trino.spi.StandardErrorCode.INVALID_TABLE_PROPERTY;
 import static io.trino.spi.StandardErrorCode.INVALID_VIEW;
+import static io.trino.spi.StandardErrorCode.INVALID_VIEW_PROPERTY;
 import static io.trino.spi.StandardErrorCode.MISSING_CATALOG_NAME;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.StandardErrorCode.SCHEMA_NOT_FOUND;
@@ -180,6 +182,7 @@ public final class ShowQueriesRewrite
     private final SchemaPropertyManager schemaPropertyManager;
     private final ColumnPropertyManager columnPropertyManager;
     private final TablePropertyManager tablePropertyManager;
+    private final ViewPropertyManager viewPropertyManager;
     private final MaterializedViewPropertyManager materializedViewPropertyManager;
 
     @Inject
@@ -191,6 +194,7 @@ public final class ShowQueriesRewrite
             SchemaPropertyManager schemaPropertyManager,
             ColumnPropertyManager columnPropertyManager,
             TablePropertyManager tablePropertyManager,
+            ViewPropertyManager viewPropertyManager,
             MaterializedViewPropertyManager materializedViewPropertyManager)
     {
         this.metadata = requireNonNull(metadata, "metadata is null");
@@ -200,6 +204,7 @@ public final class ShowQueriesRewrite
         this.schemaPropertyManager = requireNonNull(schemaPropertyManager, "schemaPropertyManager is null");
         this.columnPropertyManager = requireNonNull(columnPropertyManager, "columnPropertyManager is null");
         this.tablePropertyManager = requireNonNull(tablePropertyManager, "tablePropertyManager is null");
+        this.viewPropertyManager = requireNonNull(viewPropertyManager, "viewPropertyManager is null");
         this.materializedViewPropertyManager = requireNonNull(materializedViewPropertyManager, "materializedViewPropertyManager is null");
     }
 
@@ -221,6 +226,7 @@ public final class ShowQueriesRewrite
                 schemaPropertyManager,
                 columnPropertyManager,
                 tablePropertyManager,
+                viewPropertyManager,
                 materializedViewPropertyManager);
         return (Statement) visitor.process(node, null);
     }
@@ -236,6 +242,7 @@ public final class ShowQueriesRewrite
         private final SchemaPropertyManager schemaPropertyManager;
         private final ColumnPropertyManager columnPropertyManager;
         private final TablePropertyManager tablePropertyManager;
+        private final ViewPropertyManager viewPropertyManager;
         private final MaterializedViewPropertyManager materializedViewPropertyManager;
 
         public Visitor(
@@ -247,6 +254,7 @@ public final class ShowQueriesRewrite
                 SchemaPropertyManager schemaPropertyManager,
                 ColumnPropertyManager columnPropertyManager,
                 TablePropertyManager tablePropertyManager,
+                ViewPropertyManager viewPropertyManager,
                 MaterializedViewPropertyManager materializedViewPropertyManager)
         {
             this.metadata = requireNonNull(metadata, "metadata is null");
@@ -257,6 +265,7 @@ public final class ShowQueriesRewrite
             this.schemaPropertyManager = requireNonNull(schemaPropertyManager, "schemaPropertyManager is null");
             this.columnPropertyManager = requireNonNull(columnPropertyManager, "columnPropertyManager is null");
             this.tablePropertyManager = requireNonNull(tablePropertyManager, "tablePropertyManager is null");
+            this.viewPropertyManager = requireNonNull(viewPropertyManager, "viewPropertyManager is null");
             this.materializedViewPropertyManager = requireNonNull(materializedViewPropertyManager, "materializedViewPropertyManager is null");
         }
 
@@ -327,16 +336,16 @@ public final class ShowQueriesRewrite
                     }
                 }
 
-                catalogName = qualifiedTableName.getCatalogName();
+                catalogName = qualifiedTableName.catalogName();
 
                 // Check is wrong here, it should be accessControl#checkCanShowGrants() which is not yet implemented
                 accessControl.checkCanShowTables(
                         session.toSecurityContext(),
-                        new CatalogSchemaName(catalogName, qualifiedTableName.getSchemaName()));
+                        new CatalogSchemaName(catalogName, qualifiedTableName.schemaName()));
 
                 predicate = Optional.of(and(
-                        equal(identifier("table_schema"), new StringLiteral(qualifiedTableName.getSchemaName())),
-                        equal(identifier("table_name"), new StringLiteral(qualifiedTableName.getObjectName()))));
+                        equal(identifier("table_schema"), new StringLiteral(qualifiedTableName.schemaName())),
+                        equal(identifier("table_name"), new StringLiteral(qualifiedTableName.objectName()))));
             }
             else {
                 if (catalogName == null) {
@@ -479,9 +488,9 @@ public final class ShowQueriesRewrite
         protected Node visitShowColumns(ShowColumns showColumns, Void context)
         {
             QualifiedObjectName tableName = createQualifiedObjectName(session, showColumns, showColumns.getTable());
-            getRequiredCatalogHandle(metadata, session, showColumns, tableName.getCatalogName());
-            if (!metadata.schemaExists(session, new CatalogSchemaName(tableName.getCatalogName(), tableName.getSchemaName()))) {
-                throw semanticException(SCHEMA_NOT_FOUND, showColumns, "Schema '%s' does not exist", tableName.getSchemaName());
+            getRequiredCatalogHandle(metadata, session, showColumns, tableName.catalogName());
+            if (!metadata.schemaExists(session, new CatalogSchemaName(tableName.catalogName(), tableName.schemaName()))) {
+                throw semanticException(SCHEMA_NOT_FOUND, showColumns, "Schema '%s' does not exist", tableName.schemaName());
             }
 
             boolean isMaterializedView = metadata.isMaterializedView(session, tableName);
@@ -522,8 +531,8 @@ public final class ShowQueriesRewrite
             accessControl.checkCanShowColumns(session.toSecurityContext(), targetTableName.asCatalogSchemaTableName());
 
             Expression predicate = logicalAnd(
-                    equal(identifier("table_schema"), new StringLiteral(targetTableName.getSchemaName())),
-                    equal(identifier("table_name"), new StringLiteral(targetTableName.getObjectName())));
+                    equal(identifier("table_schema"), new StringLiteral(targetTableName.schemaName())),
+                    equal(identifier("table_name"), new StringLiteral(targetTableName.objectName())));
             Optional<String> likePattern = showColumns.getLikePattern();
             if (likePattern.isPresent()) {
                 Expression likePredicate = new LikePredicate(
@@ -539,7 +548,7 @@ public final class ShowQueriesRewrite
                             aliasedName("data_type", "Type"),
                             aliasedNullToEmpty("extra_info", "Extra"),
                             aliasedNullToEmpty("comment", "Comment")),
-                    from(targetTableName.getCatalogName(), COLUMNS.getSchemaTableName()),
+                    from(targetTableName.catalogName(), COLUMNS.getSchemaTableName()),
                     predicate,
                     ordering(ascending("ordinal_position")));
         }
@@ -600,8 +609,8 @@ public final class ShowQueriesRewrite
                 Query query = parseView(viewDefinition.get().getOriginalSql(), objectName, node);
                 List<Identifier> parts = node.getName().getOriginalParts().reversed();
                 Identifier tableName = parts.get(0);
-                Identifier schemaName = (parts.size() > 1) ? parts.get(1) : new Identifier(objectName.getSchemaName());
-                Identifier catalogName = (parts.size() > 2) ? parts.get(2) : new Identifier(objectName.getCatalogName());
+                Identifier schemaName = (parts.size() > 1) ? parts.get(1) : new Identifier(objectName.schemaName());
+                Identifier catalogName = (parts.size() > 2) ? parts.get(2) : new Identifier(objectName.catalogName());
 
                 accessControl.checkCanShowCreateTable(session.toSecurityContext(), new QualifiedObjectName(catalogName.getValue(), schemaName.getValue(), tableName.getValue()));
 
@@ -641,11 +650,15 @@ public final class ShowQueriesRewrite
                 Query query = parseView(viewDefinition.get().getOriginalSql(), objectName, node);
                 List<Identifier> parts = node.getName().getOriginalParts().reversed();
                 Identifier tableName = parts.get(0);
-                Identifier schemaName = (parts.size() > 1) ? parts.get(1) : new Identifier(objectName.getSchemaName());
-                Identifier catalogName = (parts.size() > 2) ? parts.get(2) : new Identifier(objectName.getCatalogName());
+                Identifier schemaName = (parts.size() > 1) ? parts.get(1) : new Identifier(objectName.schemaName());
+                Identifier catalogName = (parts.size() > 2) ? parts.get(2) : new Identifier(objectName.catalogName());
 
                 accessControl.checkCanShowCreateTable(session.toSecurityContext(), new QualifiedObjectName(catalogName.getValue(), schemaName.getValue(), tableName.getValue()));
 
+                Map<String, Object> properties = metadata.getViewProperties(session, objectName);
+                CatalogHandle catalogHandle = getRequiredCatalogHandle(metadata, session, node, catalogName.getValue());
+                Collection<PropertyMetadata<?>> allViewProperties = viewPropertyManager.getAllProperties(catalogHandle);
+                List<Property> propertyNodes = buildProperties(objectName, Optional.empty(), INVALID_VIEW_PROPERTY, properties, allViewProperties);
                 CreateView.Security security = viewDefinition.get().isRunAsInvoker() ? INVOKER : DEFINER;
                 String sql = formatSql(new CreateView(
                         QualifiedName.of(ImmutableList.of(catalogName, schemaName, tableName)),
@@ -653,7 +666,7 @@ public final class ShowQueriesRewrite
                         false,
                         viewDefinition.get().getComment(),
                         Optional.of(security),
-                        ImmutableList.of()))
+                        propertyNodes))
                         .trim();
                 return singleValueQuery("Create View", sql);
             }
@@ -675,9 +688,9 @@ public final class ShowQueriesRewrite
 
                 QualifiedObjectName targetTableName = redirection.redirectedTableName().orElse(objectName);
                 accessControl.checkCanShowCreateTable(session.toSecurityContext(), targetTableName);
-                ConnectorTableMetadata connectorTableMetadata = metadata.getTableMetadata(session, tableHandle).getMetadata();
+                ConnectorTableMetadata connectorTableMetadata = metadata.getTableMetadata(session, tableHandle).metadata();
 
-                Collection<PropertyMetadata<?>> allColumnProperties = columnPropertyManager.getAllProperties(tableHandle.getCatalogHandle());
+                Collection<PropertyMetadata<?>> allColumnProperties = columnPropertyManager.getAllProperties(tableHandle.catalogHandle());
 
                 List<TableElement> columns = connectorTableMetadata.getColumns().stream()
                         .filter(column -> !column.isHidden())
@@ -693,11 +706,11 @@ public final class ShowQueriesRewrite
                         .collect(toImmutableList());
 
                 Map<String, Object> properties = connectorTableMetadata.getProperties();
-                Collection<PropertyMetadata<?>> allTableProperties = tablePropertyManager.getAllProperties(tableHandle.getCatalogHandle());
+                Collection<PropertyMetadata<?>> allTableProperties = tablePropertyManager.getAllProperties(tableHandle.catalogHandle());
                 List<Property> propertyNodes = buildProperties(targetTableName, Optional.empty(), INVALID_TABLE_PROPERTY, properties, allTableProperties);
 
                 CreateTable createTable = new CreateTable(
-                        QualifiedName.of(targetTableName.getCatalogName(), targetTableName.getSchemaName(), targetTableName.getObjectName()),
+                        QualifiedName.of(targetTableName.catalogName(), targetTableName.schemaName(), targetTableName.objectName()),
                         columns,
                         FAIL,
                         propertyNodes,
@@ -874,17 +887,13 @@ public final class ShowQueriesRewrite
         private static String getFunctionType(FunctionMetadata function)
         {
             FunctionKind kind = function.getKind();
-            switch (kind) {
-                case AGGREGATE:
-                    return "aggregate";
-                case WINDOW:
-                    return "window";
-                case SCALAR:
-                    return "scalar";
-                case TABLE:
-                    throw new IllegalArgumentException("Unexpected function kind: " + kind); // TODO https://github.com/trinodb/trino/issues/12550
-            }
-            throw new IllegalArgumentException("Unsupported function kind: " + kind);
+            return switch (kind) {
+                case AGGREGATE -> "aggregate";
+                case WINDOW -> "window";
+                case SCALAR -> "scalar";
+                // TODO https://github.com/trinodb/trino/issues/12550
+                case TABLE -> throw new IllegalArgumentException("Unexpected function kind: " + kind);
+            };
         }
 
         @Override

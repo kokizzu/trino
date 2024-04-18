@@ -41,6 +41,7 @@ public class IrExpressions
     public static boolean mayFail(PlannerContext plannerContext, Expression expression)
     {
         return switch (expression) {
+            case Array e -> e.elements().stream().anyMatch(element -> mayFail(plannerContext, element));
             case Between e -> mayFail(plannerContext, e.value()) || mayFail(plannerContext, e.min()) || mayFail(plannerContext, e.max());
             case Bind e -> false;
             case Call e -> mayFail(e.function()) || e.arguments().stream().anyMatch(argument -> mayFail(plannerContext, argument)); // TODO: allow functions to be marked as non-failing
@@ -86,10 +87,10 @@ public class IrExpressions
     private static boolean mayFail(ResolvedFunction function)
     {
         // TODO: these should be attributes of the function
-        CatalogSchemaFunctionName name = function.getName();
+        CatalogSchemaFunctionName name = function.name();
         return !name.equals(builtinFunctionName("length")) &&
                 !name.equals(builtinFunctionName("substring")) &&
                 !name.equals(builtinFunctionName(LIKE_FUNCTION_NAME)) &&
-                !isDynamicFilterFunction(function.getName());
+                !isDynamicFilterFunction(function.name());
     }
 }

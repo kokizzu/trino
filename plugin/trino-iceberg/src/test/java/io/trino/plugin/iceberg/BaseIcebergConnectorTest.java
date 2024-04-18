@@ -3799,7 +3799,7 @@ public abstract class BaseIcebergConnectorTest
                 // Unenforced predicate is simplified during split generation, but not reflected here
                 ImmutableMap.of("col1", multipleValues(BIGINT, values)));
 
-        assertUpdate("DROP TABLE " + tableName.getObjectName());
+        assertUpdate("DROP TABLE " + tableName.objectName());
     }
 
     @Test
@@ -3932,7 +3932,7 @@ public abstract class BaseIcebergConnectorTest
             assertThat((expectedUnenforcedPredicate == null && expectedEnforcedPredicate == null)).isEqualTo(result.isEmpty());
 
             if (result.isPresent()) {
-                IcebergTableHandle newTable = (IcebergTableHandle) result.get().getHandle().getConnectorHandle();
+                IcebergTableHandle newTable = (IcebergTableHandle) result.get().getHandle().connectorHandle();
 
                 assertThat(newTable.getEnforcedPredicate()).isEqualTo(TupleDomain.withColumnDomains(expectedEnforcedPredicate.entrySet().stream()
                         .collect(toImmutableMap(entry -> columns.get(entry.getKey()), Map.Entry::getValue))));

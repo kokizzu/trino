@@ -157,7 +157,7 @@ public class MongoMetadata
     {
         requireNonNull(tableName, "tableName is null");
         try {
-            return mongoSession.getTable(tableName).getTableHandle();
+            return mongoSession.getTable(tableName).tableHandle();
         }
         catch (TableNotFoundException e) {
             log.debug(e, "Table(%s) not found", tableName);
@@ -191,11 +191,11 @@ public class MongoMetadata
     public Map<String, ColumnHandle> getColumnHandles(ConnectorSession session, ConnectorTableHandle tableHandle)
     {
         MongoTableHandle table = (MongoTableHandle) tableHandle;
-        List<MongoColumnHandle> columns = mongoSession.getTable(table.getSchemaTableName()).getColumns();
+        List<MongoColumnHandle> columns = mongoSession.getTable(table.schemaTableName()).columns();
 
         ImmutableMap.Builder<String, ColumnHandle> columnHandles = ImmutableMap.builder();
         for (MongoColumnHandle columnHandle : columns) {
-            columnHandles.put(columnHandle.getBaseName().toLowerCase(ENGLISH), columnHandle);
+            columnHandles.put(columnHandle.baseName().toLowerCase(ENGLISH), columnHandle);
         }
         return columnHandles.buildOrThrow();
     }
@@ -242,7 +242,7 @@ public class MongoMetadata
     {
         MongoTableHandle table = (MongoTableHandle) tableHandle;
 
-        mongoSession.dropTable(table.getRemoteTableName());
+        mongoSession.dropTable(table.remoteTableName());
     }
 
     @Override
@@ -257,7 +257,7 @@ public class MongoMetadata
     {
         MongoTableHandle table = (MongoTableHandle) tableHandle;
         MongoColumnHandle column = (MongoColumnHandle) columnHandle;
-        mongoSession.setColumnComment(table, column.getBaseName(), comment);
+        mongoSession.setColumnComment(table, column.baseName(), comment);
     }
 
     @Override
@@ -279,13 +279,13 @@ public class MongoMetadata
     @Override
     public void renameColumn(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle source, String target)
     {
-        mongoSession.renameColumn(((MongoTableHandle) tableHandle), ((MongoColumnHandle) source).getBaseName(), target);
+        mongoSession.renameColumn(((MongoTableHandle) tableHandle), ((MongoColumnHandle) source).baseName(), target);
     }
 
     @Override
     public void dropColumn(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle column)
     {
-        mongoSession.dropColumn(((MongoTableHandle) tableHandle), ((MongoColumnHandle) column).getBaseName());
+        mongoSession.dropColumn(((MongoTableHandle) tableHandle), ((MongoColumnHandle) column).baseName());
     }
 
     @Override
@@ -293,10 +293,10 @@ public class MongoMetadata
     {
         MongoTableHandle table = (MongoTableHandle) tableHandle;
         MongoColumnHandle column = (MongoColumnHandle) columnHandle;
-        if (!canChangeColumnType(column.getType(), type)) {
-            throw new TrinoException(NOT_SUPPORTED, "Cannot change type from %s to %s".formatted(column.getType(), type));
+        if (!canChangeColumnType(column.type(), type)) {
+            throw new TrinoException(NOT_SUPPORTED, "Cannot change type from %s to %s".formatted(column.type(), type));
         }
-        mongoSession.setColumnType(table, column.getBaseName(), type);
+        mongoSession.setColumnType(table, column.baseName(), type);
     }
 
     private static boolean canChangeColumnType(Type sourceType, Type newType)
@@ -371,7 +371,7 @@ public class MongoMetadata
 
         mongoSession.createTable(remoteTableName, columns, tableMetadata.getComment());
 
-        List<MongoColumnHandle> handleColumns = columns.stream().filter(column -> !column.isHidden()).collect(toImmutableList());
+        List<MongoColumnHandle> handleColumns = columns.stream().filter(column -> !column.hidden()).collect(toImmutableList());
 
         Closer closer = Closer.create();
         closer.register(() -> mongoSession.dropTable(remoteTableName));
@@ -392,28 +392,28 @@ public class MongoMetadata
                     Optional.empty());
         }
 
-        MongoColumnHandle pageSinkIdColumn = buildPageSinkIdColumn(columns.stream().map(MongoColumnHandle::getBaseName).collect(toImmutableSet()));
+        MongoColumnHandle pageSinkIdColumn = buildPageSinkIdColumn(columns.stream().map(MongoColumnHandle::baseName).collect(toImmutableSet()));
         List<MongoColumnHandle> allTemporaryTableColumns = ImmutableList.<MongoColumnHandle>builderWithExpectedSize(columns.size() + 1)
                 .addAll(columns)
                 .add(pageSinkIdColumn)
                 .build();
-        RemoteTableName temporaryTable = new RemoteTableName(remoteTableName.getDatabaseName(), generateTemporaryTableName(session));
+        RemoteTableName temporaryTable = new RemoteTableName(remoteTableName.databaseName(), generateTemporaryTableName(session));
         mongoSession.createTable(temporaryTable, allTemporaryTableColumns, Optional.empty());
         closer.register(() -> mongoSession.dropTable(temporaryTable));
 
         return new MongoOutputTableHandle(
                 remoteTableName,
                 handleColumns,
-                Optional.of(temporaryTable.getCollectionName()),
-                Optional.of(pageSinkIdColumn.getBaseName()));
+                Optional.of(temporaryTable.collectionName()),
+                Optional.of(pageSinkIdColumn.baseName()));
     }
 
     @Override
     public Optional<ConnectorOutputMetadata> finishCreateTable(ConnectorSession session, ConnectorOutputTableHandle tableHandle, Collection<Slice> fragments, Collection<ComputedStatistics> computedStatistics)
     {
         MongoOutputTableHandle handle = (MongoOutputTableHandle) tableHandle;
-        if (handle.getTemporaryTableName().isPresent()) {
-            finishInsert(session, handle.getRemoteTableName(), handle.getTemporaryRemoteTableName().get(), handle.getPageSinkIdColumnName().get(), fragments);
+        if (handle.temporaryTableName().isPresent()) {
+            finishInsert(session, handle.remoteTableName(), handle.getTemporaryRemoteTableName().get(), handle.pageSinkIdColumnName().get(), fragments);
         }
         clearRollback();
         return Optional.empty();
@@ -422,37 +422,37 @@ public class MongoMetadata
     @Override
     public ConnectorInsertTableHandle beginInsert(ConnectorSession session, ConnectorTableHandle tableHandle, List<ColumnHandle> insertedColumns, RetryMode retryMode)
     {
-        MongoTable table = mongoSession.getTable(((MongoTableHandle) tableHandle).getSchemaTableName());
-        MongoTableHandle handle = table.getTableHandle();
-        List<MongoColumnHandle> columns = table.getColumns();
+        MongoTable table = mongoSession.getTable(((MongoTableHandle) tableHandle).schemaTableName());
+        MongoTableHandle handle = table.tableHandle();
+        List<MongoColumnHandle> columns = table.columns();
         List<MongoColumnHandle> handleColumns = columns.stream()
-                .filter(column -> !column.isHidden())
-                .peek(column -> validateColumnNameForInsert(column.getBaseName()))
+                .filter(column -> !column.hidden())
+                .peek(column -> validateColumnNameForInsert(column.baseName()))
                 .collect(toImmutableList());
 
         if (retryMode == RetryMode.NO_RETRIES) {
             return new MongoInsertTableHandle(
-                    handle.getRemoteTableName(),
+                    handle.remoteTableName(),
                     handleColumns,
                     Optional.empty(),
                     Optional.empty());
         }
-        MongoColumnHandle pageSinkIdColumn = buildPageSinkIdColumn(columns.stream().map(MongoColumnHandle::getBaseName).collect(toImmutableSet()));
+        MongoColumnHandle pageSinkIdColumn = buildPageSinkIdColumn(columns.stream().map(MongoColumnHandle::baseName).collect(toImmutableSet()));
         List<MongoColumnHandle> allColumns = ImmutableList.<MongoColumnHandle>builderWithExpectedSize(columns.size() + 1)
                 .addAll(columns)
                 .add(pageSinkIdColumn)
                 .build();
 
-        RemoteTableName temporaryTable = new RemoteTableName(handle.getSchemaTableName().getSchemaName(), generateTemporaryTableName(session));
+        RemoteTableName temporaryTable = new RemoteTableName(handle.schemaTableName().getSchemaName(), generateTemporaryTableName(session));
         mongoSession.createTable(temporaryTable, allColumns, Optional.empty());
 
         setRollback(() -> mongoSession.dropTable(temporaryTable));
 
         return new MongoInsertTableHandle(
-                handle.getRemoteTableName(),
+                handle.remoteTableName(),
                 handleColumns,
-                Optional.of(temporaryTable.getCollectionName()),
-                Optional.of(pageSinkIdColumn.getBaseName()));
+                Optional.of(temporaryTable.collectionName()),
+                Optional.of(pageSinkIdColumn.baseName()));
     }
 
     @Override
@@ -464,8 +464,8 @@ public class MongoMetadata
             Collection<ComputedStatistics> computedStatistics)
     {
         MongoInsertTableHandle handle = (MongoInsertTableHandle) insertHandle;
-        if (handle.getTemporaryTableName().isPresent()) {
-            finishInsert(session, handle.getRemoteTableName(), handle.getTemporaryRemoteTableName().get(), handle.getPageSinkIdColumnName().get(), fragments);
+        if (handle.temporaryTableName().isPresent()) {
+            finishInsert(session, handle.remoteTableName(), handle.getTemporaryRemoteTableName().get(), handle.pageSinkIdColumnName().get(), fragments);
         }
         clearRollback();
         return Optional.empty();
@@ -483,7 +483,7 @@ public class MongoMetadata
 
         try {
             // Create the temporary page sink ID table
-            RemoteTableName pageSinkIdsTable = new RemoteTableName(temporaryTable.getDatabaseName(), generateTemporaryTableName(session));
+            RemoteTableName pageSinkIdsTable = new RemoteTableName(temporaryTable.databaseName(), generateTemporaryTableName(session));
             MongoColumnHandle pageSinkIdColumn = new MongoColumnHandle(pageSinkIdColumnName, ImmutableList.of(), TRINO_PAGE_SINK_ID_COLUMN_TYPE, false, false, Optional.empty());
             mongoSession.createTable(pageSinkIdsTable, ImmutableList.of(pageSinkIdColumn), Optional.empty());
             closer.register(() -> mongoSession.dropTable(pageSinkIdsTable));
@@ -497,10 +497,10 @@ public class MongoMetadata
 
             MongoCollection<Document> temporaryCollection = mongoSession.getCollection(temporaryTable);
             temporaryCollection.aggregate(ImmutableList.of(
-                    lookup(pageSinkIdsTable.getCollectionName(), pageSinkIdColumnName, pageSinkIdColumnName, "page_sink_id"),
+                    lookup(pageSinkIdsTable.collectionName(), pageSinkIdColumnName, pageSinkIdColumnName, "page_sink_id"),
                     match(ne("page_sink_id", ImmutableList.of())),
                     project(exclude("page_sink_id")),
-                    merge(targetTable.getCollectionName())))
+                    merge(targetTable.collectionName())))
                     .toCollection();
         }
         finally {
@@ -529,7 +529,7 @@ public class MongoMetadata
     public OptionalLong executeDelete(ConnectorSession session, ConnectorTableHandle handle)
     {
         MongoTableHandle table = (MongoTableHandle) handle;
-        return OptionalLong.of(mongoSession.deleteDocuments(table.getRemoteTableName(), table.getConstraint()));
+        return OptionalLong.of(mongoSession.deleteDocuments(table.remoteTableName(), table.constraint()));
     }
 
     @Override
@@ -539,10 +539,10 @@ public class MongoMetadata
 
         ImmutableList.Builder<LocalProperty<ColumnHandle>> localProperties = ImmutableList.builder();
 
-        MongoTable tableInfo = mongoSession.getTable(tableHandle.getSchemaTableName());
+        MongoTable tableInfo = mongoSession.getTable(tableHandle.schemaTableName());
         Map<String, ColumnHandle> columns = getColumnHandles(session, tableHandle);
 
-        for (MongoIndex index : tableInfo.getIndexes()) {
+        for (MongoIndex index : tableInfo.indexes()) {
             for (MongodbIndexKey key : index.getKeys()) {
                 if (key.getSortOrder().isEmpty()) {
                     continue;
@@ -575,17 +575,17 @@ public class MongoMetadata
             return Optional.empty();
         }
 
-        if (handle.getLimit().isPresent() && handle.getLimit().getAsInt() <= limit) {
+        if (handle.limit().isPresent() && handle.limit().getAsInt() <= limit) {
             return Optional.empty();
         }
 
         return Optional.of(new LimitApplicationResult<>(
                 new MongoTableHandle(
-                        handle.getSchemaTableName(),
-                        handle.getRemoteTableName(),
-                        handle.getFilter(),
-                        handle.getConstraint(),
-                        handle.getProjectedColumns(),
+                        handle.schemaTableName(),
+                        handle.remoteTableName(),
+                        handle.filter(),
+                        handle.constraint(),
+                        handle.projectedColumns(),
                         OptionalInt.of(toIntExact(limit))),
                 true,
                 false));
@@ -596,7 +596,7 @@ public class MongoMetadata
     {
         MongoTableHandle handle = (MongoTableHandle) table;
 
-        TupleDomain<ColumnHandle> oldDomain = handle.getConstraint();
+        TupleDomain<ColumnHandle> oldDomain = handle.constraint();
         TupleDomain<ColumnHandle> newDomain = oldDomain.intersect(constraint.getSummary());
         TupleDomain<ColumnHandle> remainingFilter;
         if (newDomain.isNone()) {
@@ -611,7 +611,7 @@ public class MongoMetadata
             for (Map.Entry<ColumnHandle, Domain> entry : domains.entrySet()) {
                 MongoColumnHandle columnHandle = (MongoColumnHandle) entry.getKey();
                 Domain domain = entry.getValue();
-                Type columnType = columnHandle.getType();
+                Type columnType = columnHandle.type();
                 // TODO: Support predicate pushdown on more types including JSON
                 if (isPushdownSupportedType(columnType)) {
                     supported.put(entry.getKey(), entry.getValue());
@@ -629,12 +629,12 @@ public class MongoMetadata
         }
 
         handle = new MongoTableHandle(
-                handle.getSchemaTableName(),
-                handle.getRemoteTableName(),
-                handle.getFilter(),
+                handle.schemaTableName(),
+                handle.remoteTableName(),
+                handle.filter(),
                 newDomain,
-                handle.getProjectedColumns(),
-                handle.getLimit());
+                handle.projectedColumns(),
+                handle.limit());
 
         return Optional.of(new ConstraintApplicationResult<>(handle, remainingFilter, constraint.getExpression(), false));
     }
@@ -665,14 +665,14 @@ public class MongoMetadata
             Set<MongoColumnHandle> projectedColumns = assignments.values().stream()
                     .map(MongoColumnHandle.class::cast)
                     .collect(toImmutableSet());
-            if (mongoTableHandle.getProjectedColumns().equals(projectedColumns)) {
+            if (mongoTableHandle.projectedColumns().equals(projectedColumns)) {
                 return Optional.empty();
             }
             List<Assignment> assignmentsList = assignments.entrySet().stream()
                     .map(assignment -> new Assignment(
                             assignment.getKey(),
                             assignment.getValue(),
-                            ((MongoColumnHandle) assignment.getValue()).getType()))
+                            ((MongoColumnHandle) assignment.getValue()).type()))
                     .collect(toImmutableList());
 
             return Optional.of(new ProjectionApplicationResult<>(
@@ -745,9 +745,9 @@ public class MongoMetadata
             return baseColumn;
         }
         ImmutableList.Builder<String> dereferenceNamesBuilder = ImmutableList.builder();
-        dereferenceNamesBuilder.addAll(baseColumn.getDereferenceNames());
+        dereferenceNamesBuilder.addAll(baseColumn.dereferenceNames());
 
-        Type type = baseColumn.getType();
+        Type type = baseColumn.type();
         RowType parentType = null;
         for (int index : indices) {
             checkArgument(type instanceof RowType, "type should be Row type");
@@ -759,12 +759,12 @@ public class MongoMetadata
             type = field.getType();
         }
         return new MongoColumnHandle(
-                baseColumn.getBaseName(),
+                baseColumn.baseName(),
                 dereferenceNamesBuilder.build(),
                 projectedColumnType,
-                baseColumn.isHidden(),
+                baseColumn.hidden(),
                 isDBRefField(parentType),
-                baseColumn.getComment());
+                baseColumn.comment());
     }
 
     /**
@@ -798,7 +798,7 @@ public class MongoMetadata
 
         ConnectorTableHandle tableHandle = ((QueryFunctionHandle) handle).getTableHandle();
         List<ColumnHandle> columnHandles = getColumnHandles(session, tableHandle).values().stream()
-                .filter(column -> !((MongoColumnHandle) column).isHidden())
+                .filter(column -> !((MongoColumnHandle) column).hidden())
                 .collect(toImmutableList());
         return Optional.of(new TableFunctionApplicationResult<>(tableHandle, columnHandles));
     }
@@ -820,18 +820,18 @@ public class MongoMetadata
 
     private static SchemaTableName getTableName(ConnectorTableHandle tableHandle)
     {
-        return ((MongoTableHandle) tableHandle).getSchemaTableName();
+        return ((MongoTableHandle) tableHandle).schemaTableName();
     }
 
     private ConnectorTableMetadata getTableMetadata(SchemaTableName tableName)
     {
         MongoTable mongoTable = mongoSession.getTable(tableName);
 
-        List<ColumnMetadata> columns = mongoTable.getColumns().stream()
+        List<ColumnMetadata> columns = mongoTable.columns().stream()
                 .map(MongoColumnHandle::toColumnMetadata)
                 .collect(toImmutableList());
 
-        return new ConnectorTableMetadata(tableName, columns, ImmutableMap.of(), mongoTable.getComment());
+        return new ConnectorTableMetadata(tableName, columns, ImmutableMap.of(), mongoTable.comment());
     }
 
     private static List<MongoColumnHandle> buildColumnHandles(ConnectorTableMetadata tableMetadata)

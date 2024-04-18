@@ -800,8 +800,8 @@ WITH (format='CSV',
   -
 * - `orc_bloom_filter_columns`
   - Comma separated list of columns to use for ORC bloom filter. It improves the
-    performance of queries using range predicates when reading ORC files.
-    Requires ORC format.
+    performance of queries using equality predicates, such as `=`, `IN` and
+    small range predicates, when reading ORC files. Requires ORC format.
   - `[]`
 * - `orc_bloom_filter_fpp`
   - The ORC bloom filters false positive probability. Requires ORC format.
@@ -809,6 +809,11 @@ WITH (format='CSV',
 * - `partitioned_by`
   - The partitioning column for the storage table. The columns listed in the
     `partitioned_by` clause must be the last columns as defined in the DDL.
+  - `[]`
+* - `parquet_bloom_filter_columns`
+  - Comma separated list of columns to use for Parquet bloom filter. It improves
+    the performance of queries using equality predicates, such as `=`, `IN` and
+    small range predicates, when reading Parquet files. Requires Parquet format.
   - `[]`
 * - `skip_footer_line_count`
   - The number of footer lines to ignore when parsing the file for data.

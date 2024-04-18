@@ -78,7 +78,6 @@ import io.trino.operator.PagesIndex;
 import io.trino.operator.PagesSpatialIndexFactory;
 import io.trino.operator.PartitionFunction;
 import io.trino.operator.RefreshMaterializedViewOperator.RefreshMaterializedViewOperatorFactory;
-import io.trino.operator.RegularTableFunctionPartition.PassThroughColumnSpecification;
 import io.trino.operator.RetryPolicy;
 import io.trino.operator.RowNumberOperator;
 import io.trino.operator.ScanFilterAndProjectOperator.ScanFilterAndProjectOperatorFactory;
@@ -91,7 +90,6 @@ import io.trino.operator.SpatialIndexBuilderOperator.SpatialPredicate;
 import io.trino.operator.SpatialJoinOperator.SpatialJoinOperatorFactory;
 import io.trino.operator.StatisticsWriterOperator.StatisticsWriterOperatorFactory;
 import io.trino.operator.StreamingAggregationOperator;
-import io.trino.operator.TableFunctionOperator.TableFunctionOperatorFactory;
 import io.trino.operator.TableMutationOperator.TableMutationOperatorFactory;
 import io.trino.operator.TableScanOperator.TableScanOperatorFactory;
 import io.trino.operator.TaskContext;
@@ -110,6 +108,8 @@ import io.trino.operator.exchange.LocalExchangeSinkOperator.LocalExchangeSinkOpe
 import io.trino.operator.exchange.LocalExchangeSourceOperator.LocalExchangeSourceOperatorFactory;
 import io.trino.operator.exchange.LocalMergeSourceOperator.LocalMergeSourceOperatorFactory;
 import io.trino.operator.exchange.PageChannelSelector;
+import io.trino.operator.function.RegularTableFunctionPartition.PassThroughColumnSpecification;
+import io.trino.operator.function.TableFunctionOperator.TableFunctionOperatorFactory;
 import io.trino.operator.index.DynamicTupleFilterFactory;
 import io.trino.operator.index.FieldSetFilteringRecordSet;
 import io.trino.operator.index.IndexBuildDriverFactoryProvider;
@@ -1129,13 +1129,13 @@ public class LocalExecutionPlanner
                 }
                 Symbol symbol = entry.getKey();
                 WindowFunctionSupplier windowFunctionSupplier = getWindowFunctionImplementation(resolvedFunction);
-                Type type = resolvedFunction.getSignature().getReturnType();
+                Type type = resolvedFunction.signature().getReturnType();
 
                 List<Lambda> lambdas = function.getArguments().stream()
                         .filter(Lambda.class::isInstance)
                         .map(Lambda.class::cast)
                         .collect(toImmutableList());
-                List<FunctionType> functionTypes = resolvedFunction.getSignature().getArgumentTypes().stream()
+                List<FunctionType> functionTypes = resolvedFunction.signature().getArgumentTypes().stream()
                         .filter(FunctionType.class::isInstance)
                         .map(FunctionType.class::cast)
                         .collect(toImmutableList());
@@ -1184,13 +1184,13 @@ public class LocalExecutionPlanner
 
         private WindowFunctionSupplier getWindowFunctionImplementation(ResolvedFunction resolvedFunction)
         {
-            if (resolvedFunction.getFunctionKind() == FunctionKind.AGGREGATE) {
-                return uncheckedCacheGet(aggregationWindowFunctionSupplierCache, new FunctionKey(resolvedFunction.getFunctionId(), resolvedFunction.getSignature()), () -> {
+            if (resolvedFunction.functionKind() == FunctionKind.AGGREGATE) {
+                return uncheckedCacheGet(aggregationWindowFunctionSupplierCache, new FunctionKey(resolvedFunction.functionId(), resolvedFunction.signature()), () -> {
                     AggregationImplementation aggregationImplementation = plannerContext.getFunctionManager().getAggregationImplementation(resolvedFunction);
                     return new AggregationWindowFunctionSupplier(
-                            resolvedFunction.getSignature(),
+                            resolvedFunction.signature(),
                             aggregationImplementation,
-                            resolvedFunction.getFunctionNullability());
+                            resolvedFunction.functionNullability());
                 });
             }
             return plannerContext.getFunctionManager().getWindowFunctionSupplier(resolvedFunction);
@@ -1269,13 +1269,13 @@ public class LocalExecutionPlanner
                     }
                 }
                 WindowFunctionSupplier windowFunctionSupplier = getWindowFunctionImplementation(resolvedFunction);
-                Type type = resolvedFunction.getSignature().getReturnType();
+                Type type = resolvedFunction.signature().getReturnType();
 
                 List<Lambda> lambdas = function.getArguments().stream()
                         .filter(Lambda.class::isInstance)
                         .map(Lambda.class::cast)
                         .collect(toImmutableList());
-                List<FunctionType> functionTypes = resolvedFunction.getSignature().getArgumentTypes().stream()
+                List<FunctionType> functionTypes = resolvedFunction.signature().getArgumentTypes().stream()
                         .filter(FunctionType.class::isInstance)
                         .map(FunctionType.class::cast)
                         .collect(toImmutableList());
@@ -1454,7 +1454,7 @@ public class LocalExecutionPlanner
                 inputTypes.put(
                         assignment.symbol(),
                         switch (assignment.valuePointer()) {
-                            case AggregationValuePointer pointer -> pointer.getFunction().getSignature().getReturnType();
+                            case AggregationValuePointer pointer -> pointer.getFunction().signature().getReturnType();
                             case ClassifierValuePointer pointer -> VARCHAR;
                             case MatchNumberValuePointer pointer -> BIGINT;
                             case ScalarValuePointer pointer -> pointer.getInputSymbol().type();
@@ -1509,7 +1509,7 @@ public class LocalExecutionPlanner
                         AggregationImplementation aggregationImplementation = plannerContext.getFunctionManager().getAggregationImplementation(pointer.getFunction());
 
                         ImmutableList.Builder<Map.Entry<Expression, Type>> builder = ImmutableList.builder();
-                        List<Type> signatureTypes = resolvedFunction.getSignature().getArgumentTypes();
+                        List<Type> signatureTypes = resolvedFunction.signature().getArgumentTypes();
                         for (int i = 0; i < pointer.getArguments().size(); i++) {
                             builder.add(new SimpleEntry<>(pointer.getArguments().get(i), signatureTypes.get(i)));
                         }
@@ -1522,7 +1522,7 @@ public class LocalExecutionPlanner
                                 .map(Lambda.class::cast)
                                 .collect(toImmutableList());
 
-                        List<FunctionType> functionTypes = resolvedFunction.getSignature().getArgumentTypes().stream()
+                        List<FunctionType> functionTypes = resolvedFunction.signature().getArgumentTypes().stream()
                                 .filter(FunctionType.class::isInstance)
                                 .map(FunctionType.class::cast)
                                 .collect(toImmutableList());
@@ -1575,13 +1575,13 @@ public class LocalExecutionPlanner
 
                         AggregationWindowFunctionSupplier aggregationWindowFunctionSupplier = uncheckedCacheGet(
                                 aggregationWindowFunctionSupplierCache,
-                                new FunctionKey(resolvedFunction.getFunctionId(), resolvedFunction.getSignature()),
+                                new FunctionKey(resolvedFunction.functionId(), resolvedFunction.signature()),
                                 () -> new AggregationWindowFunctionSupplier(
-                                        resolvedFunction.getSignature(),
+                                        resolvedFunction.signature(),
                                         aggregationImplementation,
-                                        resolvedFunction.getFunctionNullability()));
+                                        resolvedFunction.functionNullability()));
                         matchAggregations.add(new MatchAggregationInstantiator(
-                                resolvedFunction.getSignature(),
+                                resolvedFunction.signature(),
                                 aggregationWindowFunctionSupplier,
                                 valueChannels,
                                 lambdaProviders,
@@ -1628,9 +1628,9 @@ public class LocalExecutionPlanner
                 OperatorFactory operatorFactory = new LeafTableFunctionOperatorFactory(
                         context.getNextOperatorId(),
                         node.getId(),
-                        node.getHandle().getCatalogHandle(),
+                        node.getHandle().catalogHandle(),
                         processorProvider,
-                        node.getHandle().getFunctionHandle());
+                        node.getHandle().functionHandle());
                 return new PhysicalOperation(operatorFactory, makeLayout(node));
             }
 
@@ -1677,8 +1677,8 @@ public class LocalExecutionPlanner
                     context.getNextOperatorId(),
                     node.getId(),
                     processorProvider,
-                    node.getHandle().getCatalogHandle(),
-                    node.getHandle().getFunctionHandle(),
+                    node.getHandle().catalogHandle(),
+                    node.getHandle().functionHandle(),
                     properChannelsCount,
                     toIntExact(passThroughSourcesCount),
                     requiredChannels,
@@ -2045,7 +2045,7 @@ public class LocalExecutionPlanner
 
         private RowExpression toRowExpression(Expression expression, Map<Symbol, Integer> layout)
         {
-            return SqlToRowExpressionTranslator.translate(expression, layout, metadata, plannerContext.getFunctionManager(), plannerContext.getTypeManager(), session, true);
+            return SqlToRowExpressionTranslator.translate(expression, layout, metadata, plannerContext.getTypeManager());
         }
 
         @Override
@@ -2539,7 +2539,7 @@ public class LocalExecutionPlanner
 
         private SpatialPredicate spatialTest(Call call, boolean probeFirst, Optional<Comparison.Operator> comparisonOperator)
         {
-            CatalogSchemaFunctionName functionName = call.function().getName();
+            CatalogSchemaFunctionName functionName = call.function().name();
             if (functionName.equals(builtinFunctionName(ST_CONTAINS))) {
                 if (probeFirst) {
                     return (buildGeometry, probeGeometry, radius) -> probeGeometry.contains(buildGeometry);
@@ -3742,11 +3742,11 @@ public class LocalExecutionPlanner
             AggregationImplementation aggregationImplementation = plannerContext.getFunctionManager().getAggregationImplementation(aggregation.getResolvedFunction());
             AccumulatorFactory accumulatorFactory = uncheckedCacheGet(
                     accumulatorFactoryCache,
-                    new FunctionKey(resolvedFunction.getFunctionId(), resolvedFunction.getSignature()),
+                    new FunctionKey(resolvedFunction.functionId(), resolvedFunction.signature()),
                     () -> generateAccumulatorFactory(
-                            resolvedFunction.getSignature(),
+                            resolvedFunction.signature(),
                             aggregationImplementation,
-                            resolvedFunction.getFunctionNullability(),
+                            resolvedFunction.functionNullability(),
                             specializeAggregationLoops));
 
             if (aggregation.isDistinct()) {
@@ -3796,7 +3796,7 @@ public class LocalExecutionPlanner
                     .map(stateDescriptor -> stateDescriptor.getSerializer().getSerializedType())
                     .collect(toImmutableList());
             Type intermediateType = (intermediateTypes.size() == 1) ? getOnlyElement(intermediateTypes) : RowType.anonymous(intermediateTypes);
-            Type finalType = resolvedFunction.getSignature().getReturnType();
+            Type finalType = resolvedFunction.signature().getReturnType();
 
             OptionalInt maskChannel = aggregation.getMask().stream()
                     .mapToInt(value -> source.getLayout().get(value))
@@ -3806,7 +3806,7 @@ public class LocalExecutionPlanner
                     .filter(Lambda.class::isInstance)
                     .map(Lambda.class::cast)
                     .collect(toImmutableList());
-            List<FunctionType> functionTypes = resolvedFunction.getSignature().getArgumentTypes().stream()
+            List<FunctionType> functionTypes = resolvedFunction.signature().getArgumentTypes().stream()
                     .filter(FunctionType.class::isInstance)
                     .map(FunctionType.class::cast)
                     .collect(toImmutableList());

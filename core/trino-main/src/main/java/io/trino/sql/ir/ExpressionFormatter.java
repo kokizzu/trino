@@ -57,6 +57,14 @@ public final class ExpressionFormatter
         }
 
         @Override
+        protected String visitArray(Array node, Void context)
+        {
+            return node.elements().stream()
+                    .map(child -> process(child, context))
+                    .collect(joining(", ", "ARRAY[", "]"));
+        }
+
+        @Override
         protected String visitRow(Row node, Void context)
         {
             return node.items().stream()
@@ -94,9 +102,9 @@ public final class ExpressionFormatter
         @Override
         protected String visitCall(Call node, Void context)
         {
-            String name = isBuiltinFunctionName(node.function().getName()) ?
-                    node.function().getName().getFunctionName() :
-                    node.function().getName().toString();
+            String name = isBuiltinFunctionName(node.function().name()) ?
+                    node.function().name().getFunctionName() :
+                    node.function().name().toString();
 
             return name + '(' + joinExpressions(node.arguments()) + ')';
         }

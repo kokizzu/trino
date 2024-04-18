@@ -10,7 +10,7 @@
 
     <groupId>io.trino</groupId>
     <artifactId>trino-root</artifactId>
-    <version>445-SNAPSHOT</version>
+    <version>446-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>${project.artifactId}</name>
@@ -181,11 +181,11 @@
         <!-- keep dependency properties sorted -->
         <dep.accumulo-hadoop.version>2.7.7-1</dep.accumulo-hadoop.version>
         <dep.accumulo.version>3.0.0</dep.accumulo.version>
-        <dep.airlift.version>244</dep.airlift.version>
+        <dep.airlift.version>245</dep.airlift.version>
         <dep.alluxio.version>312</dep.alluxio.version>
         <dep.antlr.version>4.13.1</dep.antlr.version>
         <dep.avro.version>1.11.3</dep.avro.version>
-        <dep.aws-sdk.version>1.12.698</dep.aws-sdk.version>
+        <dep.aws-sdk.version>1.12.703</dep.aws-sdk.version>
         <dep.cassandra.version>4.17.0</dep.cassandra.version>
         <dep.confluent.version>7.5.1</dep.confluent.version>
         <dep.docker.images.version>93</dep.docker.images.version>
@@ -198,11 +198,15 @@
         <dep.joda.version>2.12.7</dep.joda.version>
         <dep.jsonwebtoken.version>0.12.5</dep.jsonwebtoken.version>
         <dep.kafka-clients.version>3.7.0</dep.kafka-clients.version>
+        <!-- temporary until upgraded in airbase: https://github.com/airlift/airbase/pull/403 -->
+        <dep.logback.version>1.5.6</dep.logback.version>
         <dep.okio.version>3.9.0</dep.okio.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
         <dep.parquet.version>1.13.1</dep.parquet.version>
         <dep.plugin.failsafe.version>${dep.plugin.surefire.version}</dep.plugin.failsafe.version>
         <dep.protobuf.version>3.25.3</dep.protobuf.version>
+        <!-- temporary until upgraded in airbase: https://github.com/airlift/airbase/pull/403 -->
+        <dep.slf4j.version>2.0.13</dep.slf4j.version>
         <dep.swagger.version>2.2.21</dep.swagger.version>
         <dep.takari.version>2.1.4</dep.takari.version>
         <dep.tcnative.version>2.0.65.Final</dep.tcnative.version>
@@ -265,7 +269,7 @@
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-bom</artifactId>
-                <version>4.1.108.Final</version>
+                <version>4.1.109.Final</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -305,7 +309,7 @@
             <dependency>
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
-                <version>2.25.28</version>
+                <version>2.25.33</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -313,7 +317,7 @@
             <dependency>
                 <groupId>com.adobe.testing</groupId>
                 <artifactId>s3mock-testcontainers</artifactId>
-                <version>3.5.2</version>
+                <version>3.6.0</version>
             </dependency>
 
             <dependency>
@@ -498,7 +502,7 @@
             <dependency>
                 <groupId>com.github.oshi</groupId>
                 <artifactId>oshi-core</artifactId>
-                <version>6.5.0</version>
+                <version>6.6.0</version>
             </dependency>
 
             <dependency>
@@ -633,7 +637,7 @@
             <dependency>
                 <groupId>commons-cli</groupId>
                 <artifactId>commons-cli</artifactId>
-                <version>1.6.0</version>
+                <version>1.7.0</version>
             </dependency>
 
             <dependency>
@@ -2055,7 +2059,7 @@
             <dependency>
                 <groupId>org.codehaus.plexus</groupId>
                 <artifactId>plexus-utils</artifactId>
-                <version>4.0.0</version>
+                <version>4.0.1</version>
             </dependency>
 
             <dependency>
@@ -2563,7 +2567,7 @@
             <plugin>
                 <groupId>io.trino</groupId>
                 <artifactId>trino-maven-plugin</artifactId>
-                <version>13</version>
+                <version>14</version>
                 <extensions>true</extensions>
             </plugin>
 

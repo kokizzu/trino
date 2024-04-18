@@ -14,12 +14,11 @@
 package io.trino.sql.relational;
 
 import com.google.common.collect.ImmutableList;
-import io.trino.Session;
-import io.trino.metadata.FunctionManager;
 import io.trino.metadata.Metadata;
 import io.trino.metadata.ResolvedFunction;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeManager;
+import io.trino.sql.ir.Array;
 import io.trino.sql.ir.Between;
 import io.trino.sql.ir.Bind;
 import io.trino.sql.ir.Call;
@@ -44,7 +43,6 @@ import io.trino.sql.ir.Switch;
 import io.trino.sql.ir.WhenClause;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.relational.SpecialForm.Form;
-import io.trino.sql.relational.optimizer.ExpressionOptimizer;
 import io.trino.type.TypeCoercion;
 
 import java.util.List;
@@ -63,6 +61,7 @@ import static io.trino.sql.relational.Expressions.call;
 import static io.trino.sql.relational.Expressions.constant;
 import static io.trino.sql.relational.Expressions.field;
 import static io.trino.sql.relational.SpecialForm.Form.AND;
+import static io.trino.sql.relational.SpecialForm.Form.ARRAY_CONSTRUCTOR;
 import static io.trino.sql.relational.SpecialForm.Form.BETWEEN;
 import static io.trino.sql.relational.SpecialForm.Form.BIND;
 import static io.trino.sql.relational.SpecialForm.Form.COALESCE;
@@ -85,20 +84,12 @@ public final class SqlToRowExpressionTranslator
             Expression expression,
             Map<Symbol, Integer> layout,
             Metadata metadata,
-            FunctionManager functionManager,
-            TypeManager typeManager,
-            Session session,
-            boolean optimize)
+            TypeManager typeManager)
     {
         Visitor visitor = new Visitor(metadata, typeManager, layout);
         RowExpression result = visitor.process(expression, null);
 
         requireNonNull(result, "result is null");
-
-        if (optimize) {
-            ExpressionOptimizer optimizer = new ExpressionOptimizer(metadata, functionManager, session);
-            return optimizer.optimize(result);
-        }
 
         return result;
     }
@@ -141,18 +132,14 @@ public final class SqlToRowExpressionTranslator
             RowExpression right = process(node.right(), context);
             Operator operator = node.operator();
 
-            switch (node.operator()) {
-                case NOT_EQUAL:
-                    return new CallExpression(
-                            metadata.resolveBuiltinFunction("not", fromTypes(BOOLEAN)),
-                            ImmutableList.of(visitComparisonExpression(Operator.EQUAL, left, right)));
-                case GREATER_THAN:
-                    return visitComparisonExpression(Operator.LESS_THAN, right, left);
-                case GREATER_THAN_OR_EQUAL:
-                    return visitComparisonExpression(Operator.LESS_THAN_OR_EQUAL, right, left);
-                default:
-                    return visitComparisonExpression(operator, left, right);
-            }
+            return switch (node.operator()) {
+                case NOT_EQUAL -> new CallExpression(
+                        metadata.resolveBuiltinFunction("not", fromTypes(BOOLEAN)),
+                        ImmutableList.of(visitComparisonExpression(Operator.EQUAL, left, right)));
+                case GREATER_THAN -> visitComparisonExpression(Operator.LESS_THAN, right, left);
+                case GREATER_THAN_OR_EQUAL -> visitComparisonExpression(Operator.LESS_THAN_OR_EQUAL, right, left);
+                default -> visitComparisonExpression(operator, left, right);
+            };
         }
 
         private RowExpression visitComparisonExpression(Operator operator, RowExpression left, RowExpression right)
@@ -211,17 +198,11 @@ public final class SqlToRowExpressionTranslator
         @Override
         protected RowExpression visitLogical(Logical node, Void context)
         {
-            Form form;
-            switch (node.operator()) {
-                case AND:
-                    form = AND;
-                    break;
-                case OR:
-                    form = OR;
-                    break;
-                default:
-                    throw new IllegalStateException("Unknown logical operator: " + node.operator());
-            }
+            Form form = switch (node.operator()) {
+                case AND -> AND;
+                case OR -> OR;
+            };
+
             return new SpecialForm(
                     form,
                     BOOLEAN,
@@ -429,8 +410,8 @@ public final class SqlToRowExpressionTranslator
             ResolvedFunction resolvedFunction = metadata.resolveOperator(EQUAL, ImmutableList.of(first.getType(), second.getType()));
             List<ResolvedFunction> functionDependencies = ImmutableList.<ResolvedFunction>builder()
                     .add(resolvedFunction)
-                    .add(metadata.getCoercion(first.getType(), resolvedFunction.getSignature().getArgumentTypes().get(0)))
-                    .add(metadata.getCoercion(second.getType(), resolvedFunction.getSignature().getArgumentTypes().get(0)))
+                    .add(metadata.getCoercion(first.getType(), resolvedFunction.signature().getArgumentTypes().get(0)))
+                    .add(metadata.getCoercion(second.getType(), resolvedFunction.signature().getArgumentTypes().get(0)))
                     .build();
 
             return new SpecialForm(
@@ -472,6 +453,17 @@ public final class SqlToRowExpressionTranslator
                     .collect(toImmutableList());
             Type returnType = ((Expression) node).type();
             return new SpecialForm(ROW_CONSTRUCTOR, returnType, arguments);
+        }
+
+        @Override
+        protected RowExpression visitArray(Array node, Void context)
+        {
+            return new SpecialForm(
+                    ARRAY_CONSTRUCTOR,
+                    node.type(),
+                    node.elements().stream()
+                            .map(value -> process(value, context))
+                            .collect(toImmutableList()));
         }
     }
 }

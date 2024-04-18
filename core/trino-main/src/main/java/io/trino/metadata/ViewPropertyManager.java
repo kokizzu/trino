@@ -11,19 +11,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.spi.function;
+package io.trino.metadata;
 
-import com.google.errorprone.annotations.Keep;
+import io.trino.connector.CatalogServiceProvider;
+import io.trino.spi.session.PropertyMetadata;
 
-import java.lang.annotation.Retention;
-import java.lang.annotation.Target;
+import java.util.Map;
 
-import static java.lang.annotation.ElementType.METHOD;
-import static java.lang.annotation.RetentionPolicy.RUNTIME;
+import static io.trino.spi.StandardErrorCode.INVALID_VIEW_PROPERTY;
 
-@Keep
-@Retention(RUNTIME)
-@Target(METHOD)
-public @interface RemoveInputFunction
+public class ViewPropertyManager
+        extends AbstractCatalogPropertyManager
 {
+    public ViewPropertyManager(CatalogServiceProvider<Map<String, PropertyMetadata<?>>> connectorProperties)
+    {
+        super("view", INVALID_VIEW_PROPERTY, connectorProperties);
+    }
 }

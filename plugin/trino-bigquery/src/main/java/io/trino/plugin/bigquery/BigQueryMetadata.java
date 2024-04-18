@@ -266,7 +266,9 @@ public class BigQueryMetadata
                 new RemoteTableName(tableInfo.get().getTableId()),
                 tableInfo.get().getDefinition().getType().toString(),
                 partitionType,
-                Optional.ofNullable(tableInfo.get().getDescription())))
+                Optional.ofNullable(tableInfo.get().getDescription())),
+                TupleDomain.all(),
+                Optional.empty())
                 .withProjectedColumns(columns.build());
     }
 
@@ -338,8 +340,8 @@ public class BigQueryMetadata
         log.debug("getColumnHandles(session=%s, tableHandle=%s)", session, tableHandle);
 
         BigQueryTableHandle table = (BigQueryTableHandle) tableHandle;
-        if (table.getProjectedColumns().isPresent()) {
-            return table.getProjectedColumns().get().stream()
+        if (table.projectedColumns().isPresent()) {
+            return table.projectedColumns().get().stream()
                     .collect(toImmutableMap(columnHandle -> columnHandle.getColumnMetadata().getName(), identity()));
         }
 
@@ -530,8 +532,8 @@ public class BigQueryMetadata
     public Optional<ConnectorOutputMetadata> finishCreateTable(ConnectorSession session, ConnectorOutputTableHandle tableHandle, Collection<Slice> fragments, Collection<ComputedStatistics> computedStatistics)
     {
         BigQueryOutputTableHandle handle = (BigQueryOutputTableHandle) tableHandle;
-        checkState(handle.getTemporaryTableName().isPresent(), "Unexpected use of finishCreateTable without a temporaryTableName present");
-        return finishInsert(session, handle.getRemoteTableName(), handle.getTemporaryRemoteTableName().orElseThrow(), handle.getPageSinkIdColumnName().orElseThrow(), handle.getColumnNames(), fragments);
+        checkState(handle.temporaryTableName().isPresent(), "Unexpected use of finishCreateTable without a temporaryTableName present");
+        return finishInsert(session, handle.remoteTableName(), handle.getTemporaryRemoteTableName().orElseThrow(), handle.pageSinkIdColumnName().orElseThrow(), handle.columnNames(), fragments);
     }
 
     @Override
@@ -539,7 +541,7 @@ public class BigQueryMetadata
     {
         BigQueryClient client = bigQueryClientFactory.create(session);
         BigQueryTableHandle bigQueryTable = (BigQueryTableHandle) tableHandle;
-        if (isWildcardTable(TableDefinition.Type.valueOf(bigQueryTable.asPlainTable().getType()), bigQueryTable.asPlainTable().getRemoteTableName().getTableName())) {
+        if (isWildcardTable(TableDefinition.Type.valueOf(bigQueryTable.asPlainTable().getType()), bigQueryTable.asPlainTable().getRemoteTableName().tableName())) {
             throw new TrinoException(BIGQUERY_UNSUPPORTED_OPERATION, "This connector does not support dropping wildcard tables");
         }
         TableId tableId = bigQueryTable.asPlainTable().getRemoteTableName().toTableId();
@@ -555,9 +557,9 @@ public class BigQueryMetadata
         RemoteTableName remoteTableName = table.asPlainTable().getRemoteTableName();
         String sql = format(
                 "TRUNCATE TABLE %s.%s.%s",
-                quote(remoteTableName.getProjectId()),
-                quote(remoteTableName.getDatasetName()),
-                quote(remoteTableName.getTableName()));
+                quote(remoteTableName.projectId()),
+                quote(remoteTableName.datasetName()),
+                quote(remoteTableName.tableName()));
         client.executeUpdate(session, QueryJobConfiguration.of(sql));
     }
 
@@ -571,7 +573,7 @@ public class BigQueryMetadata
     public ConnectorInsertTableHandle beginInsert(ConnectorSession session, ConnectorTableHandle tableHandle, List<ColumnHandle> columns, RetryMode retryMode)
     {
         BigQueryTableHandle table = (BigQueryTableHandle) tableHandle;
-        if (isWildcardTable(TableDefinition.Type.valueOf(table.asPlainTable().getType()), table.asPlainTable().getRemoteTableName().getTableName())) {
+        if (isWildcardTable(TableDefinition.Type.valueOf(table.asPlainTable().getType()), table.asPlainTable().getRemoteTableName().tableName())) {
             throw new TrinoException(BIGQUERY_UNSUPPORTED_OPERATION, "This connector does not support inserting into wildcard tables");
         }
         ImmutableList.Builder<String> columnNames = ImmutableList.builderWithExpectedSize(columns.size());
@@ -588,8 +590,8 @@ public class BigQueryMetadata
         tempFields.add(typeManager.toField(pageSinkIdColumn.getName(), pageSinkIdColumn.getType(), pageSinkIdColumn.getComment()));
 
         BigQueryClient client = bigQueryClientFactory.create(session);
-        String projectId = table.asPlainTable().getRemoteTableName().getProjectId();
-        String schemaName = table.asPlainTable().getRemoteTableName().getDatasetName();
+        String projectId = table.asPlainTable().getRemoteTableName().projectId();
+        String schemaName = table.asPlainTable().getRemoteTableName().datasetName();
 
         String temporaryTableName = generateTemporaryTableName(session);
         TableId temporaryTableId = createTable(client, projectId, schemaName, temporaryTableName, tempFields.build(), Optional.empty());
@@ -618,10 +620,10 @@ public class BigQueryMetadata
             BigQueryClient client = bigQueryClientFactory.create(session);
 
             RemoteTableName pageSinkTable = new RemoteTableName(
-                    targetTable.getProjectId(),
-                    targetTable.getDatasetName(),
+                    targetTable.projectId(),
+                    targetTable.datasetName(),
                     generateTemporaryTableName(session));
-            createTable(client, pageSinkTable.getProjectId(), pageSinkTable.getDatasetName(), pageSinkTable.getTableName(), ImmutableList.of(typeManager.toField(pageSinkIdColumnName, TRINO_PAGE_SINK_ID_COLUMN_TYPE, null)), Optional.empty());
+            createTable(client, pageSinkTable.projectId(), pageSinkTable.datasetName(), pageSinkTable.tableName(), ImmutableList.of(typeManager.toField(pageSinkIdColumnName, TRINO_PAGE_SINK_ID_COLUMN_TYPE, null)), Optional.empty());
             closer.register(() -> bigQueryClientFactory.create(session).dropTable(pageSinkTable.toTableId()));
 
             InsertAllRequest.Builder batch = InsertAllRequest.newBuilder(pageSinkTable.toTableId());
@@ -663,7 +665,7 @@ public class BigQueryMetadata
             Collection<ComputedStatistics> computedStatistics)
     {
         BigQueryInsertTableHandle handle = (BigQueryInsertTableHandle) insertHandle;
-        return finishInsert(session, handle.getRemoteTableName(), handle.getTemporaryRemoteTableName(), handle.getPageSinkIdColumnName(), handle.getColumnNames(), fragments);
+        return finishInsert(session, handle.remoteTableName(), handle.getTemporaryRemoteTableName(), handle.pageSinkIdColumnName(), handle.columnNames(), fragments);
     }
 
     @Override
@@ -683,15 +685,15 @@ public class BigQueryMetadata
     {
         BigQueryTableHandle tableHandle = ((BigQueryTableHandle) handle);
         checkArgument(tableHandle.isNamedRelation(), "Unable to delete from synthetic table: %s", tableHandle);
-        TupleDomain<ColumnHandle> tableConstraint = tableHandle.getConstraint();
+        TupleDomain<ColumnHandle> tableConstraint = tableHandle.constraint();
         Optional<String> filter = BigQueryFilterQueryBuilder.buildFilter(tableConstraint);
 
         RemoteTableName remoteTableName = tableHandle.asPlainTable().getRemoteTableName();
         String sql = format(
                 "DELETE FROM %s.%s.%s WHERE %s",
-                quote(remoteTableName.getProjectId()),
-                quote(remoteTableName.getDatasetName()),
-                quote(remoteTableName.getTableName()),
+                quote(remoteTableName.projectId()),
+                quote(remoteTableName.datasetName()),
+                quote(remoteTableName.tableName()),
                 filter.orElse("true"));
         BigQueryClient client = bigQueryClientFactory.create(session);
         long rows = client.executeUpdate(session, QueryJobConfiguration.newBuilder(sql)
@@ -736,9 +738,9 @@ public class BigQueryMetadata
         RemoteTableName remoteTableName = table.asPlainTable().getRemoteTableName();
         String sql = format(
                 "ALTER TABLE %s.%s.%s SET OPTIONS (description = ?)",
-                quote(remoteTableName.getProjectId()),
-                quote(remoteTableName.getDatasetName()),
-                quote(remoteTableName.getTableName()));
+                quote(remoteTableName.projectId()),
+                quote(remoteTableName.datasetName()),
+                quote(remoteTableName.tableName()));
         client.executeUpdate(session, QueryJobConfiguration.newBuilder(sql)
                 .addPositionalParameter(QueryParameterValue.string(newComment.orElse(null)))
                 .build());
@@ -754,9 +756,9 @@ public class BigQueryMetadata
         RemoteTableName remoteTableName = table.asPlainTable().getRemoteTableName();
         String sql = format(
                 "ALTER TABLE %s.%s.%s ALTER COLUMN %s SET OPTIONS (description = ?)",
-                quote(remoteTableName.getProjectId()),
-                quote(remoteTableName.getDatasetName()),
-                quote(remoteTableName.getTableName()),
+                quote(remoteTableName.projectId()),
+                quote(remoteTableName.datasetName()),
+                quote(remoteTableName.tableName()),
                 quote(column.name()));
         client.executeUpdate(session, QueryJobConfiguration.newBuilder(sql)
                 .addPositionalParameter(QueryParameterValue.string(newComment.orElse(null)))
@@ -776,7 +778,7 @@ public class BigQueryMetadata
 
         List<ColumnHandle> newColumns = ImmutableList.copyOf(assignments.values());
 
-        if (bigQueryTableHandle.getProjectedColumns().isPresent() && containSameElements(newColumns, bigQueryTableHandle.getProjectedColumns().get())) {
+        if (bigQueryTableHandle.projectedColumns().isPresent() && containSameElements(newColumns, bigQueryTableHandle.projectedColumns().get())) {
             return Optional.empty();
         }
 
@@ -803,7 +805,7 @@ public class BigQueryMetadata
                 session, handle, constraint.getSummary(), constraint.predicate(), constraint.getPredicateColumns());
         BigQueryTableHandle bigQueryTableHandle = (BigQueryTableHandle) handle;
 
-        TupleDomain<ColumnHandle> oldDomain = bigQueryTableHandle.getConstraint();
+        TupleDomain<ColumnHandle> oldDomain = bigQueryTableHandle.constraint();
         TupleDomain<ColumnHandle> newDomain = oldDomain.intersect(constraint.getSummary());
         TupleDomain<ColumnHandle> remainingFilter;
         if (newDomain.isNone()) {

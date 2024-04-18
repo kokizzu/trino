@@ -11,24 +11,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.operator.aggregation;
+package io.trino.parquet.writer.valuewriter;
 
-import io.trino.spi.block.BlockBuilder;
-import io.trino.spi.function.WindowIndex;
+import org.apache.parquet.column.values.ValuesWriter;
+import org.junit.jupiter.api.Test;
 
-public interface WindowAccumulator
+import static io.trino.spi.testing.InterfaceTestUtils.assertAllMethodsOverridden;
+
+public class BloomFilterValuesWriterTest
 {
-    long getEstimatedSize();
-
-    WindowAccumulator copy();
-
-    void addInput(WindowIndex index, int startPosition, int endPosition);
-
-    /**
-     * @return Returns false when an NaN or Infinite input double value is
-     * encountered, true otherwise.
-     */
-    boolean removeInput(WindowIndex index, int startPosition, int endPosition);
-
-    void evaluateFinal(BlockBuilder blockBuilder);
+    @Test
+    public void testAllMethodsOverridden()
+    {
+        assertAllMethodsOverridden(ValuesWriter.class, BloomFilterValuesWriter.class);
+    }
 }

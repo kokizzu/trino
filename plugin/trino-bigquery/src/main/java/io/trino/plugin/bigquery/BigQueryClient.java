@@ -201,9 +201,9 @@ public class BigQueryClient
         return Optional.ofNullable(bigQuery.getTable(remoteTableId));
     }
 
-    public TableInfo getCachedTable(Duration viewExpiration, TableInfo remoteTableId, List<String> requiredColumns)
+    public TableInfo getCachedTable(Duration viewExpiration, TableInfo remoteTableId, List<String> requiredColumns, Optional<String> filter)
     {
-        String query = selectSql(remoteTableId, requiredColumns);
+        String query = selectSql(remoteTableId.getTableId(), requiredColumns, filter);
         log.debug("query is %s", query);
         return materializationCache.getCachedTable(this, query, viewExpiration, remoteTableId);
     }
@@ -373,14 +373,6 @@ public class BigQueryClient
         return query + " WHERE " + filter.get();
     }
 
-    private String selectSql(TableInfo remoteTable, List<String> requiredColumns)
-    {
-        String columns = requiredColumns.isEmpty() ? "*" :
-                requiredColumns.stream().map(column -> format("`%s`", column)).collect(joining(","));
-
-        return selectSql(remoteTable.getTableId(), columns);
-    }
-
     // assuming the SELECT part is properly formatted, can be used to call functions such as COUNT and SUM
     public String selectSql(TableId table, String formattedColumns)
     {
@@ -407,8 +399,8 @@ public class BigQueryClient
 
     public List<BigQueryColumnHandle> getColumns(BigQueryTableHandle tableHandle)
     {
-        if (tableHandle.getProjectedColumns().isPresent()) {
-            return tableHandle.getProjectedColumns().get();
+        if (tableHandle.projectedColumns().isPresent()) {
+            return tableHandle.projectedColumns().get();
         }
         checkArgument(tableHandle.isNamedRelation(), "Cannot get columns for %s", tableHandle);
 
