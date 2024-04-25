@@ -206,19 +206,19 @@ public final class KafkaQueryRunner
         String fileName = format("/%s/%s.json", table.getSchemaName(), table.getTableName());
         KafkaTopicDescription tableTemplate = topicDescriptionJsonCodec.fromJson(toByteArray(KafkaQueryRunner.class.getResourceAsStream(fileName)));
 
-        Optional<KafkaTopicFieldGroup> key = tableTemplate.getKey()
+        Optional<KafkaTopicFieldGroup> key = tableTemplate.key()
                 .map(keyTemplate -> new KafkaTopicFieldGroup(
-                        keyTemplate.getDataFormat(),
-                        keyTemplate.getDataSchema().map(schema -> KafkaQueryRunner.class.getResource(schema).getPath()),
+                        keyTemplate.dataFormat(),
+                        keyTemplate.dataSchema().map(schema -> KafkaQueryRunner.class.getResource(schema).getPath()),
                         Optional.empty(),
-                        keyTemplate.getFields()));
+                        keyTemplate.fields()));
 
-        Optional<KafkaTopicFieldGroup> message = tableTemplate.getMessage()
+        Optional<KafkaTopicFieldGroup> message = tableTemplate.message()
                 .map(keyTemplate -> new KafkaTopicFieldGroup(
-                        keyTemplate.getDataFormat(),
-                        keyTemplate.getDataSchema().map(schema -> KafkaQueryRunner.class.getResource(schema).getPath()),
+                        keyTemplate.dataFormat(),
+                        keyTemplate.dataSchema().map(schema -> KafkaQueryRunner.class.getResource(schema).getPath()),
                         Optional.empty(),
-                        keyTemplate.getFields()));
+                        keyTemplate.fields()));
 
         return new KafkaTopicDescription(
                 table.getTableName(),

@@ -23,6 +23,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Multimaps;
 import com.google.common.collect.Ordering;
+import io.airlift.concurrent.MoreFutures;
 import io.opentelemetry.api.trace.Span;
 import io.trino.Session;
 import io.trino.SystemSessionProperties;
@@ -48,6 +49,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.IntStream;
 
 import static com.google.common.base.Preconditions.checkState;
@@ -65,6 +68,14 @@ import static io.trino.testing.QueryAssertions.assertContains;
 import static io.trino.testing.QueryAssertions.assertEqualsIgnoreOrder;
 import static io.trino.tests.QueryTemplate.parameter;
 import static io.trino.tests.QueryTemplate.queryTemplate;
+import static io.trino.tpch.TpchTable.CUSTOMER;
+import static io.trino.tpch.TpchTable.LINE_ITEM;
+import static io.trino.tpch.TpchTable.NATION;
+import static io.trino.tpch.TpchTable.ORDERS;
+import static io.trino.tpch.TpchTable.PART;
+import static io.trino.tpch.TpchTable.PART_SUPPLIER;
+import static io.trino.tpch.TpchTable.REGION;
+import static io.trino.tpch.TpchTable.SUPPLIER;
 import static java.lang.String.format;
 import static java.util.Collections.nCopies;
 import static java.util.stream.Collectors.joining;
@@ -114,6 +125,8 @@ public abstract class AbstractTestEngineOnlyQueries
                     "connector double property",
                     99.0,
                     false));
+
+    protected static final List<TpchTable<?>> REQUIRED_TPCH_TABLES = List.of(CUSTOMER, LINE_ITEM, NATION, ORDERS, PART, PART_SUPPLIER, REGION, SUPPLIER);
 
     @Test
     public void testDateLiterals()
@@ -563,6 +576,23 @@ public abstract class AbstractTestEngineOnlyQueries
                         "       FROM (" + unionLineitem25Times + ")) o(c)) result(a) " +
                         "WHERE a = 1)",
                 "VALUES 1504375");
+    }
+
+    /**
+     * Regression test for <a href="https://github.com/trinodb/trino/issues/21630">#21630</a>
+     */
+    @Test
+    public void testMultipleConcurrentQueries()
+            throws Exception
+    {
+        try (ExecutorService executor = Executors.newCachedThreadPool()) {
+            executor.invokeAll(nCopies(4,
+                            () -> {
+                                testAssignUniqueId();
+                                return null;
+                            }))
+                    .forEach(MoreFutures::getDone);
+        }
     }
 
     @Test

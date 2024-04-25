@@ -20,9 +20,7 @@ import com.google.common.io.Resources;
 import io.opentelemetry.sdk.trace.data.SpanData;
 import io.trino.Session;
 import io.trino.SystemSessionProperties;
-import io.trino.plugin.tpch.TpchPlugin;
 import io.trino.testing.AbstractTestQueryFramework;
-import io.trino.testing.DistributedQueryRunner;
 import io.trino.testing.QueryRunner;
 import org.intellij.lang.annotations.Language;
 import org.junit.jupiter.api.Test;
@@ -35,13 +33,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static com.google.common.base.MoreObjects.firstNonNull;
+import static com.google.common.io.MoreFiles.deleteRecursively;
+import static com.google.common.io.RecursiveDeleteOption.ALLOW_INSECURE;
 import static io.trino.filesystem.tracing.FileSystemAttributes.FILE_LOCATION;
-import static io.trino.plugin.base.util.Closables.closeAllSuppress;
 import static io.trino.plugin.deltalake.TestDeltaLakeFileOperations.FileType.CDF_DATA;
 import static io.trino.plugin.deltalake.TestDeltaLakeFileOperations.FileType.CHECKPOINT;
 import static io.trino.plugin.deltalake.TestDeltaLakeFileOperations.FileType.DATA;
@@ -52,7 +50,6 @@ import static io.trino.plugin.deltalake.TestDeltaLakeFileOperations.FileType.TRI
 import static io.trino.plugin.deltalake.TestingDeltaLakeUtils.copyDirectoryContents;
 import static io.trino.testing.MultisetAssertions.assertMultisetsEqual;
 import static io.trino.testing.TestingNames.randomNameSuffix;
-import static io.trino.testing.TestingSession.testSessionBuilder;
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toCollection;
@@ -68,36 +65,15 @@ public class TestDeltaLakeFileOperations
     protected QueryRunner createQueryRunner()
             throws Exception
     {
-        Session session = testSessionBuilder()
-                .setCatalog("delta_lake")
-                .setSchema("default")
-                .build();
-        QueryRunner queryRunner = DistributedQueryRunner.builder(session)
+        Path catalogDir = Files.createTempDirectory("catalog-dir");
+        closeAfterClass(() -> deleteRecursively(catalogDir, ALLOW_INSECURE));
+
+        return DeltaLakeQueryRunner.builder()
                 .addCoordinatorProperty("optimizer.experimental-max-prefetched-information-schema-prefixes", Integer.toString(MAX_PREFIXES_COUNT))
+                .addDeltaProperty("hive.metastore.catalog.dir", catalogDir.toUri().toString())
+                .addDeltaProperty("delta.enable-non-concurrent-writes", "true")
+                .addDeltaProperty("delta.register-table-procedure.enabled", "true")
                 .build();
-        try {
-            String metastoreDirectory = queryRunner.getCoordinator().getBaseDataDir().resolve("delta_lake_metastore").toFile().getAbsoluteFile().toURI().toString();
-            queryRunner.installPlugin(new TpchPlugin());
-            queryRunner.createCatalog("tpch", "tpch");
-
-            Path dataDirectory = queryRunner.getCoordinator().getBaseDataDir().resolve("delta_lake_data");
-            queryRunner.installPlugin(new TestingDeltaLakePlugin(dataDirectory));
-            queryRunner.createCatalog(
-                    "delta_lake",
-                    "delta_lake",
-                    Map.of(
-                            "hive.metastore", "file",
-                            "hive.metastore.catalog.dir", metastoreDirectory,
-                            "delta.enable-non-concurrent-writes", "true",
-                            "delta.register-table-procedure.enabled", "true"));
-
-            queryRunner.execute("CREATE SCHEMA " + session.getSchema().orElseThrow());
-            return queryRunner;
-        }
-        catch (Throwable e) {
-            closeAllSuppress(e, queryRunner);
-            throw e;
-        }
     }
 
     @Test
@@ -682,7 +658,7 @@ public class TestDeltaLakeFileOperations
         int cdfFilesForDomain2 = countCdfFilesForKey("domain2");
         int cdfFilesForDomain3 = countCdfFilesForKey("domain3");
         assertUpdate("CALL system.flush_metadata_cache(schema_name => CURRENT_SCHEMA, table_name => 'table_changes_file_system_access')");
-        assertFileSystemAccesses("SELECT * FROM TABLE(system.table_changes('default', 'table_changes_file_system_access'))",
+        assertFileSystemAccesses("SELECT * FROM TABLE(system.table_changes(CURRENT_SCHEMA, 'table_changes_file_system_access'))",
                 ImmutableMultiset.<FileOperation>builder()
                         .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000000.json", "InputFile.newStream"), 2)
                         .addCopies(new FileOperation(TRANSACTION_LOG_JSON, "00000000000000000001.json", "InputFile.newStream"), 2)
@@ -848,7 +824,7 @@ public class TestDeltaLakeFileOperations
         Path tableLocation = Files.createTempFile(tableName, null);
         copyDirectoryContents(new File(Resources.getResource("deltalake/multipart_checkpoint").toURI()).toPath(), tableLocation);
 
-        assertUpdate("CALL system.register_table('%s', '%s', '%s')".formatted(getSession().getSchema().orElseThrow(), tableName, tableLocation.toUri()));
+        assertUpdate("CALL system.register_table(CURRENT_SCHEMA, '%s', '%s')".formatted(tableName, tableLocation.toUri()));
         assertFileSystemAccesses("SELECT * FROM " + tableName,
                 ImmutableMultiset.<FileOperation>builder()
                         .add(new FileOperation(LAST_CHECKPOINT, "_last_checkpoint", "InputFile.newStream"))
@@ -870,7 +846,7 @@ public class TestDeltaLakeFileOperations
         Path tableLocation = Files.createTempFile(tableName, null);
         copyDirectoryContents(new File(Resources.getResource("deltalake/v2_checkpoint_json").toURI()).toPath(), tableLocation);
 
-        assertUpdate("CALL system.register_table('%s', '%s', '%s')".formatted(getSession().getSchema().orElseThrow(), tableName, tableLocation.toUri()));
+        assertUpdate("CALL system.register_table(CURRENT_SCHEMA, '%s', '%s')".formatted(tableName, tableLocation.toUri()));
         assertFileSystemAccesses("SELECT * FROM " + tableName,
                 ImmutableMultiset.<FileOperation>builder()
                         .add(new FileOperation(LAST_CHECKPOINT, "_last_checkpoint", "InputFile.newStream"))
@@ -893,7 +869,7 @@ public class TestDeltaLakeFileOperations
         Path tableLocation = Files.createTempFile(tableName, null);
         copyDirectoryContents(new File(Resources.getResource("deltalake/v2_checkpoint_parquet").toURI()).toPath(), tableLocation);
 
-        assertUpdate("CALL system.register_table('%s', '%s', '%s')".formatted(getSession().getSchema().orElseThrow(), tableName, tableLocation.toUri()));
+        assertUpdate("CALL system.register_table(CURRENT_SCHEMA, '%s', '%s')".formatted(tableName, tableLocation.toUri()));
         assertFileSystemAccesses("SELECT * FROM " + tableName,
                 ImmutableMultiset.<FileOperation>builder()
                         .add(new FileOperation(LAST_CHECKPOINT, "_last_checkpoint", "InputFile.newStream"))

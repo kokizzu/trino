@@ -114,7 +114,7 @@ public class CassandraMetadata
     {
         requireNonNull(tableName, "tableName is null");
         try {
-            return new CassandraTableHandle(cassandraSession.getTable(tableName).getTableHandle());
+            return new CassandraTableHandle(cassandraSession.getTable(tableName).tableHandle());
         }
         catch (TableNotFoundException | SchemaNotFoundException e) {
             // table was not found
@@ -153,7 +153,7 @@ public class CassandraMetadata
     private ConnectorTableMetadata getTableMetadata(SchemaTableName tableName)
     {
         CassandraTable table = cassandraSession.getTable(tableName);
-        List<ColumnMetadata> columns = table.getColumns().stream()
+        List<ColumnMetadata> columns = table.columns().stream()
                 .map(CassandraColumnHandle::getColumnMetadata)
                 .collect(toList());
         return new ConnectorTableMetadata(tableName, columns);
@@ -190,7 +190,7 @@ public class CassandraMetadata
         requireNonNull(tableHandle, "tableHandle is null");
         CassandraTable table = cassandraSession.getTable(getTableName(tableHandle));
         ImmutableMap.Builder<String, ColumnHandle> columnHandles = ImmutableMap.builder();
-        for (CassandraColumnHandle columnHandle : table.getColumns()) {
+        for (CassandraColumnHandle columnHandle : table.columns()) {
             columnHandles.put(cqlNameToSqlName(columnHandle.name()).toLowerCase(ENGLISH), columnHandle);
         }
         return columnHandles.buildOrThrow();
@@ -244,16 +244,16 @@ public class CassandraMetadata
 
         String clusteringKeyPredicates = "";
         TupleDomain<ColumnHandle> unenforcedConstraint;
-        if (partitionResult.isUnpartitioned() || partitionResult.isIndexedColumnPredicatePushdown()) {
+        if (partitionResult.unpartitioned() || partitionResult.indexedColumnPredicatePushdown()) {
             // When the filter is missing at least one of the partition keys or when the table is not partitioned,
             // use the raw unenforced constraint of the partitionResult
-            unenforcedConstraint = partitionResult.getUnenforcedConstraint();
+            unenforcedConstraint = partitionResult.unenforcedConstraint();
         }
         else {
             CassandraClusteringPredicatesExtractor clusteringPredicatesExtractor = new CassandraClusteringPredicatesExtractor(
                     cassandraTypeManager,
-                    cassandraSession.getTable(handle.getSchemaTableName()).getClusteringKeyColumns(),
-                    partitionResult.getUnenforcedConstraint(),
+                    cassandraSession.getTable(handle.getSchemaTableName()).clusteringKeyColumns(),
+                    partitionResult.unenforcedConstraint(),
                     cassandraSession.getCassandraVersion());
             clusteringKeyPredicates = clusteringPredicatesExtractor.getClusteringKeyPredicates();
             unenforcedConstraint = clusteringPredicatesExtractor.getUnenforcedConstraints();
@@ -262,7 +262,7 @@ public class CassandraMetadata
         Optional<List<CassandraPartition>> currentPartitions = handle.getPartitions();
         if (currentPartitions.isPresent() &&
                 // TODO: we should skip only when new table handle does not narrow down enforced predicate
-                currentPartitions.get().containsAll(partitionResult.getPartitions()) &&
+                currentPartitions.get().containsAll(partitionResult.partitions()) &&
                 handle.getClusteringKeyPredicates().equals(clusteringKeyPredicates)) {
             return Optional.empty();
         }
@@ -271,7 +271,7 @@ public class CassandraMetadata
                 new ConstraintApplicationResult<>(new CassandraTableHandle(new CassandraNamedRelationHandle(
                         handle.getSchemaName(),
                         handle.getTableName(),
-                        Optional.of(partitionResult.getPartitions()),
+                        Optional.of(partitionResult.partitions()),
                         // TODO this should probably be AND-ed with handle.getClusteringKeyPredicates()
                         clusteringKeyPredicates)),
                         unenforcedConstraint,
@@ -385,7 +385,7 @@ public class CassandraMetadata
         }
 
         SchemaTableName schemaTableName = new SchemaTableName(table.getSchemaName(), table.getTableName());
-        List<CassandraColumnHandle> columns = cassandraSession.getTable(schemaTableName).getColumns();
+        List<CassandraColumnHandle> columns = cassandraSession.getTable(schemaTableName).columns();
         List<String> columnNames = columns.stream()
                 .filter(columnHandle -> !isHiddenIdColumn(columnHandle))
                 .map(CassandraColumnHandle::name)

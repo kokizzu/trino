@@ -80,11 +80,11 @@ import static java.time.format.DateTimeFormatter.ISO_LOCAL_DATE;
 import static java.time.temporal.ChronoUnit.MILLIS;
 import static java.util.Objects.requireNonNull;
 
-public class DeltaLakeParquetStatisticsUtils
+public final class DeltaLakeParquetStatisticsUtils
 {
-    private static final Logger LOG = Logger.get(DeltaLakeParquetStatisticsUtils.class);
-
     private DeltaLakeParquetStatisticsUtils() {}
+
+    private static final Logger LOG = Logger.get(DeltaLakeParquetStatisticsUtils.class);
 
     public static boolean hasInvalidStatistics(Collection<ColumnChunkMetaData> metadataList)
     {
@@ -92,8 +92,8 @@ public class DeltaLakeParquetStatisticsUtils
                 .anyMatch(metadata ->
                         // If any row group does not have stats collected, stats for the file will not be valid
                         !metadata.getStatistics().isNumNullsSet() || metadata.getStatistics().isEmpty() ||
-                        // Columns with NaN values are marked by `hasNonNullValue` = false by the Parquet reader. See issue: https://issues.apache.org/jira/browse/PARQUET-1246
-                        (!metadata.getStatistics().hasNonNullValue() && metadata.getStatistics().getNumNulls() != metadata.getValueCount()));
+                                // Columns with NaN values are marked by `hasNonNullValue` = false by the Parquet reader. See issue: https://issues.apache.org/jira/browse/PARQUET-1246
+                                (!metadata.getStatistics().hasNonNullValue() && metadata.getStatistics().getNumNulls() != metadata.getValueCount()));
     }
 
     @Nullable
@@ -349,7 +349,7 @@ public class DeltaLakeParquetStatisticsUtils
             return Optional.empty();
         }
 
-        LOG.warn("Accumulating Parquet statistics with Trino type: %s and Parquet statistics of type: %s is not supported", type, statistics);
+        LOG.debug("Accumulating Parquet statistics with Trino type: %s and Parquet statistics of type: %s is not supported", type, statistics);
         return Optional.empty();
     }
 
@@ -429,7 +429,7 @@ public class DeltaLakeParquetStatisticsUtils
             return Optional.empty();
         }
 
-        LOG.warn("Accumulating Parquet statistics with Trino type: %s and Parquet statistics of type: %s is not supported", type, statistics);
+        LOG.debug("Accumulating Parquet statistics with Trino type: %s and Parquet statistics of type: %s is not supported", type, statistics);
         return Optional.empty();
     }
 }

@@ -19,7 +19,6 @@ import com.google.common.collect.ImmutableMultiset;
 import com.google.common.collect.Multiset;
 import com.google.common.io.Resources;
 import io.opentelemetry.api.common.Attributes;
-import io.trino.Session;
 import io.trino.testing.AbstractTestQueryFramework;
 import io.trino.testing.DistributedQueryRunner;
 import org.intellij.lang.annotations.Language;
@@ -31,20 +30,19 @@ import java.io.File;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
+import static com.google.common.io.MoreFiles.deleteRecursively;
+import static com.google.common.io.RecursiveDeleteOption.ALLOW_INSECURE;
 import static io.trino.filesystem.tracing.CacheSystemAttributes.CACHE_FILE_LOCATION;
 import static io.trino.filesystem.tracing.CacheSystemAttributes.CACHE_FILE_READ_POSITION;
 import static io.trino.filesystem.tracing.CacheSystemAttributes.CACHE_FILE_READ_SIZE;
 import static io.trino.filesystem.tracing.CacheSystemAttributes.CACHE_FILE_WRITE_POSITION;
 import static io.trino.filesystem.tracing.CacheSystemAttributes.CACHE_FILE_WRITE_SIZE;
-import static io.trino.plugin.deltalake.DeltaLakeQueryRunner.DELTA_CATALOG;
 import static io.trino.plugin.deltalake.TestingDeltaLakeUtils.copyDirectoryContents;
 import static io.trino.testing.MultisetAssertions.assertMultisetsEqual;
-import static io.trino.testing.TestingSession.testSessionBuilder;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toCollection;
@@ -58,33 +56,19 @@ public class TestDeltaLakeAlluxioCacheFileOperations
             throws Exception
     {
         Path cacheDirectory = Files.createTempDirectory("cache");
-        cacheDirectory.toFile().deleteOnExit();
-        Path metastoreDirectory = Files.createTempDirectory(DELTA_CATALOG);
-        metastoreDirectory.toFile().deleteOnExit();
+        closeAfterClass(() -> deleteRecursively(cacheDirectory, ALLOW_INSECURE));
 
-        Session session = testSessionBuilder()
-                .setCatalog(DELTA_CATALOG)
-                .setSchema("default")
-                .build();
-
-        Map<String, String> deltaLakeProperties = ImmutableMap.<String, String>builder()
-                .put("fs.cache.enabled", "true")
-                .put("fs.cache.directories", cacheDirectory.toAbsolutePath().toString())
-                .put("fs.cache.max-sizes", "100MB")
-                .put("hive.metastore", "file")
-                .put("hive.metastore.catalog.dir", metastoreDirectory.toUri().toString())
-                .put("delta.enable-non-concurrent-writes", "true")
-                .put("delta.register-table-procedure.enabled", "true")
-                .buildOrThrow();
-
-        DistributedQueryRunner queryRunner = DeltaLakeQueryRunner.builder(session)
+        return DeltaLakeQueryRunner.builder()
                 .setCoordinatorProperties(ImmutableMap.of("node-scheduler.include-coordinator", "false"))
-                .setDeltaProperties(deltaLakeProperties)
-                .setNodeCount(2)
+                .setDeltaProperties(ImmutableMap.<String, String>builder()
+                        .put("fs.cache.enabled", "true")
+                        .put("fs.cache.directories", cacheDirectory.toAbsolutePath().toString())
+                        .put("fs.cache.max-sizes", "100MB")
+                        .put("delta.enable-non-concurrent-writes", "true")
+                        .put("delta.register-table-procedure.enabled", "true")
+                        .buildOrThrow())
+                .setWorkerCount(1)
                 .build();
-
-        queryRunner.execute("CREATE SCHEMA " + session.getSchema().orElseThrow());
-        return queryRunner;
     }
 
     private URL getResourceLocation(String resourcePath)
@@ -95,7 +79,7 @@ public class TestDeltaLakeAlluxioCacheFileOperations
     private void registerTable(String name, String resourcePath)
     {
         String dataPath = getResourceLocation(resourcePath).toExternalForm();
-        getQueryRunner().execute(format("CALL system.register_table('%s', '%s', '%s')", getSession().getSchema().orElseThrow(), name, dataPath));
+        getQueryRunner().execute(format("CALL system.register_table(CURRENT_SCHEMA, '%s', '%s')", name, dataPath));
     }
 
     @Test
@@ -242,7 +226,7 @@ public class TestDeltaLakeAlluxioCacheFileOperations
         registerTable("cdc_table", "trino/cdc_table");
         assertUpdate("CALL system.flush_metadata_cache(schema_name => CURRENT_SCHEMA, table_name => 'cdc_table')");
         assertFileSystemAccesses(
-                "SELECT * FROM TABLE(system.table_changes(schema_name=>'default', table_name=>'cdc_table', since_version=>0))",
+                "SELECT * FROM TABLE(system.table_changes(schema_name=>CURRENT_SCHEMA, table_name=>'cdc_table', since_version=>0))",
                 ImmutableMultiset.<CacheOperation>builder()
                         .add(new CacheOperation("Alluxio.readCached", "00000000000000000000.json", 0, 1117))
                         .addCopies(new CacheOperation("Alluxio.readCached", "00000000000000000001.json", 0, 1100), 2)
@@ -257,7 +241,7 @@ public class TestDeltaLakeAlluxioCacheFileOperations
                         .add(new CacheOperation("Alluxio.writeCache", "change_data/key=2/", 0, 394))
                         .build());
         assertFileSystemAccesses(
-                "EXPLAIN ANALYZE SELECT * FROM TABLE(system.table_changes(schema_name=>'default', table_name=>'cdc_table', since_version=>0))",
+                "EXPLAIN ANALYZE SELECT * FROM TABLE(system.table_changes(schema_name=>CURRENT_SCHEMA, table_name=>'cdc_table', since_version=>0))",
                 ImmutableMultiset.<CacheOperation>builder()
                         .add(new CacheOperation("Alluxio.readCached", "00000000000000000000.json", 0, 1117))
                         .addCopies(new CacheOperation("Alluxio.readCached", "00000000000000000001.json", 0, 1100), 2)

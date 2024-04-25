@@ -40,24 +40,6 @@ public final class MemoryQueryRunner
 
     private MemoryQueryRunner() {}
 
-    public static QueryRunner createMemoryQueryRunner(
-            Map<String, String> extraProperties,
-            Iterable<TpchTable<?>> tables)
-            throws Exception
-    {
-        extraProperties = ImmutableMap.<String, String>builder()
-                .putAll(extraProperties)
-                .put("sql.path", CATALOG + ".functions")
-                .put("sql.default-function-catalog", CATALOG)
-                .put("sql.default-function-schema", "functions")
-                .buildOrThrow();
-
-        return builder()
-                .setExtraProperties(extraProperties)
-                .setInitialTables(tables)
-                .build();
-    }
-
     public static Builder builder()
     {
         return new Builder();
@@ -128,9 +110,13 @@ public final class MemoryQueryRunner
     public static void main(String[] args)
             throws Exception
     {
-        QueryRunner queryRunner = createMemoryQueryRunner(
-                ImmutableMap.of("http-server.http.port", "8080"),
-                TpchTable.getTables());
+        QueryRunner queryRunner = builder()
+                .addExtraProperty("http-server.http.port", "8080")
+                .addExtraProperty("sql.path", CATALOG + ".functions")
+                .addExtraProperty("sql.default-function-catalog", CATALOG)
+                .addExtraProperty("sql.default-function-schema", "functions")
+                .setInitialTables(TpchTable.getTables())
+                .build();
         Logger log = Logger.get(MemoryQueryRunner.class);
         log.info("======== SERVER STARTED ========");
         log.info("\n====\n%s\n====", queryRunner.getCoordinator().getBaseUrl());

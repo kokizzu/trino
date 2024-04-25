@@ -300,8 +300,23 @@ public abstract class BaseIcebergConnectorTest
     @Override
     public void testCharVarcharComparison()
     {
-        assertThatThrownBy(super::testCharVarcharComparison)
-                .hasMessage("Type not supported for Iceberg: char(3)");
+        // with char->varchar coercion on table creation, this is essentially varchar/varchar comparison
+        try (TestTable table = new TestTable(
+                getQueryRunner()::execute,
+                "test_char_varchar",
+                "(k, v) AS VALUES" +
+                        "   (-1, CAST(NULL AS CHAR(3))), " +
+                        "   (3, CAST('   ' AS CHAR(3)))," +
+                        "   (6, CAST('x  ' AS CHAR(3)))")) {
+            // varchar of length shorter than column's length
+            assertThat(query("SELECT k, v FROM " + table.getName() + " WHERE v = CAST('  ' AS varchar(2))")).returnsEmptyResult();
+            // varchar of length longer than column's length
+            assertThat(query("SELECT k, v FROM " + table.getName() + " WHERE v = CAST('    ' AS varchar(4))")).returnsEmptyResult();
+            // value that's not all-spaces
+            assertThat(query("SELECT k, v FROM " + table.getName() + " WHERE v = CAST('x ' AS varchar(2))")).returnsEmptyResult();
+            // exact match
+            assertQuery("SELECT k, v FROM " + table.getName() + " WHERE v = CAST('   ' AS varchar(3))", "VALUES (3, '   ')");
+        }
     }
 
     @Test
@@ -4897,20 +4912,13 @@ public abstract class BaseIcebergConnectorTest
     {
         String typeName = dataMappingTestSetup.getTrinoTypeName();
         if (typeName.equals("tinyint")
-                || typeName.equals("smallint")
-                || typeName.startsWith("char(")) {
+                || typeName.equals("smallint")) {
             // These types are not supported by Iceberg
             return Optional.of(dataMappingTestSetup.asUnsupported());
         }
-        return Optional.of(dataMappingTestSetup);
-    }
-
-    @Override
-    protected Optional<DataMappingTestSetup> filterCaseSensitiveDataMappingTestData(DataMappingTestSetup dataMappingTestSetup)
-    {
-        String typeName = dataMappingTestSetup.getTrinoTypeName();
-        if (typeName.equals("char(1)")) {
-            return Optional.of(dataMappingTestSetup.asUnsupported());
+        if (typeName.equals("char(3)")) {
+            // Use explicitly padded literal in char mapping test due to whitespace padding on coercion to varchar
+            return Optional.of(new DataMappingTestSetup(typeName, "'ab '", dataMappingTestSetup.getHighValueLiteral()));
         }
         return Optional.of(dataMappingTestSetup);
     }
@@ -7426,24 +7434,24 @@ public abstract class BaseIcebergConnectorTest
 
             assertQuery(
                     "SELECT nationkey, name, _change_type, _change_version_id, _change_ordinal " +
-                            "FROM TABLE(system.table_changes('tpch', '%s', %s, %s))".formatted(table.getName(), initialSnapshot, snapshotAfterInsert),
+                            "FROM TABLE(system.table_changes(CURRENT_SCHEMA, '%s', %s, %s))".formatted(table.getName(), initialSnapshot, snapshotAfterInsert),
                     "SELECT nationkey, name, 'insert', %s, 0 FROM nation WHERE nationkey < 5".formatted(snapshotAfterInsert));
 
             assertQuery(
                     "SELECT nationkey, _change_type, _change_version_id, _change_ordinal " +
-                            "FROM TABLE(system.table_changes('tpch', '%s', %s, %s))".formatted(table.getName(), initialSnapshot, snapshotAfterDropColumn),
+                            "FROM TABLE(system.table_changes(CURRENT_SCHEMA, '%s', %s, %s))".formatted(table.getName(), initialSnapshot, snapshotAfterDropColumn),
                     "SELECT nationkey, 'insert', %s, 0 FROM nation WHERE nationkey < 5 UNION SELECT nationkey, 'insert', %s, 1 FROM nation WHERE nationkey >= 5 AND nationkey < 10 ".formatted(snapshotAfterInsert, snapshotAfterDropColumn));
 
             assertQuery(
                     "SELECT nationkey, comment, _change_type, _change_version_id, _change_ordinal " +
-                            "FROM TABLE(system.table_changes('tpch', '%s', %s, %s))".formatted(table.getName(), initialSnapshot, snapshotAfterAddColumn),
+                            "FROM TABLE(system.table_changes(CURRENT_SCHEMA, '%s', %s, %s))".formatted(table.getName(), initialSnapshot, snapshotAfterAddColumn),
                     ("SELECT nationkey, NULL, 'insert', %s, 0 FROM nation WHERE nationkey < 5 " +
                             "UNION SELECT nationkey, NULL, 'insert', %s, 1 FROM nation WHERE nationkey >= 5 AND nationkey < 10 " +
                             "UNION SELECT nationkey, comment, 'insert', %s, 2 FROM nation WHERE nationkey >= 10 AND nationkey < 15").formatted(snapshotAfterInsert, snapshotAfterDropColumn, snapshotAfterAddColumn));
 
             assertQuery(
                     "SELECT nationkey, comment, name, _change_type, _change_version_id, _change_ordinal " +
-                            "FROM TABLE(system.table_changes('tpch', '%s', %s, %s))".formatted(table.getName(), initialSnapshot, snapshotAfterReaddingNameColumn),
+                            "FROM TABLE(system.table_changes(CURRENT_SCHEMA, '%s', %s, %s))".formatted(table.getName(), initialSnapshot, snapshotAfterReaddingNameColumn),
                     ("SELECT nationkey, NULL, NULL, 'insert', %s, 0 FROM nation WHERE nationkey < 5 " +
                             "UNION SELECT nationkey, NULL, NULL, 'insert', %s, 1 FROM nation WHERE nationkey >= 5 AND nationkey < 10 " +
                             "UNION SELECT nationkey, comment, NULL, 'insert', %s, 2 FROM nation WHERE nationkey >= 10 AND nationkey < 15" +
@@ -7778,9 +7786,9 @@ public abstract class BaseIcebergConnectorTest
     }
 
     @Test
-    public void testTimestampPrecisionOnCreateTableAsSelect()
+    public void testTypeCoercionOnCreateTableAsSelect()
     {
-        for (TimestampPrecisionTestSetup setup : timestampPrecisionOnCreateTableAsSelectProvider()) {
+        for (TypeCoercionTestSetup setup : typeCoercionOnCreateTableAsSelectProvider()) {
             try (TestTable testTable = new TestTable(
                     getQueryRunner()::execute,
                     "test_coercion_show_create_table",
@@ -7794,9 +7802,9 @@ public abstract class BaseIcebergConnectorTest
     }
 
     @Test
-    public void testTimestampPrecisionOnCreateTableAsSelectWithNoData()
+    public void testTypeCoercionOnCreateTableAsSelectWithNoData()
     {
-        for (TimestampPrecisionTestSetup setup : timestampPrecisionOnCreateTableAsSelectProvider()) {
+        for (TypeCoercionTestSetup setup : typeCoercionOnCreateTableAsSelectProvider()) {
             try (TestTable testTable = new TestTable(
                     getQueryRunner()::execute,
                     "test_coercion_show_create_table",
@@ -7806,145 +7814,91 @@ public abstract class BaseIcebergConnectorTest
         }
     }
 
-    private List<TimestampPrecisionTestSetup> timestampPrecisionOnCreateTableAsSelectProvider()
+    private List<TypeCoercionTestSetup> typeCoercionOnCreateTableAsSelectProvider()
     {
-        return timestampPrecisionOnCreateTableAsSelectData().stream()
-                .map(this::filterTimestampPrecisionOnCreateTableAsSelectProvider)
+        return typeCoercionOnCreateTableAsSelectData().stream()
+                .map(this::filterTypeCoercionOnCreateTableAsSelectProvider)
                 .flatMap(Optional::stream)
                 .collect(toList());
     }
 
-    protected Optional<TimestampPrecisionTestSetup> filterTimestampPrecisionOnCreateTableAsSelectProvider(TimestampPrecisionTestSetup setup)
+    protected Optional<TypeCoercionTestSetup> filterTypeCoercionOnCreateTableAsSelectProvider(TypeCoercionTestSetup setup)
     {
         return Optional.of(setup);
     }
 
-    private List<TimestampPrecisionTestSetup> timestampPrecisionOnCreateTableAsSelectData()
+    private List<TypeCoercionTestSetup> typeCoercionOnCreateTableAsSelectData()
     {
-        return ImmutableList.<TimestampPrecisionTestSetup>builder()
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '1970-01-01 00:00:00'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.000000'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '1970-01-01 00:00:00.9'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.900000'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '1970-01-01 00:00:00.56'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.560000'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '1970-01-01 00:00:00.123'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.123000'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '1970-01-01 00:00:00.4896'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.489600'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '1970-01-01 00:00:00.89356'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.893560'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '1970-01-01 00:00:00.123000'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.123000'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '1970-01-01 00:00:00.999'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.999000'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '1970-01-01 00:00:00.123456'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.123456'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '2020-09-27 12:34:56.1'", "timestamp(6)", "TIMESTAMP '2020-09-27 12:34:56.100000'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '2020-09-27 12:34:56.9'", "timestamp(6)", "TIMESTAMP '2020-09-27 12:34:56.900000'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '2020-09-27 12:34:56.123'", "timestamp(6)", "TIMESTAMP '2020-09-27 12:34:56.123000'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '2020-09-27 12:34:56.123000'", "timestamp(6)", "TIMESTAMP '2020-09-27 12:34:56.123000'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '2020-09-27 12:34:56.999'", "timestamp(6)", "TIMESTAMP '2020-09-27 12:34:56.999000'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '2020-09-27 12:34:56.123456'", "timestamp(6)", "TIMESTAMP '2020-09-27 12:34:56.123456'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '1970-01-01 00:00:00.1234561'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.123456'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '1970-01-01 00:00:00.123456499'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.123456'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '1970-01-01 00:00:00.123456499999'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.123456'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '1970-01-01 00:00:00.1234565'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.123457'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '1970-01-01 00:00:00.111222333444'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.111222'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '1970-01-01 00:00:00.9999995'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:01.000000'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '1970-01-01 23:59:59.9999995'", "timestamp(6)", "TIMESTAMP '1970-01-02 00:00:00.000000'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '1969-12-31 23:59:59.9999995'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.000000'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '1969-12-31 23:59:59.999999499999'", "timestamp(6)", "TIMESTAMP '1969-12-31 23:59:59.999999'"))
-                .add(new TimestampPrecisionTestSetup("TIMESTAMP '1969-12-31 23:59:59.9999994'", "timestamp(6)", "TIMESTAMP '1969-12-31 23:59:59.999999'"))
+        return ImmutableList.<TypeCoercionTestSetup>builder()
+                .add(new TypeCoercionTestSetup("TIMESTAMP '1970-01-01 00:00:00'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.000000'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '1970-01-01 00:00:00.9'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.900000'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '1970-01-01 00:00:00.56'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.560000'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '1970-01-01 00:00:00.123'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.123000'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '1970-01-01 00:00:00.4896'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.489600'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '1970-01-01 00:00:00.89356'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.893560'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '1970-01-01 00:00:00.123000'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.123000'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '1970-01-01 00:00:00.999'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.999000'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '1970-01-01 00:00:00.123456'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.123456'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '2020-09-27 12:34:56.1'", "timestamp(6)", "TIMESTAMP '2020-09-27 12:34:56.100000'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '2020-09-27 12:34:56.9'", "timestamp(6)", "TIMESTAMP '2020-09-27 12:34:56.900000'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '2020-09-27 12:34:56.123'", "timestamp(6)", "TIMESTAMP '2020-09-27 12:34:56.123000'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '2020-09-27 12:34:56.123000'", "timestamp(6)", "TIMESTAMP '2020-09-27 12:34:56.123000'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '2020-09-27 12:34:56.999'", "timestamp(6)", "TIMESTAMP '2020-09-27 12:34:56.999000'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '2020-09-27 12:34:56.123456'", "timestamp(6)", "TIMESTAMP '2020-09-27 12:34:56.123456'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '1970-01-01 00:00:00.1234561'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.123456'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '1970-01-01 00:00:00.123456499'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.123456'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '1970-01-01 00:00:00.123456499999'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.123456'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '1970-01-01 00:00:00.1234565'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.123457'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '1970-01-01 00:00:00.111222333444'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.111222'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '1970-01-01 00:00:00.9999995'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:01.000000'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '1970-01-01 23:59:59.9999995'", "timestamp(6)", "TIMESTAMP '1970-01-02 00:00:00.000000'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '1969-12-31 23:59:59.9999995'", "timestamp(6)", "TIMESTAMP '1970-01-01 00:00:00.000000'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '1969-12-31 23:59:59.999999499999'", "timestamp(6)", "TIMESTAMP '1969-12-31 23:59:59.999999'"))
+                .add(new TypeCoercionTestSetup("TIMESTAMP '1969-12-31 23:59:59.9999994'", "timestamp(6)", "TIMESTAMP '1969-12-31 23:59:59.999999'"))
+                .add(new TypeCoercionTestSetup("TIME '00:00:00'", "time(6)", "TIME '00:00:00.000000'"))
+                .add(new TypeCoercionTestSetup("TIME '00:00:00.9'", "time(6)", "TIME '00:00:00.900000'"))
+                .add(new TypeCoercionTestSetup("TIME '00:00:00.56'", "time(6)", "TIME '00:00:00.560000'"))
+                .add(new TypeCoercionTestSetup("TIME '00:00:00.123'", "time(6)", "TIME '00:00:00.123000'"))
+                .add(new TypeCoercionTestSetup("TIME '00:00:00.4896'", "time(6)", "TIME '00:00:00.489600'"))
+                .add(new TypeCoercionTestSetup("TIME '00:00:00.89356'", "time(6)", "TIME '00:00:00.893560'"))
+                .add(new TypeCoercionTestSetup("TIME '00:00:00.123000'", "time(6)", "TIME '00:00:00.123000'"))
+                .add(new TypeCoercionTestSetup("TIME '00:00:00.999'", "time(6)", "TIME '00:00:00.999000'"))
+                .add(new TypeCoercionTestSetup("TIME '00:00:00.123456'", "time(6)", "TIME '00:00:00.123456'"))
+                .add(new TypeCoercionTestSetup("TIME '12:34:56.1'", "time(6)", "TIME '12:34:56.100000'"))
+                .add(new TypeCoercionTestSetup("TIME '12:34:56.9'", "time(6)", "TIME '12:34:56.900000'"))
+                .add(new TypeCoercionTestSetup("TIME '12:34:56.123'", "time(6)", "TIME '12:34:56.123000'"))
+                .add(new TypeCoercionTestSetup("TIME '12:34:56.123000'", "time(6)", "TIME '12:34:56.123000'"))
+                .add(new TypeCoercionTestSetup("TIME '12:34:56.999'", "time(6)", "TIME '12:34:56.999000'"))
+                .add(new TypeCoercionTestSetup("TIME '12:34:56.123456'", "time(6)", "TIME '12:34:56.123456'"))
+                .add(new TypeCoercionTestSetup("TIME '00:00:00.1234561'", "time(6)", "TIME '00:00:00.123456'"))
+                .add(new TypeCoercionTestSetup("TIME '00:00:00.123456499'", "time(6)", "TIME '00:00:00.123456'"))
+                .add(new TypeCoercionTestSetup("TIME '00:00:00.123456499999'", "time(6)", "TIME '00:00:00.123456'"))
+                .add(new TypeCoercionTestSetup("TIME '00:00:00.1234565'", "time(6)", "TIME '00:00:00.123457'"))
+                .add(new TypeCoercionTestSetup("TIME '00:00:00.111222333444'", "time(6)", "TIME '00:00:00.111222'"))
+                .add(new TypeCoercionTestSetup("TIME '00:00:00.9999995'", "time(6)", "TIME '00:00:01.000000'"))
+                .add(new TypeCoercionTestSetup("TIME '23:59:59.9999995'", "time(6)", "TIME '00:00:00.000000'"))
+                .add(new TypeCoercionTestSetup("TIME '23:59:59.999999499999'", "time(6)", "TIME '23:59:59.999999'"))
+                .add(new TypeCoercionTestSetup("TIME '23:59:59.9999994'", "time(6)", "TIME '23:59:59.999999'"))
+                .add(new TypeCoercionTestSetup("CHAR 'A'", "varchar", "'A'"))
+                .add(new TypeCoercionTestSetup("CHAR 'é'", "varchar", "'é'"))
+                .add(new TypeCoercionTestSetup("CHAR 'A '", "varchar", "'A '"))
+                .add(new TypeCoercionTestSetup("CHAR ' A'", "varchar", "' A'"))
+                .add(new TypeCoercionTestSetup("CHAR 'ABc'", "varchar", "'ABc'"))
                 .build();
     }
 
-    public record TimestampPrecisionTestSetup(String sourceValueLiteral, String newColumnType, String newValueLiteral)
+    public record TypeCoercionTestSetup(String sourceValueLiteral, String newColumnType, String newValueLiteral)
     {
-        public TimestampPrecisionTestSetup
+        public TypeCoercionTestSetup
         {
             requireNonNull(sourceValueLiteral, "sourceValueLiteral is null");
             requireNonNull(newColumnType, "newColumnType is null");
             requireNonNull(newValueLiteral, "newValueLiteral is null");
         }
 
-        public TimestampPrecisionTestSetup withNewValueLiteral(String newValueLiteral)
+        public TypeCoercionTestSetup withNewValueLiteral(String newValueLiteral)
         {
-            return new TimestampPrecisionTestSetup(sourceValueLiteral, newColumnType, newValueLiteral);
-        }
-    }
-
-    @Test
-    public void testTimePrecisionOnCreateTableAsSelect()
-    {
-        testTimePrecisionOnCreateTableAsSelect("TIME '00:00:00'", "time(6)", "TIME '00:00:00.000000'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '00:00:00.9'", "time(6)", "TIME '00:00:00.900000'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '00:00:00.56'", "time(6)", "TIME '00:00:00.560000'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '00:00:00.123'", "time(6)", "TIME '00:00:00.123000'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '00:00:00.4896'", "time(6)", "TIME '00:00:00.489600'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '00:00:00.89356'", "time(6)", "TIME '00:00:00.893560'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '00:00:00.123000'", "time(6)", "TIME '00:00:00.123000'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '00:00:00.999'", "time(6)", "TIME '00:00:00.999000'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '00:00:00.123456'", "time(6)", "TIME '00:00:00.123456'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '12:34:56.1'", "time(6)", "TIME '12:34:56.100000'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '12:34:56.9'", "time(6)", "TIME '12:34:56.900000'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '12:34:56.123'", "time(6)", "TIME '12:34:56.123000'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '12:34:56.123000'", "time(6)", "TIME '12:34:56.123000'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '12:34:56.999'", "time(6)", "TIME '12:34:56.999000'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '12:34:56.123456'", "time(6)", "TIME '12:34:56.123456'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '00:00:00.1234561'", "time(6)", "TIME '00:00:00.123456'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '00:00:00.123456499'", "time(6)", "TIME '00:00:00.123456'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '00:00:00.123456499999'", "time(6)", "TIME '00:00:00.123456'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '00:00:00.1234565'", "time(6)", "TIME '00:00:00.123457'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '00:00:00.111222333444'", "time(6)", "TIME '00:00:00.111222'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '00:00:00.9999995'", "time(6)", "TIME '00:00:01.000000'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '23:59:59.9999995'", "time(6)", "TIME '00:00:00.000000'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '23:59:59.9999995'", "time(6)", "TIME '00:00:00.000000'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '23:59:59.999999499999'", "time(6)", "TIME '23:59:59.999999'");
-        testTimePrecisionOnCreateTableAsSelect("TIME '23:59:59.9999994'", "time(6)", "TIME '23:59:59.999999'");
-    }
-
-    private void testTimePrecisionOnCreateTableAsSelect(String inputType, String tableType, String tableValue)
-    {
-        try (TestTable testTable = new TestTable(
-                getQueryRunner()::execute,
-                "test_coercion_show_create_table",
-                format("AS SELECT %s a", inputType))) {
-            assertThat(getColumnType(testTable.getName(), "a")).isEqualTo(tableType);
-            assertQuery(
-                    format("SELECT * FROM %s", testTable.getName()),
-                    format("VALUES (%s)", tableValue));
-        }
-    }
-
-    @Test
-    public void testTimePrecisionOnCreateTableAsSelectWithNoData()
-    {
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '00:00:00'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '00:00:00.9'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '00:00:00.56'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '00:00:00.123'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '00:00:00.4896'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '00:00:00.89356'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '00:00:00.123000'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '00:00:00.999'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '00:00:00.123456'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '12:34:56.1'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '12:34:56.9'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '12:34:56.123'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '12:34:56.123000'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '12:34:56.999'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '12:34:56.123456'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '00:00:00.1234561'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '00:00:00.123456499'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '00:00:00.123456499999'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '00:00:00.1234565'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '00:00:00.111222333444'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '00:00:00.9999995'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '23:59:59.9999995'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '23:59:59.9999995'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '23:59:59.999999499999'", "time(6)");
-        testTimePrecisionOnCreateTableAsSelectWithNoData("TIME '23:59:59.9999994'", "time(6)");
-    }
-
-    private void testTimePrecisionOnCreateTableAsSelectWithNoData(String inputType, String tableType)
-    {
-        try (TestTable testTable = new TestTable(
-                getQueryRunner()::execute,
-                "test_coercion_show_create_table",
-                format("AS SELECT %s a WITH NO DATA", inputType))) {
-            assertThat(getColumnType(testTable.getName(), "a")).isEqualTo(tableType);
+            return new TypeCoercionTestSetup(sourceValueLiteral, newColumnType, newValueLiteral);
         }
     }
 
