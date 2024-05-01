@@ -144,7 +144,7 @@ public class TaskResource
     {
         requireNonNull(taskUpdateRequest, "taskUpdateRequest is null");
 
-        Session session = taskUpdateRequest.getSession().toSession(sessionPropertyManager, taskUpdateRequest.getExtraCredentials(), taskUpdateRequest.getExchangeEncryptionKey());
+        Session session = taskUpdateRequest.session().toSession(sessionPropertyManager, taskUpdateRequest.extraCredentials(), taskUpdateRequest.exchangeEncryptionKey());
 
         if (injectFailure(session.getTraceToken(), taskId, RequestType.CREATE_OR_UPDATE_TASK, asyncResponse)) {
             return;
@@ -153,12 +153,12 @@ public class TaskResource
         TaskInfo taskInfo = taskManager.updateTask(
                 session,
                 taskId,
-                taskUpdateRequest.getStageSpan(),
-                taskUpdateRequest.getFragment(),
-                taskUpdateRequest.getSplitAssignments(),
-                taskUpdateRequest.getOutputIds(),
-                taskUpdateRequest.getDynamicFilterDomains(),
-                taskUpdateRequest.isSpeculative());
+                taskUpdateRequest.stageSpan(),
+                taskUpdateRequest.fragment(),
+                taskUpdateRequest.splitAssignments(),
+                taskUpdateRequest.outputIds(),
+                taskUpdateRequest.dynamicFilterDomains(),
+                taskUpdateRequest.speculative());
 
         if (shouldSummarize(uriInfo)) {
             taskInfo = taskInfo.summarize();
@@ -221,7 +221,6 @@ public class TaskResource
             @PathParam("taskId") TaskId taskId,
             @HeaderParam(TRINO_CURRENT_VERSION) Long currentVersion,
             @HeaderParam(TRINO_MAX_WAIT) Duration maxWait,
-            @Context UriInfo uriInfo,
             @Suspended AsyncResponse asyncResponse)
     {
         requireNonNull(taskId, "taskId is null");
@@ -262,7 +261,6 @@ public class TaskResource
     public void acknowledgeAndGetNewDynamicFilterDomains(
             @PathParam("taskId") TaskId taskId,
             @HeaderParam(TRINO_CURRENT_VERSION) Long currentDynamicFiltersVersion,
-            @Context UriInfo uriInfo,
             @Suspended AsyncResponse asyncResponse)
     {
         requireNonNull(taskId, "taskId is null");
@@ -307,8 +305,7 @@ public class TaskResource
     @Produces(MediaType.APPLICATION_JSON)
     public TaskInfo failTask(
             @PathParam("taskId") TaskId taskId,
-            FailTaskRequest failTaskRequest,
-            @Context UriInfo uriInfo)
+            FailTaskRequest failTaskRequest)
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(failTaskRequest, "failTaskRequest is null");
@@ -378,7 +375,6 @@ public class TaskResource
     public void destroyTaskResults(
             @PathParam("taskId") TaskId taskId,
             @PathParam("bufferId") PipelinedOutputBuffers.OutputBufferId bufferId,
-            @Context UriInfo uriInfo,
             @Suspended AsyncResponse asyncResponse)
     {
         requireNonNull(taskId, "taskId is null");

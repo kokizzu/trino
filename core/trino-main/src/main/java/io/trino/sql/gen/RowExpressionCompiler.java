@@ -88,13 +88,13 @@ public class RowExpressionCompiler
                     cachedInstanceBinder,
                     functionManager);
 
-            return generatorContext.generateFullCall(call.getResolvedFunction(), call.getArguments());
+            return generatorContext.generateFullCall(call.resolvedFunction(), call.arguments());
         }
 
         @Override
         public BytecodeNode visitSpecialForm(SpecialForm specialForm, Context context)
         {
-            BytecodeGenerator generator = switch (specialForm.getForm()) {
+            BytecodeGenerator generator = switch (specialForm.form()) {
                 case IF -> new IfCodeGenerator(specialForm);
                 case NULL_IF -> new NullIfCodeGenerator(specialForm);
                 case SWITCH -> new SwitchCodeGenerator(specialForm);
@@ -108,7 +108,7 @@ public class RowExpressionCompiler
                 case ROW_CONSTRUCTOR -> new RowConstructorCodeGenerator(specialForm);
                 case ARRAY_CONSTRUCTOR -> new ArrayConstructorCodeGenerator(specialForm);
                 case BIND -> new BindCodeGenerator(specialForm, compiledLambdaMap, context.getLambdaInterface().get());
-                default -> throw new IllegalStateException("Cannot compile special form: " + specialForm.getForm());
+                default -> throw new IllegalStateException("Cannot compile special form: " + specialForm.form());
             };
 
             BytecodeGeneratorContext generatorContext = new BytecodeGeneratorContext(
@@ -124,8 +124,8 @@ public class RowExpressionCompiler
         @Override
         public BytecodeNode visitConstant(ConstantExpression constant, Context context)
         {
-            Object value = constant.getValue();
-            Class<?> javaType = constant.getType().getJavaType();
+            Object value = constant.value();
+            Class<?> javaType = constant.type().getJavaType();
 
             BytecodeBlock block = new BytecodeBlock();
             if (value == null) {
@@ -135,7 +135,7 @@ public class RowExpressionCompiler
             }
 
             // use LDC for primitives (boolean, short, int, long, float, double)
-            block.comment("constant " + constant.getType().getTypeSignature());
+            block.comment("constant " + constant.type().getTypeSignature());
             if (javaType == boolean.class) {
                 return block.append(loadBoolean((Boolean) value));
             }
@@ -150,10 +150,10 @@ public class RowExpressionCompiler
             }
 
             // bind constant object directly into the call-site using invoke dynamic
-            Binding binding = callSiteBinder.bind(value, constant.getType().getJavaType());
+            Binding binding = callSiteBinder.bind(value, constant.type().getJavaType());
 
             return new BytecodeBlock()
-                    .setDescription("constant " + constant.getType())
+                    .setDescription("constant " + constant.type())
                     .comment(constant.toString())
                     .append(loadConstant(binding));
         }
@@ -190,8 +190,8 @@ public class RowExpressionCompiler
         @Override
         public BytecodeNode visitVariableReference(VariableReferenceExpression reference, Context context)
         {
-            if (reference.getName().startsWith(TEMP_PREFIX)) {
-                return context.getScope().getTempVariable(reference.getName().substring(TEMP_PREFIX.length()));
+            if (reference.name().startsWith(TEMP_PREFIX)) {
+                return context.getScope().getTempVariable(reference.name().substring(TEMP_PREFIX.length()));
             }
             return fieldReferenceCompiler.visitVariableReference(reference, context.getScope());
         }

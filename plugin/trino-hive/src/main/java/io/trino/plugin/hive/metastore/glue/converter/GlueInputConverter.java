@@ -93,7 +93,7 @@ public final class GlueInputConverter
     {
         PartitionInput input = convertPartition(partitionWithStatistics.getPartition());
         PartitionStatistics statistics = partitionWithStatistics.getStatistics();
-        input.setParameters(updateStatisticsParameters(input.getParameters(), statistics.getBasicStatistics()));
+        input.setParameters(updateStatisticsParameters(input.getParameters(), statistics.basicStatistics()));
         return input;
     }
 
@@ -125,10 +125,10 @@ public final class GlueInputConverter
 
         Optional<HiveBucketProperty> bucketProperty = storage.getBucketProperty();
         if (bucketProperty.isPresent()) {
-            sd.setNumberOfBuckets(bucketProperty.get().getBucketCount());
-            sd.setBucketColumns(bucketProperty.get().getBucketedBy());
-            if (!bucketProperty.get().getSortedBy().isEmpty()) {
-                sd.setSortColumns(bucketProperty.get().getSortedBy().stream()
+            sd.setNumberOfBuckets(bucketProperty.get().bucketCount());
+            sd.setBucketColumns(bucketProperty.get().bucketedBy());
+            if (!bucketProperty.get().sortedBy().isEmpty()) {
+                sd.setSortColumns(bucketProperty.get().sortedBy().stream()
                         .map(column -> new Order().withColumn(column.getColumnName()).withSortOrder(column.getOrder().getHiveOrder()))
                         .collect(toImmutableList()));
             }

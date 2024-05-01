@@ -46,7 +46,7 @@ public class BigQueryConfig
     private Optional<String> parentProjectId = Optional.empty();
     private Optional<Integer> parallelism = Optional.empty();
     private boolean viewsEnabled;
-    private boolean arrowSerializationEnabled;
+    private boolean arrowSerializationEnabled = true;
     private Duration viewExpireDuration = new Duration(24, HOURS);
     private boolean skipViewMaterialization;
     private boolean viewMaterializationWithFilter;
@@ -57,6 +57,8 @@ public class BigQueryConfig
     private Duration viewsCacheTtl = new Duration(15, MINUTES);
     private Duration serviceCacheTtl = new Duration(3, MINUTES);
     private Duration metadataCacheTtl = new Duration(0, MILLISECONDS);
+    @Deprecated
+    private boolean isLegacyMetadataListing;
     private boolean queryResultsCacheEnabled;
     private String queryLabelName;
     private String queryLabelFormat;
@@ -265,6 +267,20 @@ public class BigQueryConfig
     public BigQueryConfig setMetadataCacheTtl(Duration metadataCacheTtl)
     {
         this.metadataCacheTtl = metadataCacheTtl;
+        return this;
+    }
+
+    public boolean isLegacyMetadataListing()
+    {
+        return isLegacyMetadataListing;
+    }
+
+    @Config("bigquery.legacy-metadata-listing")
+    @ConfigHidden
+    @ConfigDescription("Call BigQuery REST API per table when listing metadata")
+    public BigQueryConfig setLegacyMetadataListing(boolean legacyMetadataListing)
+    {
+        isLegacyMetadataListing = legacyMetadataListing;
         return this;
     }
 

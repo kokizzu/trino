@@ -75,6 +75,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Verify.verify;
@@ -122,6 +123,8 @@ public final class SqlRoutinePlanner
         private final List<IrVariable> allVariables;
         private final Analysis analysis;
         private final StandardFunctionResolution resolution;
+
+        private final AtomicInteger labelCounter = new AtomicInteger();
 
         public StatementVisitor(
                 Session session,
@@ -190,7 +193,7 @@ public final class SqlRoutinePlanner
         {
             if (node.getExpression().isPresent()) {
                 RowExpression valueExpression = toRowExpression(context, node.getExpression().get());
-                IrVariable valueVariable = new IrVariable(allVariables.size(), valueExpression.getType(), valueExpression);
+                IrVariable valueVariable = new IrVariable(allVariables.size(), valueExpression.type(), valueExpression);
 
                 IrStatement statement = node.getElseClause()
                         .map(elseClause -> block(statements(elseClause.getStatements(), context)))
@@ -200,12 +203,12 @@ public final class SqlRoutinePlanner
                     RowExpression conditionValue = toRowExpression(context, whenClause.getExpression());
 
                     RowExpression testValue = field(valueVariable.field(), valueVariable.type());
-                    if (!testValue.getType().equals(conditionValue.getType())) {
-                        ResolvedFunction castFunction = plannerContext.getMetadata().getCoercion(testValue.getType(), conditionValue.getType());
+                    if (!testValue.type().equals(conditionValue.type())) {
+                        ResolvedFunction castFunction = plannerContext.getMetadata().getCoercion(testValue.type(), conditionValue.type());
                         testValue = call(castFunction, testValue);
                     }
 
-                    ResolvedFunction equals = resolution.comparisonFunction(EQUAL, testValue.getType(), conditionValue.getType());
+                    ResolvedFunction equals = resolution.comparisonFunction(EQUAL, testValue.type(), conditionValue.type());
                     RowExpression condition = call(equals, testValue, conditionValue);
 
                     IrStatement ifTrue = block(statements(whenClause.getStatements(), context));
@@ -283,10 +286,10 @@ public final class SqlRoutinePlanner
             return new IrBreak(label(context, node.getLabel()));
         }
 
-        private static Optional<IrLabel> getSqlLabel(Context context, Optional<Identifier> labelName)
+        private Optional<IrLabel> getSqlLabel(Context context, Optional<Identifier> labelName)
         {
             return labelName.map(name -> {
-                IrLabel label = new IrLabel(identifierValue(name));
+                IrLabel label = new IrLabel(identifierValue(name) + "_" + labelCounter.getAndIncrement());
                 verify(context.labels().put(identifierValue(name), label) == null, "Label already declared in this scope: %s", name);
                 return label;
             });

@@ -41,8 +41,8 @@ public class ArrayConstructorCodeGenerator
 
     public ArrayConstructorCodeGenerator(SpecialForm specialForm)
     {
-        elementType = ((ArrayType) specialForm.getType()).getElementType();
-        elements = specialForm.getArguments();
+        elementType = ((ArrayType) specialForm.type()).getElementType();
+        elements = specialForm.arguments();
     }
 
     @Override

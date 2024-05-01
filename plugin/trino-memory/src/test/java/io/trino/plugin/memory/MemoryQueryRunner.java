@@ -15,8 +15,8 @@ package io.trino.plugin.memory;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import io.airlift.log.Logger;
-import io.trino.Session;
 import io.trino.plugin.exchange.filesystem.FileSystemExchangePlugin;
 import io.trino.plugin.tpch.TpchPlugin;
 import io.trino.testing.DistributedQueryRunner;
@@ -48,20 +48,18 @@ public final class MemoryQueryRunner
     public static class Builder
             extends DistributedQueryRunner.Builder<Builder>
     {
-        private List<TpchTable<?>> initialTables = ImmutableList.of();
         private ImmutableMap.Builder<String, String> memoryProperties = ImmutableMap.builder();
+        private List<TpchTable<?>> initialTables = ImmutableList.of();
 
         protected Builder()
         {
-            super(createSession());
+            super(testSessionBuilder()
+                    .setCatalog(CATALOG)
+                    .setSchema("default")
+                    .build());
         }
 
-        public Builder setInitialTables(Iterable<TpchTable<?>> initialTables)
-        {
-            this.initialTables = ImmutableList.copyOf(requireNonNull(initialTables, "initialTables is null"));
-            return self();
-        }
-
+        @CanIgnoreReturnValue
         public Builder setMemoryProperties(Map<String, String> memoryProperties)
         {
             this.memoryProperties = ImmutableMap.<String, String>builder()
@@ -69,9 +67,17 @@ public final class MemoryQueryRunner
             return self();
         }
 
+        @CanIgnoreReturnValue
         public Builder addMemoryProperty(String key, String value)
         {
             this.memoryProperties.put(key, value);
+            return self();
+        }
+
+        @CanIgnoreReturnValue
+        public Builder setInitialTables(Iterable<TpchTable<?>> initialTables)
+        {
+            this.initialTables = ImmutableList.copyOf(requireNonNull(initialTables, "initialTables is null"));
             return self();
         }
 
@@ -96,14 +102,6 @@ public final class MemoryQueryRunner
                 closeAllSuppress(e, queryRunner);
                 throw e;
             }
-        }
-
-        private static Session createSession()
-        {
-            return testSessionBuilder()
-                    .setCatalog(CATALOG)
-                    .setSchema("default")
-                    .build();
         }
     }
 

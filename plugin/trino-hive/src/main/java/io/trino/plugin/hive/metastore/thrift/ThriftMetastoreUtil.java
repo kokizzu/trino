@@ -331,7 +331,7 @@ public final class ThriftMetastoreUtil
     public static io.trino.hive.thrift.metastore.Partition toMetastoreApiPartition(PartitionWithStatistics partitionWithStatistics)
     {
         io.trino.hive.thrift.metastore.Partition partition = toMetastoreApiPartition(partitionWithStatistics.getPartition());
-        partition.setParameters(updateStatisticsParameters(partition.getParameters(), partitionWithStatistics.getStatistics().getBasicStatistics()));
+        partition.setParameters(updateStatisticsParameters(partition.getParameters(), partitionWithStatistics.getStatistics().basicStatistics()));
         return partition;
     }
 
@@ -676,10 +676,10 @@ public final class ThriftMetastoreUtil
 
         Optional<HiveBucketProperty> bucketProperty = storage.getBucketProperty();
         if (bucketProperty.isPresent()) {
-            sd.setNumBuckets(bucketProperty.get().getBucketCount());
-            sd.setBucketCols(bucketProperty.get().getBucketedBy());
-            if (!bucketProperty.get().getSortedBy().isEmpty()) {
-                sd.setSortCols(bucketProperty.get().getSortedBy().stream()
+            sd.setNumBuckets(bucketProperty.get().bucketCount());
+            sd.setBucketCols(bucketProperty.get().bucketedBy());
+            if (!bucketProperty.get().sortedBy().isEmpty()) {
+                sd.setSortCols(bucketProperty.get().sortedBy().stream()
                         .map(column -> new Order(column.getColumnName(), column.getOrder().getHiveOrder()))
                         .collect(toImmutableList()));
             }

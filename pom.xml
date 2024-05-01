@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.airlift</groupId>
         <artifactId>airbase</artifactId>
-        <version>153</version>
+        <version>156</version>
     </parent>
 
     <groupId>io.trino</groupId>
@@ -181,32 +181,29 @@
         <!-- keep dependency properties sorted -->
         <dep.accumulo-hadoop.version>2.7.7-1</dep.accumulo-hadoop.version>
         <dep.accumulo.version>3.0.0</dep.accumulo.version>
-        <dep.airlift.version>245</dep.airlift.version>
+        <dep.airlift.version>246</dep.airlift.version>
         <dep.alluxio.version>312</dep.alluxio.version>
         <dep.antlr.version>4.13.1</dep.antlr.version>
         <dep.avro.version>1.11.3</dep.avro.version>
-        <dep.aws-sdk.version>1.12.705</dep.aws-sdk.version>
+        <dep.aws-sdk.version>1.12.710</dep.aws-sdk.version>
         <dep.cassandra.version>4.17.0</dep.cassandra.version>
         <dep.confluent.version>7.5.1</dep.confluent.version>
         <dep.docker.images.version>93</dep.docker.images.version>
         <dep.drift.version>1.21</dep.drift.version>
-        <dep.errorprone.version>2.26.1</dep.errorprone.version>
+        <dep.errorprone.version>2.27.0</dep.errorprone.version>
         <dep.flyway.version>10.11.1</dep.flyway.version>
         <dep.google.http.client.version>1.44.1</dep.google.http.client.version>
-        <dep.iceberg.version>1.5.0</dep.iceberg.version>
+        <dep.iceberg.version>1.5.1</dep.iceberg.version>
         <dep.jna.version>5.14.0</dep.jna.version>
         <dep.joda.version>2.12.7</dep.joda.version>
         <dep.jsonwebtoken.version>0.12.5</dep.jsonwebtoken.version>
         <dep.kafka-clients.version>3.7.0</dep.kafka-clients.version>
-        <!-- temporary until upgraded in airbase: https://github.com/airlift/airbase/pull/403 -->
-        <dep.logback.version>1.5.6</dep.logback.version>
         <dep.okio.version>3.9.0</dep.okio.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
         <dep.parquet.version>1.13.1</dep.parquet.version>
         <dep.plugin.failsafe.version>${dep.plugin.surefire.version}</dep.plugin.failsafe.version>
         <dep.protobuf.version>3.25.3</dep.protobuf.version>
-        <!-- temporary until upgraded in airbase: https://github.com/airlift/airbase/pull/403 -->
-        <dep.slf4j.version>2.0.13</dep.slf4j.version>
+        <dep.snowflake.version>3.15.1</dep.snowflake.version>
         <dep.swagger.version>2.2.21</dep.swagger.version>
         <dep.takari.version>2.1.4</dep.takari.version>
         <dep.tcnative.version>2.0.65.Final</dep.tcnative.version>
@@ -217,11 +214,10 @@
 
     <dependencyManagement>
         <dependencies>
-
             <dependency>
                 <groupId>com.azure</groupId>
                 <artifactId>azure-sdk-bom</artifactId>
-                <version>1.2.22</version>
+                <version>1.2.23</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -229,7 +225,7 @@
             <dependency>
                 <groupId>com.google.cloud</groupId>
                 <artifactId>libraries-bom</artifactId>
-                <version>26.37.0</version>
+                <version>26.38.0</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -293,7 +289,7 @@
             <dependency>
                 <groupId>org.ow2.asm</groupId>
                 <artifactId>asm-bom</artifactId>
-                <version>9.7</version>
+                <version>${dep.asm.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -309,7 +305,7 @@
             <dependency>
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
-                <version>2.25.35</version>
+                <version>2.25.40</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -317,7 +313,7 @@
             <dependency>
                 <groupId>com.adobe.testing</groupId>
                 <artifactId>s3mock-testcontainers</artifactId>
-                <version>3.6.0</version>
+                <version>3.7.1</version>
             </dependency>
 
             <dependency>
@@ -459,7 +455,7 @@
             <dependency>
                 <groupId>com.clickhouse</groupId>
                 <artifactId>clickhouse-jdbc</artifactId>
-                <version>0.6.0-patch3</version>
+                <version>0.6.0-patch4</version>
                 <classifier>all</classifier>
             </dependency>
 
@@ -496,7 +492,7 @@
             <dependency>
                 <groupId>com.github.luben</groupId>
                 <artifactId>zstd-jni</artifactId>
-                <version>1.5.6-2</version>
+                <version>1.5.6-3</version>
             </dependency>
 
             <dependency>
@@ -514,7 +510,7 @@
             <dependency>
                 <groupId>com.google.cloud.bigdataoss</groupId>
                 <artifactId>gcs-connector</artifactId>
-                <version>hadoop3-2.2.21</version>
+                <version>hadoop3-2.2.22</version>
                 <classifier>shaded</classifier>
                 <exclusions>
                     <exclusion>
@@ -643,7 +639,7 @@
             <dependency>
                 <groupId>commons-codec</groupId>
                 <artifactId>commons-codec</artifactId>
-                <version>1.16.1</version>
+                <version>1.17.0</version>
             </dependency>
 
             <dependency>
@@ -839,7 +835,7 @@
             <dependency>
                 <groupId>io.minio</groupId>
                 <artifactId>minio</artifactId>
-                <version>8.5.9</version>
+                <version>8.5.10</version>
             </dependency>
 
             <dependency>
@@ -1628,11 +1624,11 @@
                 <version>8.5.13</version>
             </dependency>
 
-            <!-- TODO: remove when updated in airbase -->
+            <!-- TODO: remove when added to airbase -->
             <dependency>
                 <groupId>net.bytebuddy</groupId>
                 <artifactId>byte-buddy</artifactId>
-                <version>1.14.13</version>
+                <version>1.14.14</version>
             </dependency>
 
             <dependency>
@@ -1652,6 +1648,12 @@
                 <groupId>net.minidev</groupId>
                 <artifactId>json-smart</artifactId>
                 <version>2.5.1</version>
+            </dependency>
+
+            <dependency>
+                <groupId>net.snowflake</groupId>
+                <artifactId>snowflake-jdbc</artifactId>
+                <version>${dep.snowflake.version}</version>
             </dependency>
 
             <dependency>
@@ -1875,6 +1877,12 @@
                         <artifactId>slf4j-api</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+
+            <dependency>
+                <groupId>org.apache.iceberg</groupId>
+                <artifactId>iceberg-snowflake</artifactId>
+                <version>${dep.iceberg.version}</version>
             </dependency>
 
             <dependency>
@@ -2288,7 +2296,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-wrapper-plugin</artifactId>
-                    <version>3.3.0</version>
+                    <version>3.3.1</version>
                 </plugin>
 
                 <plugin>
@@ -2399,19 +2407,9 @@
                 <plugin>
                     <groupId>ca.vanzyl.provisio.maven.plugins</groupId>
                     <artifactId>provisio-maven-plugin</artifactId>
-                    <version>1.0.23</version>
+                    <version>1.0.24</version>
                 </plugin>
 
-                <plugin>
-                    <groupId>io.github.git-commit-id</groupId>
-                    <artifactId>git-commit-id-maven-plugin</artifactId>
-                    <configuration>
-                        <runOnlyOnce>true</runOnlyOnce>
-                        <injectAllReactorProjects>true</injectAllReactorProjects>
-                        <!-- A workaround to make build work in a Git worktree, see https://github.com/git-commit-id/git-commit-id-maven-plugin/issues/215 -->
-                        <useNativeGit>true</useNativeGit>
-                    </configuration>
-                </plugin>
                 <plugin>
                     <groupId>org.basepom.maven</groupId>
                     <artifactId>duplicate-finder-maven-plugin</artifactId>
@@ -2569,6 +2567,32 @@
                 <artifactId>trino-maven-plugin</artifactId>
                 <version>14</version>
                 <extensions>true</extensions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.gaul</groupId>
+                <artifactId>modernizer-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>modernizer-production-code</id>
+                        <goals>
+                            <goal>modernizer</goal>
+                        </goals>
+                        <configuration>
+                            <violationsFiles>
+                                <violationsFile>${air.main.basedir}/.mvn/modernizer/violations-production-code-only.xml</violationsFile>
+                            </violationsFiles>
+                            <includeTestClasses>false</includeTestClasses>
+                            <ignorePackages>
+                                <ignorePackage>io.trino.testing</ignorePackage>
+                                <ignorePackage>io.trino.tests.product</ignorePackage>
+                                <ignorePackage>io.trino.tests.product.hive</ignorePackage>
+                                <ignorePackage>io.trino.tests.product.iceberg</ignorePackage>
+                                <ignorePackage>io.trino.verifier</ignorePackage>
+                            </ignorePackages>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
 
             <plugin>

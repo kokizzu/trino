@@ -614,13 +614,13 @@ public final class MetadataManager
             QualifiedObjectName objectName = new QualifiedObjectName(catalogName, schemaName.orElseThrow(), relationName.get());
             SchemaTableName schemaTableName = objectName.asSchemaTableName();
 
-            return Optional.<RelationColumnsMetadata>empty()
-                    .or(() -> getMaterializedViewInternal(session, objectName)
-                            .map(materializedView -> RelationColumnsMetadata.forMaterializedView(schemaTableName, materializedView.getColumns())))
-                    .or(() -> getViewInternal(session, objectName)
-                            .map(view -> RelationColumnsMetadata.forView(schemaTableName, view.getColumns())))
-                    .or(() -> {
-                        try {
+            try {
+                return Optional.<RelationColumnsMetadata>empty()
+                        .or(() -> getMaterializedViewInternal(session, objectName)
+                                .map(materializedView -> RelationColumnsMetadata.forMaterializedView(schemaTableName, materializedView.getColumns())))
+                        .or(() -> getViewInternal(session, objectName)
+                                .map(view -> RelationColumnsMetadata.forView(schemaTableName, view.getColumns())))
+                        .or(() -> {
                             // TODO: redirects are handled inefficiently: we currently throw-away redirect info and redo it later
                             RedirectionAwareTableHandle redirectionAware = getRedirectionAwareTableHandle(session, objectName);
                             if (redirectionAware.redirectedTableName().isPresent()) {
@@ -629,31 +629,18 @@ public final class MetadataManager
                             if (redirectionAware.tableHandle().isPresent()) {
                                 return Optional.of(RelationColumnsMetadata.forTable(schemaTableName, getTableMetadata(session, redirectionAware.tableHandle().get()).columns()));
                             }
-                        }
-                        catch (RuntimeException e) {
-                            boolean silent = false;
-                            if (e instanceof TrinoException trinoException) {
-                                ErrorCode errorCode = trinoException.getErrorCode();
-                                silent = errorCode.equals(UNSUPPORTED_TABLE_TYPE.toErrorCode()) ||
-                                        // e.g. table deleted concurrently
-                                        errorCode.equals(TABLE_NOT_FOUND.toErrorCode()) ||
-                                        errorCode.equals(NOT_FOUND.toErrorCode()) ||
-                                        // e.g. Iceberg/Delta table being deleted concurrently resulting in failure to load metadata from filesystem
-                                        errorCode.getType() == EXTERNAL;
-                            }
-                            if (silent) {
-                                log.debug(e, "Failed to get metadata for table: %s", objectName);
-                            }
-                            else {
-                                log.warn(e, "Failed to get metadata for table: %s", objectName);
-                            }
-                        }
-                        // Not found, or getting metadata failed.
-                        return Optional.empty();
-                    })
-                    .filter(relationColumnsMetadata -> relationFilter.apply(ImmutableSet.of(relationColumnsMetadata.name())).contains(relationColumnsMetadata.name()))
-                    .map(relationColumnsMetadata -> ImmutableList.of(tableColumnsMetadata(catalogName, relationColumnsMetadata)))
-                    .orElse(ImmutableList.of());
+                            // Not found
+                            return Optional.empty();
+                        })
+                        .filter(relationColumnsMetadata -> relationFilter.apply(ImmutableSet.of(relationColumnsMetadata.name())).contains(relationColumnsMetadata.name()))
+                        .map(relationColumnsMetadata -> ImmutableList.of(tableColumnsMetadata(catalogName, relationColumnsMetadata)))
+                        .orElse(ImmutableList.of());
+            }
+            catch (RuntimeException e) {
+                handleListingError(e, prefix);
+                // Empty in case of metadata error.
+                return ImmutableList.of();
+            }
         }
 
         Optional<CatalogMetadata> catalog = getOptionalCatalogMetadata(session, catalogName);
@@ -676,6 +663,26 @@ public final class MetadataManager
             }
         }
         return ImmutableList.copyOf(tableColumns.values());
+    }
+
+    private static void handleListingError(RuntimeException e, QualifiedTablePrefix tablePrefix)
+    {
+        boolean silent = false;
+        if (e instanceof TrinoException trinoException) {
+            ErrorCode errorCode = trinoException.getErrorCode();
+            silent = errorCode.equals(UNSUPPORTED_TABLE_TYPE.toErrorCode()) ||
+                    // e.g. table deleted concurrently
+                    errorCode.equals(TABLE_NOT_FOUND.toErrorCode()) ||
+                    errorCode.equals(NOT_FOUND.toErrorCode()) ||
+                    // e.g. Iceberg/Delta table being deleted concurrently resulting in failure to load metadata from filesystem
+                    errorCode.getType() == EXTERNAL;
+        }
+        if (silent) {
+            log.debug(e, "Failed to get metadata for table: %s", tablePrefix);
+        }
+        else {
+            log.warn(e, "Failed to get metadata for table: %s", tablePrefix);
+        }
     }
 
     private TableColumnsMetadata tableColumnsMetadata(String catalogName, RelationColumnsMetadata relationColumnsMetadata)
@@ -1396,9 +1403,16 @@ public final class MetadataManager
 
                 Map<SchemaTableName, ConnectorViewDefinition> viewMap;
                 if (tablePrefix.getTable().isPresent()) {
-                    viewMap = metadata.getView(connectorSession, tablePrefix.toSchemaTableName())
-                            .map(view -> ImmutableMap.of(tablePrefix.toSchemaTableName(), view))
-                            .orElse(ImmutableMap.of());
+                    try {
+                        viewMap = metadata.getView(connectorSession, tablePrefix.toSchemaTableName())
+                                .map(view -> ImmutableMap.of(tablePrefix.toSchemaTableName(), view))
+                                .orElse(ImmutableMap.of());
+                    }
+                    catch (RuntimeException e) {
+                        handleListingError(e, prefix);
+                        // Empty in case of metadata error.
+                        viewMap = ImmutableMap.of();
+                    }
                 }
                 else {
                     viewMap = metadata.getViews(connectorSession, tablePrefix.getSchema());
