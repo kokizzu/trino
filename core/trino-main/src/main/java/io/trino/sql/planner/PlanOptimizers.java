@@ -52,6 +52,7 @@ import io.trino.sql.planner.iterative.rule.EvaluateZeroSample;
 import io.trino.sql.planner.iterative.rule.ExtractDereferencesFromFilterAboveScan;
 import io.trino.sql.planner.iterative.rule.ExtractSpatialJoins;
 import io.trino.sql.planner.iterative.rule.GatherAndMergeWindows;
+import io.trino.sql.planner.iterative.rule.GatherPartialTopN;
 import io.trino.sql.planner.iterative.rule.ImplementBernoulliSampleAsFilter;
 import io.trino.sql.planner.iterative.rule.ImplementExceptAll;
 import io.trino.sql.planner.iterative.rule.ImplementExceptDistinctAsUnion;
@@ -149,6 +150,7 @@ import io.trino.sql.planner.iterative.rule.PushDownDereferencesThroughTopN;
 import io.trino.sql.planner.iterative.rule.PushDownDereferencesThroughTopNRanking;
 import io.trino.sql.planner.iterative.rule.PushDownDereferencesThroughWindow;
 import io.trino.sql.planner.iterative.rule.PushDownProjectionsFromPatternRecognition;
+import io.trino.sql.planner.iterative.rule.PushFilterThroughBoolOrAggregation;
 import io.trino.sql.planner.iterative.rule.PushFilterThroughCountAggregation;
 import io.trino.sql.planner.iterative.rule.PushInequalityFilterExpressionBelowJoinRuleSet;
 import io.trino.sql.planner.iterative.rule.PushJoinIntoTableScan;
@@ -601,6 +603,7 @@ public class PlanOptimizers
                                 .addAll(columnPruningRules)
                                 .add(new InlineProjections())
                                 .addAll(new PushFilterThroughCountAggregation(plannerContext).rules()) // must run after PredicatePushDown and after TransformFilteringSemiJoinToInnerJoin
+                                .addAll(new PushFilterThroughBoolOrAggregation(plannerContext).rules())
                                 .build()));
 
         // Perform redirection before CBO rules to ensure stats from destination connector are used
@@ -961,7 +964,9 @@ public class PlanOptimizers
                 ruleStats,
                 statsCalculator,
                 costCalculator,
-                ImmutableSet.of(new UseNonPartitionedJoinLookupSource())));
+                ImmutableSet.of(
+                        new UseNonPartitionedJoinLookupSource(),
+                        new GatherPartialTopN())));
 
         // Optimizers above this do not need to care about aggregations with the type other than SINGLE
         // This optimizer must be run after all exchange-related optimizers

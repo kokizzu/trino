@@ -11,12 +11,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.phoenix;
+package io.trino.metadata;
 
-import org.junit.jupiter.api.Test;
+import io.trino.spi.ErrorCodeSupplier;
+import io.trino.spi.TrinoException;
 
-public class TestDummy
+public class LanguageFunctionAnalysisException
+        extends TrinoException
 {
-    @Test
-    public void buildRequiresTestToExist() {}
+    public LanguageFunctionAnalysisException(ErrorCodeSupplier errorCode, String message)
+    {
+        super(errorCode, message);
+    }
 }
