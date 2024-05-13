@@ -34,12 +34,22 @@ public final class PrometheusQueryRunner
 {
     private PrometheusQueryRunner() {}
 
-    public static QueryRunner createPrometheusQueryRunner(PrometheusServer server, Map<String, String> extraProperties, Map<String, String> connectorProperties)
+    // TODO convert to builder
+    public static QueryRunner createPrometheusQueryRunner(PrometheusServer server, Map<String, String> connectorProperties)
+            throws Exception
+    {
+        return createPrometheusQueryRunner(server, ImmutableMap.of(), connectorProperties);
+    }
+
+    // TODO convert to builder
+    private static QueryRunner createPrometheusQueryRunner(PrometheusServer server, Map<String, String> coordinatorProperties, Map<String, String> connectorProperties)
             throws Exception
     {
         QueryRunner queryRunner = null;
         try {
-            queryRunner = DistributedQueryRunner.builder(createSession()).setExtraProperties(extraProperties).build();
+            queryRunner = DistributedQueryRunner.builder(createSession())
+                    .setCoordinatorProperties(coordinatorProperties)
+                    .build();
 
             queryRunner.installPlugin(new PrometheusPlugin());
             // note: additional copy via ImmutableList so that if fails on nulls

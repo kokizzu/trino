@@ -26,10 +26,11 @@ import java.util.Map;
 
 import static io.trino.testing.TestingSession.testSessionBuilder;
 
-public class ExampleQueryRunner
+public final class ExampleQueryRunner
 {
     private ExampleQueryRunner() {}
 
+    // TODO convert to builder
     public static QueryRunner createQueryRunner()
             throws Exception
     {
@@ -38,11 +39,12 @@ public class ExampleQueryRunner
                 .setSchema("default")
                 .build();
 
-        Map<String, String> extraProperties = ImmutableMap.<String, String>builder()
+        // TODO static port binding should be in main() only
+        Map<String, String> coordinatorProperties = ImmutableMap.<String, String>builder()
                 .put("http-server.http.port", "8080")
                 .buildOrThrow();
         QueryRunner queryRunner = DistributedQueryRunner.builder(defaultSession)
-                .setExtraProperties(extraProperties)
+                .setCoordinatorProperties(coordinatorProperties)
                 .build();
         queryRunner.installPlugin(new ExamplePlugin());
 

@@ -18,7 +18,7 @@ import com.google.common.collect.ImmutableMap;
 import io.airlift.log.Logger;
 import io.trino.Session;
 import io.trino.plugin.hive.TestingHivePlugin;
-import io.trino.plugin.hive.metastore.HiveMetastore;
+import io.trino.plugin.hive.metastore.glue.GlueHiveMetastore;
 import io.trino.plugin.iceberg.BaseSharedMetastoreTest;
 import io.trino.plugin.iceberg.IcebergPlugin;
 import io.trino.plugin.tpch.TpchPlugin;
@@ -55,7 +55,7 @@ public class TestSharedGlueMetastore
     private static final String HIVE_CATALOG = "hive";
 
     private Path dataDirectory;
-    private HiveMetastore glueMetastore;
+    private GlueHiveMetastore glueMetastore;
 
     @Override
     protected QueryRunner createQueryRunner()
@@ -93,7 +93,7 @@ public class TestSharedGlueMetastore
                         "hive.metastore.glue.default-warehouse-dir", dataDirectory.toString(),
                         "iceberg.hive-catalog-name", "hive"));
 
-        this.glueMetastore = createTestingGlueHiveMetastore(dataDirectory);
+        this.glueMetastore = createTestingGlueHiveMetastore(dataDirectory, this::closeAfterClass);
         queryRunner.installPlugin(new TestingHivePlugin(queryRunner.getCoordinator().getBaseDataDir().resolve("hive_data"), glueMetastore));
         queryRunner.createCatalog(HIVE_CATALOG, "hive");
         queryRunner.createCatalog(
@@ -115,6 +115,7 @@ public class TestSharedGlueMetastore
             if (glueMetastore != null) {
                 // Data is on the local disk and will be deleted by the deleteOnExit hook
                 glueMetastore.dropDatabase(schema, false);
+                glueMetastore.shutdown();
             }
         }
         catch (Exception e) {

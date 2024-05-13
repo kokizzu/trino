@@ -31,18 +31,28 @@ import static io.trino.testing.TestingSession.testSessionBuilder;
 
 public final class SnowflakeQueryRunner
 {
-    public static final String TPCH_SCHEMA = "tpch";
-
     private SnowflakeQueryRunner() {}
 
+    public static final String TPCH_SCHEMA = "tpch";
+
+    // TODO convert to builder
     public static DistributedQueryRunner createSnowflakeQueryRunner(
-            Map<String, String> extraProperties,
+            Map<String, String> connectorProperties,
+            Iterable<TpchTable<?>> tables)
+            throws Exception
+    {
+        return createSnowflakeQueryRunner(ImmutableMap.of(), connectorProperties, tables);
+    }
+
+    // TODO convert to builder
+    private static DistributedQueryRunner createSnowflakeQueryRunner(
+            Map<String, String> coordinatorProperties,
             Map<String, String> connectorProperties,
             Iterable<TpchTable<?>> tables)
             throws Exception
     {
         DistributedQueryRunner queryRunner = DistributedQueryRunner.builder(createSession())
-                .setExtraProperties(extraProperties)
+                .setCoordinatorProperties(coordinatorProperties)
                 .build();
         try {
             queryRunner.installPlugin(new TpchPlugin());

@@ -36,6 +36,7 @@ import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
 import static io.airlift.slice.Slices.utf8Slice;
+import static io.trino.spi.predicate.SortedRangeSet.DiscreteSetMarker.UNKNOWN;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.DecimalType.createDecimalType;
@@ -62,6 +63,7 @@ public class TestSortedRangeSet
         assertThat(rangeSet.isNone()).isTrue();
         assertThat(rangeSet.isAll()).isFalse();
         assertThat(rangeSet.isSingleValue()).isFalse();
+        assertThat(rangeSet.isDiscreteSet()).isFalse();
         assertThat(rangeSet.getOrderedRanges().isEmpty()).isTrue();
         assertThat(rangeSet.getRangeCount()).isEqualTo(0);
         assertThat(rangeSet.complement()).isEqualTo(SortedRangeSet.all(BIGINT));
@@ -77,6 +79,7 @@ public class TestSortedRangeSet
         assertThat(rangeSet.isNone()).isFalse();
         assertThat(rangeSet.isAll()).isTrue();
         assertThat(rangeSet.isSingleValue()).isFalse();
+        assertThat(rangeSet.isDiscreteSet()).isFalse();
         assertThat(rangeSet.getRangeCount()).isEqualTo(1);
         assertThat(rangeSet.complement()).isEqualTo(SortedRangeSet.none(BIGINT));
         assertThat(rangeSet.containsValue(0L)).isTrue();
@@ -94,6 +97,7 @@ public class TestSortedRangeSet
         assertThat(rangeSet.isNone()).isFalse();
         assertThat(rangeSet.isAll()).isFalse();
         assertThat(rangeSet.isSingleValue()).isTrue();
+        assertThat(rangeSet.isDiscreteSet()).isTrue();
         assertThat(rangeSet.getOrderedRanges()).isEqualTo(ImmutableList.of(Range.equal(BIGINT, 10L)));
         assertThat(rangeSet.getRangeCount()).isEqualTo(1);
         assertThat(rangeSet.complement()).isEqualTo(complement);
@@ -130,6 +134,7 @@ public class TestSortedRangeSet
         assertThat(rangeSet.isNone()).isFalse();
         assertThat(rangeSet.isAll()).isFalse();
         assertThat(rangeSet.isSingleValue()).isFalse();
+        assertThat(rangeSet.isDiscreteSet()).isFalse();
         assertThat(rangeSet.getOrderedRanges()).isEqualTo(normalizedResult);
         assertThat(rangeSet).isEqualTo(SortedRangeSet.copyOf(BIGINT, normalizedResult));
         assertThat(rangeSet.getRangeCount()).isEqualTo(3);
@@ -167,6 +172,7 @@ public class TestSortedRangeSet
         assertThat(rangeSet.isNone()).isFalse();
         assertThat(rangeSet.isAll()).isFalse();
         assertThat(rangeSet.isSingleValue()).isFalse();
+        assertThat(rangeSet.isDiscreteSet()).isFalse();
         assertThat(rangeSet.getOrderedRanges()).isEqualTo(normalizedResult);
         assertThat(rangeSet).isEqualTo(SortedRangeSet.copyOf(BIGINT, normalizedResult));
         assertThat(rangeSet.getRangeCount()).isEqualTo(3);
@@ -482,6 +488,11 @@ public class TestSortedRangeSet
                 SortedRangeSet.none(BIGINT));
 
         assertIntersect(
+                SortedRangeSet.of(Range.equal(BIGINT, 1L)),
+                SortedRangeSet.of(Range.equal(BIGINT, 2L)),
+                SortedRangeSet.none(BIGINT));
+
+        assertIntersect(
                 SortedRangeSet.of(Range.equal(BIGINT, 1L), Range.equal(BIGINT, 2L), Range.equal(BIGINT, 3L)),
                 SortedRangeSet.of(Range.equal(BIGINT, 2L), Range.equal(BIGINT, 4L)),
                 SortedRangeSet.of(Range.equal(BIGINT, 2L)));
@@ -604,6 +615,25 @@ public class TestSortedRangeSet
                                 IntStream.rangeClosed(30, 49).mapToObj(l -> Range.range(VARCHAR, slices.get(l * 5), l % 2 == 1, slices.get((l + 1) * 5 - 1), l % 2 == 0))).toList()));
     }
 
+    @Test
+    public void testLinearDiscreteSetIntersect()
+    {
+        SortedRangeSet result = SortedRangeSet.of(BIGINT, 1L, 2L, 10L, 11L, 20L, 21L)
+                .linearDiscreteSetIntersect(SortedRangeSet.of(BIGINT, 1L, 2L, 20L, 21L, 30L));
+        assertThat(result).isEqualTo(SortedRangeSet.of(BIGINT, 1L, 2L, 20L, 21L));
+        assertThat(result.isDiscreteSet()).isTrue();
+
+        result = SortedRangeSet.of(BIGINT, 1L, 2L, 10L)
+                .linearDiscreteSetIntersect(SortedRangeSet.of(BIGINT, 1L, 2L, 11L));
+        assertThat(result).isEqualTo(SortedRangeSet.of(BIGINT, 1L, 2L));
+        assertThat(result.isDiscreteSet()).isTrue();
+
+        result = SortedRangeSet.of(BIGINT, 1L, 2L, 10L)
+                .linearDiscreteSetIntersect(SortedRangeSet.of(BIGINT, 42L));
+        assertThat(result).isEqualTo(SortedRangeSet.none(BIGINT));
+        assertThat(result.isDiscreteSet()).isFalse();
+    }
+
     private void assertIntersect(SortedRangeSet first, SortedRangeSet second, SortedRangeSet result)
     {
         assertThat(first.intersect(second)).isEqualTo(result);
@@ -612,6 +642,13 @@ public class TestSortedRangeSet
         assertThat(second.intersect(first)).isEqualTo(result);
         assertThat(second.linearSearchIntersect(first)).isEqualTo(result);
         assertThat(second.binarySearchIntersect(first)).isEqualTo(result);
+
+        // force discrete set to be evaluated
+        first.isDiscreteSet();
+        second.isDiscreteSet();
+        assertThat(first.getDiscreteSetMarker()).isNotEqualTo(UNKNOWN);
+        assertThat(second.getDiscreteSetMarker()).isNotEqualTo(UNKNOWN);
+        assertThat(first.intersect(second).isDiscreteSet()).isEqualTo(result.isDiscreteSet());
     }
 
     @Test
@@ -620,6 +657,7 @@ public class TestSortedRangeSet
         assertUnion(SortedRangeSet.none(BIGINT), SortedRangeSet.none(BIGINT), SortedRangeSet.none(BIGINT));
         assertUnion(SortedRangeSet.all(BIGINT), SortedRangeSet.all(BIGINT), SortedRangeSet.all(BIGINT));
         assertUnion(SortedRangeSet.none(BIGINT), SortedRangeSet.all(BIGINT), SortedRangeSet.all(BIGINT));
+        assertUnion(SortedRangeSet.none(BIGINT), SortedRangeSet.of(Range.equal(BIGINT, 2L)), SortedRangeSet.of(Range.equal(BIGINT, 2L)));
 
         assertUnion(
                 SortedRangeSet.of(Range.equal(BIGINT, 1L), Range.equal(BIGINT, 2L)),
@@ -877,6 +915,13 @@ public class TestSortedRangeSet
     {
         assertThat(first.union(second)).isEqualTo(expected);
         assertThat(first.union(ImmutableList.of(first, second))).isEqualTo(expected);
+
+        // force discrete set to be evaluated
+        first.isDiscreteSet();
+        second.isDiscreteSet();
+        assertThat(first.getDiscreteSetMarker()).isNotEqualTo(UNKNOWN);
+        assertThat(second.getDiscreteSetMarker()).isNotEqualTo(UNKNOWN);
+        assertThat(first.union(second).isDiscreteSet()).isEqualTo(expected.isDiscreteSet());
     }
 
     private static SortedRangeSetAssert assertSortedRangeSet(SortedRangeSet sortedRangeSet)

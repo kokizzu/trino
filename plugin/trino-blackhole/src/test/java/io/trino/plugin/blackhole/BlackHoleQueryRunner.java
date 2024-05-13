@@ -35,7 +35,8 @@ public final class BlackHoleQueryRunner
         return createQueryRunner(ImmutableMap.of());
     }
 
-    public static QueryRunner createQueryRunner(Map<String, String> extraProperties)
+    // TODO convert to builder
+    private static QueryRunner createQueryRunner(Map<String, String> coordinatorProperties)
             throws Exception
     {
         Session session = testSessionBuilder()
@@ -44,7 +45,7 @@ public final class BlackHoleQueryRunner
                 .build();
 
         QueryRunner queryRunner = DistributedQueryRunner.builder(session)
-                .setExtraProperties(extraProperties)
+                .setCoordinatorProperties(coordinatorProperties)
                 .build();
 
         try {

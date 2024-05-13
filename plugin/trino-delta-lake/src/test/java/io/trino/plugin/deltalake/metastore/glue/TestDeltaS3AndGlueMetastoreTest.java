@@ -40,16 +40,17 @@ public class TestDeltaS3AndGlueMetastoreTest
     protected QueryRunner createQueryRunner()
             throws Exception
     {
-        metastore = createTestingGlueHiveMetastore(URI.create(schemaPath()));
-        QueryRunner queryRunner = DeltaLakeQueryRunner.builder()
+        metastore = createTestingGlueHiveMetastore(URI.create(schemaPath()), this::closeAfterClass);
+        return DeltaLakeQueryRunner.builder(schemaName)
                 .setDeltaProperties(ImmutableMap.<String, String>builder()
                         .put("hive.metastore", "glue")
                         .put("hive.metastore.glue.default-warehouse-dir", schemaPath())
+                        .put("fs.hadoop.enabled", "false")
+                        .put("fs.native-s3.enabled", "true")
                         .put("delta.enable-non-concurrent-writes", "true")
                         .buildOrThrow())
+                .setSchemaLocation(schemaPath())
                 .build();
-        queryRunner.execute("CREATE SCHEMA " + schemaName + " WITH (location = '" + schemaPath() + "')");
-        return queryRunner;
     }
 
     @Override

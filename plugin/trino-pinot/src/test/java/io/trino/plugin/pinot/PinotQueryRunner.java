@@ -37,22 +37,34 @@ import static io.trino.tpch.TpchTable.NATION;
 import static io.trino.tpch.TpchTable.ORDERS;
 import static io.trino.tpch.TpchTable.REGION;
 
-public class PinotQueryRunner
+public final class PinotQueryRunner
 {
-    public static final String PINOT_CATALOG = "pinot";
-
     private PinotQueryRunner() {}
 
+    public static final String PINOT_CATALOG = "pinot";
+
+    // TODO convert to builder
     public static QueryRunner createPinotQueryRunner(
             TestingKafka kafka,
             TestingPinotCluster pinot,
-            Map<String, String> extraProperties,
+            Map<String, String> extraPinotProperties,
+            Iterable<TpchTable<?>> tables)
+            throws Exception
+    {
+        return createPinotQueryRunner(kafka, pinot, ImmutableMap.of(), extraPinotProperties, tables);
+    }
+
+    // TODO convert to builder
+    private static QueryRunner createPinotQueryRunner(
+            TestingKafka kafka,
+            TestingPinotCluster pinot,
+            Map<String, String> coordinatorProperties,
             Map<String, String> extraPinotProperties,
             Iterable<TpchTable<?>> tables)
             throws Exception
     {
         QueryRunner queryRunner = DistributedQueryRunner.builder(createSession())
-                .setExtraProperties(extraProperties)
+                .setCoordinatorProperties(coordinatorProperties)
                 .build();
 
         queryRunner.installPlugin(new PinotPlugin(Optional.of(binder -> newOptionalBinder(binder, PinotHostMapper.class).setBinding()

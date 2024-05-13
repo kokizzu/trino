@@ -46,12 +46,27 @@ public final class ClickHouseQueryRunner
     public static QueryRunner createClickHouseQueryRunner(TestingClickHouseServer server, TpchTable<?>... tables)
             throws Exception
     {
-        return createClickHouseQueryRunner(server, ImmutableMap.of(), ImmutableMap.of(), ImmutableList.copyOf(tables));
+        return createClickHouseQueryRunner(server, ImmutableMap.of(), ImmutableList.copyOf(tables));
     }
 
+    // TODO convert to builder
     public static QueryRunner createClickHouseQueryRunner(
             TestingClickHouseServer server,
-            Map<String, String> extraProperties,
+            Map<String, String> connectorProperties,
+            Iterable<TpchTable<?>> tables)
+            throws Exception
+    {
+        return createClickHouseQueryRunner(
+                server,
+                ImmutableMap.of(),
+                connectorProperties,
+                tables);
+    }
+
+    // TODO convert to builder
+    private static QueryRunner createClickHouseQueryRunner(
+            TestingClickHouseServer server,
+            Map<String, String> coordinatorProperties,
             Map<String, String> connectorProperties,
             Iterable<TpchTable<?>> tables)
             throws Exception
@@ -59,7 +74,7 @@ public final class ClickHouseQueryRunner
         QueryRunner queryRunner = null;
         try {
             queryRunner = DistributedQueryRunner.builder(createSession())
-                    .setExtraProperties(extraProperties)
+                    .setCoordinatorProperties(coordinatorProperties)
                     .build();
 
             queryRunner.installPlugin(new TpchPlugin());

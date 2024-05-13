@@ -78,8 +78,8 @@ import static io.trino.spi.expression.StandardFunctions.DIVIDE_FUNCTION_NAME;
 import static io.trino.spi.expression.StandardFunctions.EQUAL_OPERATOR_FUNCTION_NAME;
 import static io.trino.spi.expression.StandardFunctions.GREATER_THAN_OPERATOR_FUNCTION_NAME;
 import static io.trino.spi.expression.StandardFunctions.GREATER_THAN_OR_EQUAL_OPERATOR_FUNCTION_NAME;
+import static io.trino.spi.expression.StandardFunctions.IDENTICAL_OPERATOR_FUNCTION_NAME;
 import static io.trino.spi.expression.StandardFunctions.IN_PREDICATE_FUNCTION_NAME;
-import static io.trino.spi.expression.StandardFunctions.IS_DISTINCT_FROM_OPERATOR_FUNCTION_NAME;
 import static io.trino.spi.expression.StandardFunctions.IS_NULL_FUNCTION_NAME;
 import static io.trino.spi.expression.StandardFunctions.LESS_THAN_OPERATOR_FUNCTION_NAME;
 import static io.trino.spi.expression.StandardFunctions.LESS_THAN_OR_EQUAL_OPERATOR_FUNCTION_NAME;
@@ -160,7 +160,7 @@ public final class ConnectorExpressionTranslator
             case LESS_THAN_OR_EQUAL -> LESS_THAN_OR_EQUAL_OPERATOR_FUNCTION_NAME;
             case GREATER_THAN -> GREATER_THAN_OPERATOR_FUNCTION_NAME;
             case GREATER_THAN_OR_EQUAL -> GREATER_THAN_OR_EQUAL_OPERATOR_FUNCTION_NAME;
-            case IS_DISTINCT_FROM -> IS_DISTINCT_FROM_OPERATOR_FUNCTION_NAME;
+            case IDENTICAL -> IDENTICAL_OPERATOR_FUNCTION_NAME;
         };
     }
 
@@ -404,8 +404,8 @@ public final class ConnectorExpressionTranslator
             if (GREATER_THAN_OR_EQUAL_OPERATOR_FUNCTION_NAME.equals(functionName)) {
                 return Optional.of(Comparison.Operator.GREATER_THAN_OR_EQUAL);
             }
-            if (IS_DISTINCT_FROM_OPERATOR_FUNCTION_NAME.equals(functionName)) {
-                return Optional.of(Comparison.Operator.IS_DISTINCT_FROM);
+            if (IDENTICAL_OPERATOR_FUNCTION_NAME.equals(functionName)) {
+                return Optional.of(Comparison.Operator.IDENTICAL);
             }
             return Optional.empty();
         }
@@ -610,11 +610,6 @@ public final class ConnectorExpressionTranslator
                 // We don't want to expose some internal types to connectors.
                 // These should be constant-folded (if appropriate) separately and
                 // handled by the regular visitConstant path
-                return Optional.empty();
-            }
-
-            if (node.safe()) {
-                // try_cast would need to be modeled separately
                 return Optional.empty();
             }
 

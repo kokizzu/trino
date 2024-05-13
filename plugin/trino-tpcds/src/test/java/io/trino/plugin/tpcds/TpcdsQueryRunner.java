@@ -27,19 +27,15 @@ public final class TpcdsQueryRunner
 {
     private TpcdsQueryRunner() {}
 
+    // TODO convert to builder
     public static QueryRunner createQueryRunner()
             throws Exception
     {
         return createQueryRunner(ImmutableMap.of());
     }
 
-    public static QueryRunner createQueryRunner(Map<String, String> extraProperties)
-            throws Exception
-    {
-        return createQueryRunner(extraProperties, ImmutableMap.of());
-    }
-
-    public static QueryRunner createQueryRunner(Map<String, String> extraProperties, Map<String, String> coordinatorProperties)
+    // TODO convert to builder
+    private static QueryRunner createQueryRunner(Map<String, String> coordinatorProperties)
             throws Exception
     {
         Session session = testSessionBuilder()
@@ -49,7 +45,6 @@ public final class TpcdsQueryRunner
                 .build();
 
         QueryRunner queryRunner = DistributedQueryRunner.builder(session)
-                .setExtraProperties(extraProperties)
                 .setCoordinatorProperties(coordinatorProperties)
                 .build();
 
