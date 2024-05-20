@@ -88,7 +88,6 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
@@ -98,11 +97,9 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
@@ -116,6 +113,7 @@ import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
+import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static io.opentelemetry.context.Context.taskWrapping;
 import static io.trino.plugin.hive.HiveErrorCode.HIVE_FILESYSTEM_ERROR;
 import static io.trino.plugin.hive.HiveErrorCode.HIVE_METASTORE_ERROR;
@@ -127,6 +125,7 @@ import static io.trino.plugin.hive.metastore.MetastoreUtil.makePartitionName;
 import static io.trino.plugin.hive.metastore.MetastoreUtil.metastoreFunctionName;
 import static io.trino.plugin.hive.metastore.MetastoreUtil.toPartitionName;
 import static io.trino.plugin.hive.metastore.MetastoreUtil.updateStatisticsParameters;
+import static io.trino.plugin.hive.metastore.glue.ExecutorUtil.processWithAdditionalThreads;
 import static io.trino.plugin.hive.metastore.glue.GlueConverter.fromGlueStatistics;
 import static io.trino.plugin.hive.metastore.glue.GlueConverter.toGlueColumnStatistics;
 import static io.trino.plugin.hive.metastore.glue.GlueConverter.toGlueDatabaseInput;
@@ -176,6 +175,8 @@ public class GlueHiveMetastore
             .withMaxRetries(3)
             .build();
 
+    private static final AtomicInteger poolCounter = new AtomicInteger();
+
     private final GlueClient glueClient;
     private final GlueContext glueContext;
     private final GlueCache glueCache;
@@ -205,7 +206,7 @@ public class GlueHiveMetastore
                 config.getPartitionSegments(),
                 config.isAssumeCanonicalPartitionKeys(),
                 visibleTableKinds,
-                newFixedThreadPool(config.getThreads(), Thread.ofPlatform().name("glue-", 0L).factory()));
+                newFixedThreadPool(config.getThreads(), daemonThreadsNamed("glue-%s-%%s".formatted(poolCounter.getAndIncrement()))));
     }
 
     private GlueHiveMetastore(
@@ -560,7 +561,7 @@ public class GlueHiveMetastore
             throw new TrinoException(NOT_SUPPORTED, "Table rename is not yet supported by Glue service");
         }
 
-        updateTable(databaseName, tableName, ignored -> newTable);
+        updateTable(databaseName, tableName, _ -> newTable);
     }
 
     private void updateTable(String databaseName, String tableName, TableModifier modifier)
@@ -1267,7 +1268,7 @@ public class GlueHiveMetastore
         // partitions are required for update
         // the glue cache is not used here because we need up-to-date partitions for the read-update-write operation
         // loaded partitions are not cached here since the partition values are invalidated after the update
-        Collection<Partition> partitions = batchGetPartition(databaseName, tableName, ImmutableList.copyOf(newStatistics.keySet()), ignored -> {});
+        Collection<Partition> partitions = batchGetPartition(databaseName, tableName, ImmutableList.copyOf(newStatistics.keySet()), _ -> {});
 
         // existing column statistics are required for the columns being updated when in merge incremental mode
         // this is fetched before the basic statistics are updated, to avoid reloading in the case of retries updating basic statistics
@@ -1591,29 +1592,7 @@ public class GlueHiveMetastore
     private <T> List<T> runParallel(Collection<Callable<T>> tasks)
             throws ExecutionException
     {
-        CompletionService<T> completionService = new ExecutorCompletionService<>(executor);
-        List<Future<T>> futures = new ArrayList<>(tasks.size());
-        for (Callable<T> task : tasks) {
-            futures.add(completionService.submit(task));
-        }
-        try {
-            for (int i = 0; i < futures.size(); i++) {
-                completionService.take();
-            }
-
-            List<T> results = new ArrayList<>(futures.size());
-            for (Future<T> future : futures) {
-                results.add(future.get());
-            }
-            return Collections.unmodifiableList(results);
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new TrinoException(HIVE_METASTORE_ERROR, "Interrupted", e);
-        }
-        finally {
-            futures.forEach(future -> future.cancel(true));
-        }
+        return processWithAdditionalThreads(tasks, executor);
     }
 
     public enum TableKind

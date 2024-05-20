@@ -163,7 +163,7 @@ public class ElasticsearchMetadata
                 query = Optional.of(parts[1]);
             }
 
-            if (client.indexExists(table) && !client.getIndexMetadata(table).getSchema().getFields().isEmpty()) {
+            if (client.indexExists(table) && !client.getIndexMetadata(table).schema().fields().isEmpty()) {
                 return new ElasticsearchTableHandle(SCAN, schemaName, table, query);
             }
         }
@@ -187,7 +187,7 @@ public class ElasticsearchMetadata
     private ConnectorTableMetadata getTableMetadata(String schemaName, String tableName)
     {
         InternalTableMetadata internalTableMetadata = makeInternalTableMetadata(schemaName, tableName);
-        return new ConnectorTableMetadata(new SchemaTableName(schemaName, tableName), internalTableMetadata.getColumnMetadata());
+        return new ConnectorTableMetadata(new SchemaTableName(schemaName, tableName), internalTableMetadata.columnMetadata());
     }
 
     private InternalTableMetadata makeInternalTableMetadata(ConnectorTableHandle table)
@@ -205,12 +205,12 @@ public class ElasticsearchMetadata
 
     private List<IndexMetadata.Field> getColumnFields(IndexMetadata metadata)
     {
-        Map<String, Long> counts = metadata.getSchema()
-                .getFields().stream()
-                .collect(Collectors.groupingBy(f -> f.getName().toLowerCase(ENGLISH), Collectors.counting()));
+        Map<String, Long> counts = metadata.schema()
+                .fields().stream()
+                .collect(Collectors.groupingBy(f -> f.name().toLowerCase(ENGLISH), Collectors.counting()));
 
-        return metadata.getSchema().getFields().stream()
-                .filter(field -> toTrino(field) != null && counts.get(field.getName().toLowerCase(ENGLISH)) <= 1)
+        return metadata.schema().fields().stream()
+                .filter(field -> toTrino(field) != null && counts.get(field.name().toLowerCase(ENGLISH)) <= 1)
                 .collect(toImmutableList());
     }
 
@@ -224,8 +224,8 @@ public class ElasticsearchMetadata
 
         for (IndexMetadata.Field field : fields) {
             result.add(ColumnMetadata.builder()
-                    .setName(field.getName())
-                    .setType(toTrino(field).getType())
+                    .setName(field.name())
+                    .setType(toTrino(field).type())
                     .build());
         }
         return result.build();
@@ -241,11 +241,11 @@ public class ElasticsearchMetadata
 
         for (IndexMetadata.Field field : fields) {
             TypeAndDecoder converted = toTrino(field);
-            result.put(field.getName(), new ElasticsearchColumnHandle(
-                    field.getName(),
-                    converted.getType(),
-                    converted.getDecoderDescriptor(),
-                    supportsPredicates(field.getType())));
+            result.put(field.name(), new ElasticsearchColumnHandle(
+                    field.name(),
+                    converted.type(),
+                    converted.decoderDescriptor(),
+                    supportsPredicates(field.type())));
         }
 
         return result.buildOrThrow();
@@ -258,7 +258,7 @@ public class ElasticsearchMetadata
         }
 
         if (type instanceof PrimitiveType) {
-            switch (((PrimitiveType) type).getName().toLowerCase(ENGLISH)) {
+            switch (((PrimitiveType) type).name().toLowerCase(ENGLISH)) {
                 case "boolean":
                 case "byte":
                 case "short":
@@ -281,7 +281,7 @@ public class ElasticsearchMetadata
 
     private TypeAndDecoder toTrino(String prefix, IndexMetadata.Field field)
     {
-        String path = appendPath(prefix, field.getName());
+        String path = appendPath(prefix, field.name());
 
         checkArgument(!field.asRawJson() || !field.isArray(), format("A column, (%s) cannot be declared as a Trino array and also be rendered as json.", path));
 
@@ -291,12 +291,12 @@ public class ElasticsearchMetadata
 
         if (field.isArray()) {
             TypeAndDecoder element = toTrino(path, elementField(field));
-            return new TypeAndDecoder(new ArrayType(element.getType()), new ArrayDecoder.Descriptor(element.getDecoderDescriptor()));
+            return new TypeAndDecoder(new ArrayType(element.type()), new ArrayDecoder.Descriptor(element.decoderDescriptor()));
         }
 
-        IndexMetadata.Type type = field.getType();
+        IndexMetadata.Type type = field.type();
         if (type instanceof PrimitiveType primitiveType) {
-            switch (primitiveType.getName()) {
+            switch (primitiveType.name()) {
                 case "float":
                     return new TypeAndDecoder(REAL, new RealDecoder.Descriptor(path));
                 case "double":
@@ -324,7 +324,7 @@ public class ElasticsearchMetadata
             return new TypeAndDecoder(DOUBLE, new DoubleDecoder.Descriptor(path));
         }
         else if (type instanceof DateTimeType dateTimeType) {
-            if (dateTimeType.getFormats().isEmpty()) {
+            if (dateTimeType.formats().isEmpty()) {
                 return new TypeAndDecoder(TIMESTAMP_MILLIS, new TimestampDecoder.Descriptor(path));
             }
             // otherwise, skip -- we don't support custom formats, yet
@@ -332,13 +332,13 @@ public class ElasticsearchMetadata
         else if (type instanceof ObjectType objectType) {
             ImmutableList.Builder<RowType.Field> rowFieldsBuilder = ImmutableList.builder();
             ImmutableList.Builder<RowDecoder.NameAndDescriptor> decoderFields = ImmutableList.builder();
-            for (IndexMetadata.Field rowField : objectType.getFields()) {
-                String name = rowField.getName();
+            for (IndexMetadata.Field rowField : objectType.fields()) {
+                String name = rowField.name();
                 TypeAndDecoder child = toTrino(path, rowField);
 
                 if (child != null) {
-                    decoderFields.add(new RowDecoder.NameAndDescriptor(name, child.getDecoderDescriptor()));
-                    rowFieldsBuilder.add(RowType.field(name, child.getType()));
+                    decoderFields.add(new RowDecoder.NameAndDescriptor(name, child.decoderDescriptor()));
+                    rowFieldsBuilder.add(RowType.field(name, child.type()));
                 }
             }
 
@@ -365,7 +365,7 @@ public class ElasticsearchMetadata
     public static IndexMetadata.Field elementField(IndexMetadata.Field field)
     {
         checkArgument(field.isArray(), "Cannot get element field from a non-array field");
-        return new IndexMetadata.Field(field.asRawJson(), false, field.getName(), field.getType());
+        return new IndexMetadata.Field(field.asRawJson(), false, field.name(), field.type());
     }
 
     @Override
@@ -402,7 +402,7 @@ public class ElasticsearchMetadata
         }
 
         InternalTableMetadata tableMetadata = makeInternalTableMetadata(tableHandle);
-        return tableMetadata.getColumnHandles();
+        return tableMetadata.columnHandles();
     }
 
     @Override
@@ -547,9 +547,9 @@ public class ElasticsearchMetadata
 
                     if (!newRegexes.containsKey(columnName) && pattern instanceof Slice) {
                         IndexMetadata metadata = client.getIndexMetadata(handle.index());
-                        if (metadata.getSchema()
-                                    .getFields().stream()
-                                    .anyMatch(field -> columnName.equals(field.getName()) && field.getType() instanceof PrimitiveType && "keyword".equals(((PrimitiveType) field.getType()).getName()))) {
+                        if (metadata.schema()
+                                    .fields().stream()
+                                    .anyMatch(field -> columnName.equals(field.name()) && field.type() instanceof PrimitiveType && "keyword".equals(((PrimitiveType) field.type()).name()))) {
                             newRegexes.put(columnName, likeToRegexp((Slice) pattern, escape));
                             continue;
                         }
@@ -673,57 +673,7 @@ public class ElasticsearchMetadata
         return Optional.of(new TableFunctionApplicationResult<>(tableHandle, columnHandles));
     }
 
-    private static class InternalTableMetadata
-    {
-        private final SchemaTableName tableName;
-        private final List<ColumnMetadata> columnMetadata;
-        private final Map<String, ColumnHandle> columnHandles;
+    private record InternalTableMetadata(SchemaTableName tableName, List<ColumnMetadata> columnMetadata, Map<String, ColumnHandle> columnHandles) {}
 
-        public InternalTableMetadata(
-                SchemaTableName tableName,
-                List<ColumnMetadata> columnMetadata,
-                Map<String, ColumnHandle> columnHandles)
-        {
-            this.tableName = tableName;
-            this.columnMetadata = columnMetadata;
-            this.columnHandles = columnHandles;
-        }
-
-        public SchemaTableName getTableName()
-        {
-            return tableName;
-        }
-
-        public List<ColumnMetadata> getColumnMetadata()
-        {
-            return columnMetadata;
-        }
-
-        public Map<String, ColumnHandle> getColumnHandles()
-        {
-            return columnHandles;
-        }
-    }
-
-    private static class TypeAndDecoder
-    {
-        private final Type type;
-        private final DecoderDescriptor decoderDescriptor;
-
-        public TypeAndDecoder(Type type, DecoderDescriptor decoderDescriptor)
-        {
-            this.type = type;
-            this.decoderDescriptor = decoderDescriptor;
-        }
-
-        public Type getType()
-        {
-            return type;
-        }
-
-        public DecoderDescriptor getDecoderDescriptor()
-        {
-            return decoderDescriptor;
-        }
-    }
+    private record TypeAndDecoder(Type type, DecoderDescriptor decoderDescriptor) {}
 }

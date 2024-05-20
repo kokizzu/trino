@@ -307,7 +307,7 @@ public class TaskInfoFetcher
         @Override
         public void success(TaskInfo newValue)
         {
-            try (SetThreadName ignored = new SetThreadName("TaskInfoFetcher-%s", taskId)) {
+            try (SetThreadName _ = new SetThreadName("TaskInfoFetcher-%s", taskId)) {
                 lastUpdateNanos.set(System.nanoTime());
 
                 updateStats(requestStartNanos);
@@ -322,22 +322,20 @@ public class TaskInfoFetcher
         @Override
         public void failed(Throwable cause)
         {
-            try (SetThreadName ignored = new SetThreadName("TaskInfoFetcher-%s", taskId)) {
+            try (SetThreadName _ = new SetThreadName("TaskInfoFetcher-%s", taskId)) {
                 lastUpdateNanos.set(System.nanoTime());
 
-                try {
-                    // if task not already done, record error
-                    if (!isDone(getTaskInfo())) {
-                        errorTracker.requestFailed(cause);
-                    }
+                // if task not already done, record error
+                if (!isDone(getTaskInfo())) {
+                    errorTracker.requestFailed(cause);
                 }
-                catch (Error e) {
-                    onFail.accept(e);
-                    throw e;
-                }
-                catch (RuntimeException e) {
-                    onFail.accept(e);
-                }
+            }
+            catch (Error e) {
+                onFail.accept(e);
+                throw e;
+            }
+            catch (RuntimeException e) {
+                onFail.accept(e);
             }
             finally {
                 cleanupRequest();
@@ -347,7 +345,7 @@ public class TaskInfoFetcher
         @Override
         public void fatal(Throwable cause)
         {
-            try (SetThreadName ignored = new SetThreadName("TaskInfoFetcher-%s", taskId)) {
+            try (SetThreadName _ = new SetThreadName("TaskInfoFetcher-%s", taskId)) {
                 onFail.accept(cause);
             }
             finally {

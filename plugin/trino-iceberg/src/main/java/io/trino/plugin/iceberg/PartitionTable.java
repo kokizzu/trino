@@ -229,7 +229,7 @@ public class PartitionTable
 
                 partitions.computeIfAbsent(
                         structLikeWrapperWithFieldIdToIndex,
-                        ignored -> new IcebergStatistics.Builder(icebergTable.schema().columns(), typeManager))
+                        _ -> new IcebergStatistics.Builder(icebergTable.schema().columns(), typeManager))
                         .acceptDataFile(dataFile, fileScanTask.spec());
             }
 
@@ -299,7 +299,7 @@ public class PartitionTable
                         }
                     }));
                 }
-                catch (MissingColumnMetricsException ignored) {
+                catch (MissingColumnMetricsException _) {
                     row.add(null);
                 }
             });

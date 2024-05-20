@@ -21,7 +21,6 @@ import com.google.inject.Scopes;
 import com.google.inject.Singleton;
 import com.google.inject.multibindings.Multibinder;
 import io.airlift.configuration.AbstractConfigurationAwareModule;
-import io.trino.filesystem.cache.AllowFilesystemCacheOnCoordinator;
 import io.trino.filesystem.cache.CacheKeyProvider;
 import io.trino.plugin.base.security.ConnectorAccessControlModule;
 import io.trino.plugin.base.session.SessionPropertiesProvider;
@@ -128,7 +127,6 @@ public class DeltaLakeModule
                 .setDefault().toInstance(DeltaLakeRedirectionsProvider.NOOP);
 
         jsonCodecBinder(binder).bindJsonCodec(DataFileInfo.class);
-        jsonCodecBinder(binder).bindJsonCodec(DeltaLakeUpdateResult.class);
         jsonCodecBinder(binder).bindJsonCodec(DeltaLakeMergeResult.class);
         binder.bind(DeltaLakeWriterStats.class).in(Scopes.SINGLETON);
         binder.bind(FileFormatDataSourceStats.class).in(Scopes.SINGLETON);
@@ -150,7 +148,6 @@ public class DeltaLakeModule
         binder.bind(TableChangesProcessorProvider.class).in(Scopes.SINGLETON);
 
         newOptionalBinder(binder, CacheKeyProvider.class).setBinding().to(DeltaLakeCacheKeyProvider.class).in(Scopes.SINGLETON);
-        newOptionalBinder(binder, Key.get(boolean.class, AllowFilesystemCacheOnCoordinator.class)).setBinding().toInstance(true);
 
         closingBinder(binder).registerExecutor(ExecutorService.class);
     }

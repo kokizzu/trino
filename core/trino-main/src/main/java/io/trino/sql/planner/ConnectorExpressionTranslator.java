@@ -47,7 +47,6 @@ import io.trino.sql.ir.In;
 import io.trino.sql.ir.IrVisitor;
 import io.trino.sql.ir.IsNull;
 import io.trino.sql.ir.Logical;
-import io.trino.sql.ir.Not;
 import io.trino.sql.ir.NullIf;
 import io.trino.sql.ir.Reference;
 import io.trino.sql.tree.QualifiedName;
@@ -91,6 +90,7 @@ import static io.trino.spi.expression.StandardFunctions.NOT_FUNCTION_NAME;
 import static io.trino.spi.expression.StandardFunctions.NULLIF_FUNCTION_NAME;
 import static io.trino.spi.expression.StandardFunctions.OR_FUNCTION_NAME;
 import static io.trino.spi.expression.StandardFunctions.SUBTRACT_FUNCTION_NAME;
+import static io.trino.spi.expression.StandardFunctions.TRY_CAST_FUNCTION_NAME;
 import static io.trino.spi.function.OperatorType.ADD;
 import static io.trino.spi.function.OperatorType.DIVIDE;
 import static io.trino.spi.function.OperatorType.MODULUS;
@@ -102,6 +102,7 @@ import static io.trino.spi.type.VarcharType.VARCHAR;
 import static io.trino.spi.type.VarcharType.createVarcharType;
 import static io.trino.sql.DynamicFilters.isDynamicFilterFunction;
 import static io.trino.sql.analyzer.TypeSignatureProvider.fromTypes;
+import static io.trino.sql.ir.IrExpressions.not;
 import static io.trino.sql.ir.IrUtils.combineConjuncts;
 import static io.trino.sql.ir.IrUtils.extractConjuncts;
 import static io.trino.type.JoniRegexpType.JONI_REGEXP;
@@ -252,6 +253,10 @@ public final class ConnectorExpressionTranslator
                 return translateCast(call.getType(), call.getArguments().get(0));
             }
 
+            if (TRY_CAST_FUNCTION_NAME.equals(call.getFunctionName()) && call.getArguments().size() == 1) {
+                return translateTryCast(call.getType(), call.getArguments().get(0));
+            }
+
             // comparisons
             if (call.getArguments().size() == 2) {
                 Optional<Comparison.Operator> operator = comparisonOperatorForFunctionName(call.getFunctionName());
@@ -294,6 +299,21 @@ public final class ConnectorExpressionTranslator
             return translateCall(call.getFunctionName().getName(), resolved, call.getArguments());
         }
 
+        private Optional<Expression> translateTryCast(Type type, ConnectorExpression argument)
+        {
+            Optional<Expression> translatedArgument = translate(argument);
+            if (translatedArgument.isEmpty()) {
+                return Optional.empty();
+            }
+
+            return Optional.of(new Call(
+                    plannerContext.getMetadata().getCoercion(
+                            builtinFunctionName("$try_cast"),
+                            argument.getType(),
+                            type),
+                    ImmutableList.of(translatedArgument.get())));
+        }
+
         private Optional<Expression> translateCall(String functionName, ResolvedFunction resolved, List<ConnectorExpression> arguments)
         {
             ResolvedFunctionCallBuilder builder = ResolvedFunctionCallBuilder.builder(resolved);
@@ -324,7 +344,7 @@ public final class ConnectorExpressionTranslator
         {
             Optional<Expression> translatedArgument = translate(argument);
             if (translatedArgument.isPresent()) {
-                return Optional.of(new Not(new IsNull(translatedArgument.get())));
+                return Optional.of(not(plannerContext.getMetadata(), new IsNull(translatedArgument.get())));
             }
 
             return Optional.empty();
@@ -344,7 +364,7 @@ public final class ConnectorExpressionTranslator
         {
             Optional<Expression> translatedArgument = translate(argument);
             if (argument.getType().equals(BOOLEAN) && translatedArgument.isPresent()) {
-                return Optional.of(new Not(translatedArgument.get()));
+                return Optional.of(not(plannerContext.getMetadata(), translatedArgument.get()));
             }
             return Optional.empty();
         }
@@ -734,16 +754,6 @@ public final class ConnectorExpressionTranslator
             Optional<ConnectorExpression> translatedValue = process(node.value());
             if (translatedValue.isPresent()) {
                 return Optional.of(new io.trino.spi.expression.Call(BOOLEAN, IS_NULL_FUNCTION_NAME, ImmutableList.of(translatedValue.get())));
-            }
-            return Optional.empty();
-        }
-
-        @Override
-        protected Optional<ConnectorExpression> visitNot(Not node, Void context)
-        {
-            Optional<ConnectorExpression> translatedValue = process(node.value());
-            if (translatedValue.isPresent()) {
-                return Optional.of(new io.trino.spi.expression.Call(BOOLEAN, NOT_FUNCTION_NAME, List.of(translatedValue.get())));
             }
             return Optional.empty();
         }
