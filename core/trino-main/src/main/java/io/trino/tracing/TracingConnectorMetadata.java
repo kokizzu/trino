@@ -133,15 +133,6 @@ public class TracingConnectorMetadata
     }
 
     @Override
-    public ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName)
-    {
-        Span span = startSpan("getTableHandle", tableName);
-        try (var _ = scopedSpan(span)) {
-            return delegate.getTableHandle(session, tableName);
-        }
-    }
-
-    @Override
     public ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName, Optional<ConnectorTableVersion> startVersion, Optional<ConnectorTableVersion> endVersion)
     {
         Span span = startSpan("getTableHandle", tableName);
@@ -876,6 +867,15 @@ public class TracingConnectorMetadata
         Span span = startSpan("getView", viewName);
         try (var _ = scopedSpan(span)) {
             return delegate.getView(session, viewName);
+        }
+    }
+
+    @Override
+    public boolean isView(ConnectorSession session, SchemaTableName viewName)
+    {
+        Span span = startSpan("isView", viewName);
+        try (var _ = scopedSpan(span)) {
+            return delegate.isView(session, viewName);
         }
     }
 

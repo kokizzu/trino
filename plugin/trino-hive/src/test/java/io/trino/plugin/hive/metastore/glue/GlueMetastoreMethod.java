@@ -11,11 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.iceberg.catalog.glue;
+package io.trino.plugin.hive.metastore.glue;
 
 import com.google.common.math.DoubleMath;
-import io.trino.plugin.hive.metastore.glue.AwsApiCallStats;
-import io.trino.plugin.hive.metastore.glue.GlueMetastoreStats;
 
 import java.math.RoundingMode;
 import java.util.function.Function;
@@ -39,7 +37,6 @@ public enum GlueMetastoreMethod
     GET_DATABASE(GlueMetastoreStats::getGetDatabase),
     GET_DATABASES(GlueMetastoreStats::getGetDatabases),
     GET_PARTITION(GlueMetastoreStats::getGetPartition),
-    GET_PARTITION_BY_NAME(GlueMetastoreStats::getGetPartitionByName),
     GET_PARTITION_NAMES(GlueMetastoreStats::getGetPartitionNames),
     GET_PARTITIONS(GlueMetastoreStats::getGetPartitions),
     GET_TABLE(GlueMetastoreStats::getGetTable),

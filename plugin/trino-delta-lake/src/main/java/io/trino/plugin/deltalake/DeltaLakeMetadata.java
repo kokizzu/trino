@@ -560,12 +560,6 @@ public class DeltaLakeMetadata
     }
 
     @Override
-    public LocatedTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName)
-    {
-        throw new UnsupportedOperationException("Calling this method is not supported. getTableHandle with versions is implemented");
-    }
-
-    @Override
     public LocatedTableHandle getTableHandle(
             ConnectorSession session,
             SchemaTableName tableName,
@@ -657,10 +651,30 @@ public class DeltaLakeMetadata
     @Override
     public Optional<Type> getSupportedType(ConnectorSession session, Map<String, Object> tableProperties, Type type)
     {
-        if (type instanceof TimestampType) {
-            return Optional.of(TIMESTAMP_MICROS);
+        Type newType = coerceType(type);
+        if (type.getTypeSignature().equals(newType.getTypeSignature())) {
+            return Optional.empty();
         }
-        return Optional.empty();
+        return Optional.of(newType);
+    }
+
+    private Type coerceType(Type type)
+    {
+        if (type instanceof TimestampType) {
+            return TIMESTAMP_MICROS;
+        }
+        if (type instanceof ArrayType arrayType) {
+            return new ArrayType(coerceType(arrayType.getElementType()));
+        }
+        if (type instanceof MapType mapType) {
+            return new MapType(coerceType(mapType.getKeyType()), coerceType(mapType.getValueType()), typeManager.getTypeOperators());
+        }
+        if (type instanceof RowType rowType) {
+            return RowType.from(rowType.getFields().stream()
+                    .map(field -> new RowType.Field(field.getName(), coerceType(field.getType())))
+                    .collect(toImmutableList()));
+        }
+        return type;
     }
 
     @Override
@@ -3715,10 +3729,10 @@ public class DeltaLakeMetadata
     @Override
     public Optional<SystemTable> getSystemTable(ConnectorSession session, SchemaTableName tableName)
     {
-        return getRawSystemTable(tableName).map(systemTable -> new ClassLoaderSafeSystemTable(systemTable, getClass().getClassLoader()));
+        return getRawSystemTable(session, tableName).map(systemTable -> new ClassLoaderSafeSystemTable(systemTable, getClass().getClassLoader()));
     }
 
-    private Optional<SystemTable> getRawSystemTable(SchemaTableName systemTableName)
+    private Optional<SystemTable> getRawSystemTable(ConnectorSession session, SchemaTableName systemTableName)
     {
         Optional<DeltaLakeTableType> tableType = DeltaLakeTableName.tableTypeFrom(systemTableName.getTableName());
         if (tableType.isEmpty() || tableType.get() == DeltaLakeTableType.DATA) {
@@ -3748,6 +3762,7 @@ public class DeltaLakeMetadata
                     transactionLogAccess,
                     typeManager));
             case PROPERTIES -> Optional.of(new DeltaLakePropertiesTable(systemTableName, tableLocation, transactionLogAccess));
+            case PARTITIONS -> Optional.of(new DeltaLakePartitionsTable(session, systemTableName, tableLocation, transactionLogAccess, typeManager));
         };
     }
 

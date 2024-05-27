@@ -11,7 +11,7 @@ The Pinot connector allows Trino to query data stored in
 
 To connect to Pinot, you need:
 
-- Pinot 0.11.0 or higher.
+- Pinot 1.1.0 or higher.
 - Network access from the Trino coordinator and workers to the Pinot controller
   nodes. Port 8098 is the default port.
 
@@ -141,7 +141,6 @@ TOP 30000
 ```
 
 (pinot-type-mapping)=
-
 ## Type mapping
 
 Because Trino and Pinot each support types that the other does not, this
@@ -202,7 +201,6 @@ types the null value is encoded as `MIN_VALUE` for that type.
 For Pinot `STRING` type, the value `null` is interpreted as a `NULL` value.
 
 (pinot-sql-support)=
-
 ## SQL support
 
 The connector provides {ref}`globally available <sql-globally-available>` and
@@ -210,7 +208,6 @@ The connector provides {ref}`globally available <sql-globally-available>` and
 metadata in Pinot.
 
 (pinot-pushdown)=
-
 ## Pushdown
 
 The connector supports pushdown for a number of operations:
