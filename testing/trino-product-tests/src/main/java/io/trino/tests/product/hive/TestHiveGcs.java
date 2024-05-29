@@ -11,44 +11,44 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.tests.product.deltalake;
+package io.trino.tests.product.hive;
 
 import com.google.inject.Inject;
 import com.google.inject.name.Named;
 import io.trino.tests.product.BaseTestTableFormats;
 import org.testng.annotations.Test;
 
-import static io.trino.tests.product.TestGroups.DELTA_LAKE_GCS;
+import static io.trino.tests.product.TestGroups.HIVE_GCS;
 import static io.trino.tests.product.TestGroups.PROFILE_SPECIFIC_TESTS;
 
-public class TestDeltaLakeGcs
+public class TestHiveGcs
         extends BaseTestTableFormats
 {
     @Inject
     @Named("databases.hive.warehouse_directory_path")
     private String warehouseDirectory;
 
-    @Test(groups = {DELTA_LAKE_GCS, PROFILE_SPECIFIC_TESTS})
-    public void testCreateAndSelectNationTable()
+    @Test(groups = {HIVE_GCS, PROFILE_SPECIFIC_TESTS})
+    public void testInsertTable()
     {
-        super.testCreateAndSelectNationTable(warehouseDirectory);
+        super.testCreateAndInsertTable(warehouseDirectory);
     }
 
-    @Test(groups = {DELTA_LAKE_GCS, PROFILE_SPECIFIC_TESTS})
-    public void testBasicWriteOperations()
-    {
-        super.testBasicWriteOperations(warehouseDirectory);
-    }
-
-    @Test(groups = {DELTA_LAKE_GCS, PROFILE_SPECIFIC_TESTS})
+    @Test(groups = {HIVE_GCS, PROFILE_SPECIFIC_TESTS})
     public void testPathContainsSpecialCharacter()
     {
         super.testPathContainsSpecialCharacter(warehouseDirectory, "partitioned_by");
     }
 
+    @Test(groups = {HIVE_GCS, PROFILE_SPECIFIC_TESTS})
+    public void testSparkReadingTrinoData()
+    {
+        super.testSparkCompatibilityOnTrinoCreatedTable(warehouseDirectory);
+    }
+
     @Override
     protected String getCatalogName()
     {
-        return "delta";
+        return "hive";
     }
 }
