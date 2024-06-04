@@ -13,33 +13,16 @@
  */
 package io.trino.plugin.openlineage;
 
+import static java.util.Locale.ENGLISH;
+
 public enum OpenLineageTrinoFacet
 {
-    TRINO_METADATA("trino_metadata"),
-    TRINO_QUERY_STATISTICS("trino_query_statistics"),
-    TRINO_QUERY_CONTEXT("trino_query_context");
+    TRINO_METADATA,
+    TRINO_QUERY_STATISTICS,
+    TRINO_QUERY_CONTEXT;
 
-    final String text;
-
-    OpenLineageTrinoFacet(String text)
+    public String asText()
     {
-        this.text = text;
-    }
-
-    public String getText()
-    {
-        return this.text;
-    }
-
-    public static OpenLineageTrinoFacet fromText(String text)
-            throws IllegalArgumentException
-    {
-        for (OpenLineageTrinoFacet facet : OpenLineageTrinoFacet.values()) {
-            if (facet.text.equals(text)) {
-                return facet;
-            }
-        }
-
-        throw new IllegalArgumentException(text);
+        return name().toLowerCase(ENGLISH);
     }
 }

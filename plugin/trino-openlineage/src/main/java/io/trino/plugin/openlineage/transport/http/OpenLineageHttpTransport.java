@@ -23,59 +23,46 @@ import io.trino.plugin.openlineage.transport.OpenLineageTransport;
 import java.net.URI;
 import java.util.Map;
 
-import static java.lang.String.format;
-import static java.util.Objects.requireNonNull;
+import static java.lang.Math.toIntExact;
 
 public class OpenLineageHttpTransport
         implements OpenLineageTransport
 {
-    private final String url;
+    private final URI url;
     private final String endpoint;
     private final int timeout;
-    private final ApiKeyTokenProvider apiKey;
+    private final TokenProvider tokenProvider;
     private final Map<String, String> urlParams;
     private final Map<String, String> headers;
-
-    private static class ApiKeyTokenProvider
-            implements TokenProvider
-    {
-        private final String token;
-
-        public ApiKeyTokenProvider(String token)
-        {
-            this.token = requireNonNull(token);
-        }
-
-        @Override
-        public String getToken()
-        {
-            return format("Bearer %s", this.token);
-        }
-    }
 
     @Inject
     public OpenLineageHttpTransport(OpenLineageClientHttpTransportConfig config)
     {
         this.url = config.getUrl();
         this.endpoint = config.getEndpoint();
-        this.timeout = (int) config.getTimeout().toMillis();
-        this.apiKey = config.getApiKey().map(ApiKeyTokenProvider::new).orElse(null);
+        this.timeout = toIntExact(config.getTimeout().toMillis());
+        this.tokenProvider = config.getApiKey().map(OpenLineageHttpTransport::createTokenProvider).orElse(null);
         this.urlParams = config.getUrlParams();
         this.headers = config.getHeaders();
     }
 
     @Override
     public HttpTransport buildTransport()
-            throws Exception
     {
         return new HttpTransport(
                 new HttpConfig(
-                        new URI(this.url),
+                        this.url,
                         this.endpoint,
                         null,
                         this.timeout,
-                        this.apiKey,
+                        this.tokenProvider,
                         this.urlParams,
-                        this.headers));
+                        this.headers,
+                        null));
+    }
+
+    private static TokenProvider createTokenProvider(String token)
+    {
+        return () -> "Bearer " + token;
     }
 }

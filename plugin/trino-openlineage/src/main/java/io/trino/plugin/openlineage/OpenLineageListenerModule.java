@@ -43,9 +43,7 @@ public class OpenLineageListenerModule
         install(conditionalModule(
                 OpenLineageListenerConfig.class,
                 config -> config.getTransport().equals(CONSOLE),
-                internalBinder -> {
-                    internalBinder.bind(OpenLineageTransport.class).to(OpenLineageConsoleTransport.class);
-                }));
+                internalBinder -> internalBinder.bind(OpenLineageTransport.class).to(OpenLineageConsoleTransport.class)));
 
         install(conditionalModule(
                 OpenLineageListenerConfig.class,
@@ -67,7 +65,7 @@ public class OpenLineageListenerModule
         String[] disabledFacets = listenerConfig
                 .getDisabledFacets()
                 .stream()
-                .map(OpenLineageTrinoFacet::getText)
+                .map(OpenLineageTrinoFacet::asText)
                 .toArray(String[]::new);
 
         clientBuilder.disableFacets(disabledFacets);

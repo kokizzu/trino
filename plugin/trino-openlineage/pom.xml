@@ -11,12 +11,11 @@
 
     <artifactId>trino-openlineage</artifactId>
     <packaging>trino-plugin</packaging>
-    <description>Trino - OpenLineage Event Listener</description>
+    <description>Trino - OpenLineage event listener</description>
 
     <properties>
         <air.main.basedir>${project.parent.basedir}</air.main.basedir>
         <air.compiler.fail-warnings>true</air.compiler.fail-warnings>
-        <openlineage.version>1.12.0</openlineage.version>
     </properties>
 
     <dependencies>
@@ -63,7 +62,7 @@
         <dependency>
             <groupId>io.openlineage</groupId>
             <artifactId>openlineage-java</artifactId>
-            <version>${openlineage.version}</version>
+            <version>1.16.0</version>
             <!-- the reason for exclusion is issue while building plugin manifesting -->
             <!-- in following error: -->
             <!-- Found duplicate and different classes in -->
