@@ -52,6 +52,7 @@ import java.util.function.Supplier;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.io.Resources.getResource;
 import static io.airlift.http.client.JsonResponseHandler.createJsonResponseHandler;
 import static io.airlift.json.JsonCodec.jsonCodec;
 import static io.airlift.json.JsonCodec.listJsonCodec;
@@ -172,10 +173,10 @@ public class TestingPinotCluster
         return HostAndPort.fromParts(server.getHost(), server.getMappedPort(GRPC_PORT));
     }
 
-    public void createSchema(InputStream tableSchemaSpec, String tableName)
+    public void createSchema(String resourceName, String tableName)
             throws Exception
     {
-        byte[] bytes = ByteStreams.toByteArray(tableSchemaSpec);
+        byte[] bytes = ByteStreams.toByteArray(getResource(resourceName).openStream());
         Request request = Request.Builder.preparePost()
                 .setUri(getControllerUri("schemas"))
                 .setHeader(HttpHeaders.ACCEPT, APPLICATION_JSON)
@@ -208,10 +209,10 @@ public class TestingPinotCluster
         }, 10);
     }
 
-    public void addRealTimeTable(InputStream realTimeSpec, String tableName)
+    public void addRealTimeTable(String resourceName, String tableName)
             throws Exception
     {
-        byte[] bytes = ByteStreams.toByteArray(realTimeSpec);
+        byte[] bytes = ByteStreams.toByteArray(getResource(resourceName).openStream());
         Request request = Request.Builder.preparePost()
                 .setUri(getControllerUri("tables"))
                 .setHeader(HttpHeaders.ACCEPT, APPLICATION_JSON)
@@ -221,14 +222,13 @@ public class TestingPinotCluster
                 .build();
 
         PinotSuccessResponse response = doWithRetries(() -> httpClient.execute(request, createJsonResponseHandler(PINOT_SUCCESS_RESPONSE_JSON_CODEC)), 10);
-        // Typo in response: https://github.com/apache/incubator-pinot/issues/5566
-        checkState(response.getStatus().startsWith(format("Table %s_REALTIME succes", tableName)), "Unexpected response: '%s'", response.getStatus());
+        checkState(response.getStatus().startsWith(format("Table %s_REALTIME successfully added", tableName)), "Unexpected response: '%s'", response.getStatus());
     }
 
-    public void addOfflineTable(InputStream offlineSpec, String tableName)
+    public void addOfflineTable(String resourceName, String tableName)
             throws Exception
     {
-        byte[] bytes = ByteStreams.toByteArray(offlineSpec);
+        byte[] bytes = ByteStreams.toByteArray(getResource(resourceName).openStream());
         Request request = Request.Builder.preparePost()
                 .setUri(getControllerUri("tables"))
                 .setHeader(HttpHeaders.ACCEPT, APPLICATION_JSON)
@@ -238,8 +238,7 @@ public class TestingPinotCluster
                 .build();
 
         PinotSuccessResponse response = doWithRetries(() -> httpClient.execute(request, createJsonResponseHandler(PINOT_SUCCESS_RESPONSE_JSON_CODEC)), 10);
-        // Typo in response: https://github.com/apache/incubator-pinot/issues/5566
-        checkState(response.getStatus().startsWith(format("Table %s_OFFLINE succes", tableName)), "Unexpected response: '%s'", response.getStatus());
+        checkState(response.getStatus().startsWith(format("Table %s_OFFLINE successfully added", tableName)), "Unexpected response: '%s'", response.getStatus());
     }
 
     public void publishOfflineSegment(String tableName, Path segmentPath)
