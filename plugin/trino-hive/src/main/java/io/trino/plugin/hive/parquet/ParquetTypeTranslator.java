@@ -14,6 +14,7 @@
 package io.trino.plugin.hive.parquet;
 
 import io.trino.plugin.hive.coercions.IntegerNumberToDoubleCoercer;
+import io.trino.plugin.hive.coercions.IntegerNumberToVarcharCoercer;
 import io.trino.plugin.hive.coercions.TypeCoercer;
 import io.trino.spi.type.DoubleType;
 import io.trino.spi.type.Type;
@@ -23,11 +24,15 @@ import org.apache.parquet.schema.LogicalTypeAnnotation;
 import java.util.Optional;
 
 import static io.trino.parquet.reader.ColumnReaderFactory.isIntegerAnnotationAndPrimitive;
+import static io.trino.plugin.hive.coercions.DoubleToVarcharCoercers.createDoubleToVarcharCoercer;
+import static io.trino.plugin.hive.coercions.FloatToVarcharCoercers.createFloatToVarcharCoercer;
 import static io.trino.plugin.hive.coercions.TimestampCoercer.LongTimestampToVarcharCoercer;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.spi.type.TimestampType.TIMESTAMP_NANOS;
 import static org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName;
+import static org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.DOUBLE;
+import static org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.FLOAT;
 import static org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.INT32;
 import static org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.INT64;
 import static org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.INT96;
@@ -49,6 +54,20 @@ public final class ParquetTypeTranslator
             }
         }
         if (toTrinoType instanceof VarcharType varcharType) {
+            if (isIntegerAnnotationAndPrimitive(typeAnnotation, fromParquetType)) {
+                if (fromParquetType == INT32) {
+                    return Optional.of(new IntegerNumberToVarcharCoercer<>(INTEGER, varcharType));
+                }
+                if (fromParquetType == INT64) {
+                    return Optional.of(new IntegerNumberToVarcharCoercer<>(BIGINT, varcharType));
+                }
+            }
+            if (fromParquetType == FLOAT) {
+                return Optional.of(createFloatToVarcharCoercer(varcharType, false));
+            }
+            if (fromParquetType == DOUBLE) {
+                return Optional.of(createDoubleToVarcharCoercer(varcharType, false));
+            }
             if (fromParquetType == INT96) {
                 return Optional.of(new LongTimestampToVarcharCoercer(TIMESTAMP_NANOS, varcharType));
             }

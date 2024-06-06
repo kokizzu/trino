@@ -67,23 +67,33 @@ public class TestHiveCoercionOnUnpartitionedTable
                             tinyint_to_smallint                TINYINT,
                             tinyint_to_int                     TINYINT,
                             tinyint_to_bigint                  TINYINT,
+                            tinyint_to_varchar                 TINYINT,
+                            tinyint_to_string                  TINYINT,
                             tinyint_to_double                  TINYINT,
                             tinyint_to_shortdecimal            TINYINT,
                             tinyint_to_longdecimal             TINYINT,
                             smallint_to_int                    SMALLINT,
                             smallint_to_bigint                 SMALLINT,
+                            smallint_to_varchar                SMALLINT,
+                            smallint_to_string                 SMALLINT,
                             smallint_to_double                 SMALLINT,
                             smallint_to_shortdecimal           SMALLINT,
                             smallint_to_longdecimal            SMALLINT,
                             int_to_bigint                      INT,
+                            int_to_varchar                     INT,
+                            int_to_string                      INT,
                             int_to_double                      INT,
                             int_to_shortdecimal                INT,
                             int_to_longdecimal                 INT,
                             bigint_to_double                   BIGINT,
                             bigint_to_varchar                  BIGINT,
+                            bigint_to_string                   BIGINT,
                             bigint_to_shortdecimal             BIGINT,
                             bigint_to_longdecimal              BIGINT,
                             float_to_double                    FLOAT,
+                            float_to_string                    FLOAT,
+                            float_to_bounded_varchar           FLOAT,
+                            float_infinity_to_string           FLOAT,
                             double_to_float                    DOUBLE,
                             double_to_string                   DOUBLE,
                             double_to_bounded_varchar          DOUBLE,
@@ -229,7 +239,6 @@ public class TestHiveCoercionOnUnpartitionedTable
                 .put(columnContext("orc", "tinyint_to_smallint"), "Cannot read SQL type 'smallint' from ORC stream '.tinyint_to_smallint' of type BYTE")
                 .put(columnContext("orc", "tinyint_to_int"), "Cannot read SQL type 'integer' from ORC stream '.tinyint_to_int' of type BYTE")
                 .put(columnContext("orc", "tinyint_to_bigint"), "Cannot read SQL type 'bigint' from ORC stream '.tinyint_to_bigint' of type BYTE")
-                .put(columnContext("orc", "bigint_to_varchar"), "Cannot read SQL type 'varchar' from ORC stream '.bigint_to_varchar' of type LONG")
                 .put(columnContext("orc", "double_to_float"), "Cannot read SQL type 'real' from ORC stream '.double_to_float' of type DOUBLE")
                 .put(columnContext("orc", "longdecimal_to_shortdecimal"), "Decimal does not fit long (invalid table schema?)")
                 .put(columnContext("orc", "float_to_decimal"), "Cannot read SQL type 'decimal(10,5)' from ORC stream '.float_to_decimal' of type FLOAT")
@@ -267,12 +276,8 @@ public class TestHiveCoercionOnUnpartitionedTable
                 .put(columnContext("parquet", "smallint_to_shortdecimal"), "// TODO This coercion is giving incorrect result")
                 .put(columnContext("parquet", "int_to_longdecimal"), "Unsupported Trino column type (decimal(20,2)) for Parquet column ([int_to_longdecimal] optional int32 int_to_longdecimal (INTEGER(32,true)))")
                 .put(columnContext("parquet", "int_to_shortdecimal"), "// TODO This coercion is giving incorrect result")
-                .put(columnContext("parquet", "bigint_to_varchar"), "Unsupported Trino column type (varchar) for Parquet column ([bigint_to_varchar] optional int64 bigint_to_varchar (INTEGER(64,true)))")
                 .put(columnContext("parquet", "bigint_to_shortdecimal"), "Unsupported Trino column type (decimal(10,2)) for Parquet column ([bigint_to_shortdecimal] optional int64 bigint_to_shortdecimal (INTEGER(64,true)))")
                 .put(columnContext("parquet", "bigint_to_longdecimal"), "Unsupported Trino column type (decimal(20,2)) for Parquet column ([bigint_to_longdecimal] optional int64 bigint_to_longdecimal (INTEGER(64,true)))")
-                .put(columnContext("parquet", "double_to_string"), "Unsupported Trino column type (varchar) for Parquet column ([double_to_string] optional double double_to_string)")
-                .put(columnContext("parquet", "double_to_bounded_varchar"), "Unsupported Trino column type (varchar(12)) for Parquet column ([double_to_bounded_varchar] optional double double_to_bounded_varchar)")
-                .put(columnContext("parquet", "double_infinity_to_string"), "Unsupported Trino column type (varchar) for Parquet column ([double_infinity_to_string] optional double double_infinity_to_string)")
                 .put(columnContext("parquet", "longdecimal_to_tinyint"), "Unsupported Trino column type (tinyint) for Parquet column ([longdecimal_to_tinyint] optional fixed_len_byte_array(9) longdecimal_to_tinyint (DECIMAL(20,12)))")
                 .put(columnContext("parquet", "shortdecimal_to_tinyint"), "Unsupported Trino column type (tinyint) for Parquet column ([shortdecimal_to_tinyint] optional fixed_len_byte_array(5) shortdecimal_to_tinyint (DECIMAL(10,2)))")
                 .put(columnContext("parquet", "longdecimal_to_smallint"), "Unsupported Trino column type (smallint) for Parquet column ([longdecimal_to_smallint] optional fixed_len_byte_array(9) longdecimal_to_smallint (DECIMAL(20,12)))")
@@ -285,6 +290,7 @@ public class TestHiveCoercionOnUnpartitionedTable
                 .put(columnContext("parquet", "short_decimal_to_varchar"), "// TODO This coercion is giving incorrect result")
                 .put(columnContext("parquet", "long_decimal_to_varchar"), "// TODO This coercion is giving incorrect result")
                 .put(columnContext("parquet", "float_to_decimal"), "Unsupported Trino column type (decimal(10,5)) for Parquet column ([float_to_decimal] optional float float_to_decimal)")
+                .put(columnContext("parquet", "double_to_float"), "Unsupported Trino column type (real) for Parquet column ([double_to_float] optional double double_to_float)")
                 .put(columnContext("parquet", "double_to_decimal"), "Unsupported Trino column type (decimal(10,5)) for Parquet column ([double_to_decimal] optional double double_to_decimal)")
                 .put(columnContext("parquet", "decimal_to_float"), "Unsupported Trino column type (double) for Parquet column ([decimal_to_float] optional fixed_len_byte_array(5) decimal_to_float (DECIMAL(10,5)))")
                 .put(columnContext("parquet", "decimal_to_double"), "Unsupported Trino column type (double) for Parquet column ([decimal_to_double] optional fixed_len_byte_array(5) decimal_to_double (DECIMAL(10,5)))")
@@ -376,6 +382,7 @@ public class TestHiveCoercionOnUnpartitionedTable
                 .put(columnContext("3.1", "parquet", "timestamp_map_to_map"), "org.apache.hadoop.io.Text cannot be cast to org.apache.hadoop.hive.serde2.io.TimestampWritableV2")
                 .put(columnContext("3.1", "parquet", "string_to_timestamp"), "org.apache.hadoop.io.Text cannot be cast to org.apache.hadoop.hive.serde2.io.TimestampWritableV2")
                 .put(columnContext("3.1", "parquet", "timestamp_to_date"), "org.apache.hadoop.io.Text cannot be cast to org.apache.hadoop.hive.serde2.io.TimestampWritableV2")
+                .put(columnContext("3.1", "parquet", "double_to_float"), "org.apache.hadoop.hive.serde2.io.DoubleWritable cannot be cast to org.apache.hadoop.io.FloatWritable")
                 .buildOrThrow();
     }
 }
