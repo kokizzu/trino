@@ -144,6 +144,9 @@ public class TestHiveCoercionOnUnpartitionedTable
                             date_to_bounded_varchar            DATE,
                             char_to_bigger_char                CHAR(3),
                             char_to_smaller_char               CHAR(3),
+                            char_to_string                     CHAR(3),
+                            char_to_bigger_varchar             CHAR(3),
+                            char_to_smaller_varchar            CHAR(3),
                             string_to_char                     STRING,
                             varchar_to_bigger_char             VARCHAR(4),
                             varchar_to_smaller_char            VARCHAR(20),
@@ -245,8 +248,6 @@ public class TestHiveCoercionOnUnpartitionedTable
                 .put(columnContext("orc", "double_to_decimal"), "Cannot read SQL type 'decimal(10,5)' from ORC stream '.double_to_decimal' of type DOUBLE")
                 .put(columnContext("orc", "decimal_to_float"), "Cannot read SQL type 'real' from ORC stream '.decimal_to_float' of type DECIMAL")
                 .put(columnContext("orc", "decimal_to_double"), "Cannot read SQL type 'double' from ORC stream '.decimal_to_double' of type DECIMAL")
-                .put(columnContext("orc", "short_decimal_to_varchar"), "Cannot read SQL type 'varchar' from ORC stream '.short_decimal_to_varchar' of type DECIMAL")
-                .put(columnContext("orc", "long_decimal_to_varchar"), "Cannot read SQL type 'varchar' from ORC stream '.long_decimal_to_varchar' of type DECIMAL")
                 .put(columnContext("orc", "longdecimal_to_tinyint"), "Cannot read SQL type 'tinyint' from ORC stream '.longdecimal_to_tinyint' of type DECIMAL")
                 .put(columnContext("orc", "shortdecimal_to_tinyint"), "Cannot read SQL type 'tinyint' from ORC stream '.shortdecimal_to_tinyint' of type DECIMAL")
                 .put(columnContext("orc", "longdecimal_to_smallint"), "Cannot read SQL type 'smallint' from ORC stream '.longdecimal_to_smallint' of type DECIMAL")
@@ -287,8 +288,6 @@ public class TestHiveCoercionOnUnpartitionedTable
                 .put(columnContext("parquet", "shortdecimal_to_int"), "Unsupported Trino column type (integer) for Parquet column ([shortdecimal_to_int] optional fixed_len_byte_array(5) shortdecimal_to_int (DECIMAL(10,2)))")
                 .put(columnContext("parquet", "longdecimal_to_bigint"), "Unsupported Trino column type (bigint) for Parquet column ([longdecimal_to_bigint] optional fixed_len_byte_array(9) longdecimal_to_bigint (DECIMAL(20,4)))")
                 .put(columnContext("parquet", "shortdecimal_to_bigint"), "Unsupported Trino column type (bigint) for Parquet column ([shortdecimal_to_bigint] optional fixed_len_byte_array(5) shortdecimal_to_bigint (DECIMAL(10,2)))")
-                .put(columnContext("parquet", "short_decimal_to_varchar"), "// TODO This coercion is giving incorrect result")
-                .put(columnContext("parquet", "long_decimal_to_varchar"), "// TODO This coercion is giving incorrect result")
                 .put(columnContext("parquet", "float_to_decimal"), "Unsupported Trino column type (decimal(10,5)) for Parquet column ([float_to_decimal] optional float float_to_decimal)")
                 .put(columnContext("parquet", "double_to_float"), "Unsupported Trino column type (real) for Parquet column ([double_to_float] optional double double_to_float)")
                 .put(columnContext("parquet", "double_to_decimal"), "Unsupported Trino column type (decimal(10,5)) for Parquet column ([double_to_decimal] optional double double_to_decimal)")
