@@ -50,13 +50,13 @@ import org.junit.jupiter.api.Test;
 import java.util.Optional;
 
 import static io.trino.SystemSessionProperties.COLOCATED_JOIN;
+import static io.trino.SystemSessionProperties.DISTINCT_AGGREGATIONS_STRATEGY;
 import static io.trino.SystemSessionProperties.ENABLE_DYNAMIC_FILTERING;
 import static io.trino.SystemSessionProperties.ENABLE_STATS_CALCULATOR;
 import static io.trino.SystemSessionProperties.IGNORE_DOWNSTREAM_PREFERENCES;
 import static io.trino.SystemSessionProperties.JOIN_DISTRIBUTION_TYPE;
 import static io.trino.SystemSessionProperties.JOIN_PARTITIONED_BUILD_MIN_ROW_COUNT;
 import static io.trino.SystemSessionProperties.JOIN_REORDERING_STRATEGY;
-import static io.trino.SystemSessionProperties.MARK_DISTINCT_STRATEGY;
 import static io.trino.SystemSessionProperties.PUSH_FILTER_INTO_VALUES_MAX_ROW_COUNT;
 import static io.trino.SystemSessionProperties.SPILL_ENABLED;
 import static io.trino.SystemSessionProperties.TASK_CONCURRENCY;
@@ -268,7 +268,7 @@ public class TestAddExchangesPlans
                 query,
                 Session.builder(getPlanTester().getDefaultSession())
                         .setSystemProperty(IGNORE_DOWNSTREAM_PREFERENCES, "true")
-                        .setSystemProperty(MARK_DISTINCT_STRATEGY, "always")
+                        .setSystemProperty(DISTINCT_AGGREGATIONS_STRATEGY, "mark_distinct")
                         .build(),
                 anyTree(
                         node(MarkDistinctNode.class,
@@ -286,7 +286,7 @@ public class TestAddExchangesPlans
                 query,
                 Session.builder(getPlanTester().getDefaultSession())
                         .setSystemProperty(IGNORE_DOWNSTREAM_PREFERENCES, "false")
-                        .setSystemProperty(MARK_DISTINCT_STRATEGY, "always")
+                        .setSystemProperty(DISTINCT_AGGREGATIONS_STRATEGY, "mark_distinct")
                         .build(),
                 anyTree(
                         node(MarkDistinctNode.class,
@@ -892,7 +892,7 @@ public class TestAddExchangesPlans
                         "    GROUP BY\n" +
                         "        orderkey,\n" +
                         "        orderstatus\n",
-                useExactPartitioning(),
+                useExactPartitioningWithMarkDistinct(),
                 anyTree(
                         exchange(REMOTE, REPARTITION,
                                 anyTree(
@@ -1232,6 +1232,17 @@ public class TestAddExchangesPlans
                 .setSystemProperty(JOIN_DISTRIBUTION_TYPE, PARTITIONED.name())
                 .setSystemProperty(ENABLE_DYNAMIC_FILTERING, "false")
                 .setSystemProperty(USE_EXACT_PARTITIONING, "true")
+                .build();
+    }
+
+    private Session useExactPartitioningWithMarkDistinct()
+    {
+        return Session.builder(getPlanTester().getDefaultSession())
+                .setSystemProperty(JOIN_REORDERING_STRATEGY, ELIMINATE_CROSS_JOINS.name())
+                .setSystemProperty(JOIN_DISTRIBUTION_TYPE, PARTITIONED.name())
+                .setSystemProperty(ENABLE_DYNAMIC_FILTERING, "false")
+                .setSystemProperty(USE_EXACT_PARTITIONING, "true")
+                .setSystemProperty(DISTINCT_AGGREGATIONS_STRATEGY, "mark_distinct")
                 .build();
     }
 
