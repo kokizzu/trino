@@ -621,7 +621,7 @@ public class TestDeltaLakeBasic
                 "SHOW STATS FOR " + tableName,
                 """
                         VALUES
-                        ('x', null, 1.0, 0.1111111111111111, null, null, null),
+                        ('x', null, 1.0, 0.1111111111111111, null, '2023-01-02 03:04:05.123000', '2023-01-02 03:04:05.124000'),
                         (null, null, null, null, 9.0, null, null)
                         """);
 
@@ -726,7 +726,7 @@ public class TestDeltaLakeBasic
                 "SHOW STATS FOR " + tableName,
                 """
                         VALUES
-                        ('x', null, 8.0, 0.1111111111111111, null, null, null),
+                        ('x', null, 8.0, 0.1111111111111111, null, '2023-01-02 03:04:05.123000', '+10000-01-01 00:00:00.000000'),
                         (null, null, null, null, 9.0, null, null)
                         """);
 
@@ -1485,6 +1485,91 @@ public class TestDeltaLakeBasic
                 "MERGE INTO " + tableName + " USING (VALUES 42) t(dummy) ON false WHEN NOT MATCHED THEN INSERT VALUES (3, 4)",
                 "\\QUnsupported writer features: [v2Checkpoint]");
         assertQuery("SELECT * FROM " + tableName, "VALUES (1, 2)");
+    }
+
+    @Test
+    public void testTypeWidening()
+            throws Exception
+    {
+        String tableName = "test_type_widening_" + randomNameSuffix();
+        Path tableLocation = Files.createTempFile(tableName, null);
+        copyDirectoryContents(new File(Resources.getResource("deltalake/type_widening").toURI()).toPath(), tableLocation);
+        assertUpdate("CALL system.register_table(CURRENT_SCHEMA, '%s', '%s')".formatted(tableName, tableLocation.toUri()));
+
+        assertThat(query("DESCRIBE " + tableName)).result().projected("Column", "Type")
+                .skippingTypesCheck()
+                .matches("VALUES ('col', 'integer')");
+        assertQuery("SELECT * FROM " + tableName, "VALUES 127, 32767, 2147483647");
+
+        assertThat(query("SELECT * FROM " + tableName + " FOR VERSION AS OF 0"))
+                .returnsEmptyResult();
+        assertThat(query("SELECT * FROM " + tableName + " FOR VERSION AS OF 1"))
+                .matches("VALUES tinyint '127'");
+        assertThat(query("SELECT * FROM " + tableName + " FOR VERSION AS OF 2"))
+                .matches("VALUES smallint '127'");
+        assertThat(query("SELECT * FROM " + tableName + " FOR VERSION AS OF 3"))
+                .matches("VALUES smallint '127', smallint '32767'");
+        assertThat(query("SELECT * FROM " + tableName + " FOR VERSION AS OF 4"))
+                .matches("VALUES integer '127', integer '32767'");
+        assertThat(query("SELECT * FROM " + tableName + " FOR VERSION AS OF 5"))
+                .matches("VALUES integer '127', integer '32767', integer '2147483647'");
+    }
+
+    @Test
+    public void testTypeWideningNested()
+            throws Exception
+    {
+        String tableName = "test_type_widening_nestd_" + randomNameSuffix();
+        Path tableLocation = Files.createTempFile(tableName, null);
+        copyDirectoryContents(new File(Resources.getResource("deltalake/type_widening_nested").toURI()).toPath(), tableLocation);
+        assertUpdate("CALL system.register_table(CURRENT_SCHEMA, '%s', '%s')".formatted(tableName, tableLocation.toUri()));
+
+        assertThat(query("DESCRIBE " + tableName)).result().projected("Column", "Type")
+                .skippingTypesCheck()
+                .matches("VALUES ('s', 'row(field integer)'), ('m', 'map(integer, integer)'), ('a', 'array(integer)')");
+        assertThat(query("SELECT * FROM " + tableName))
+                .matches("VALUES " +
+                        "(CAST(ROW(127) AS ROW(field integer)), MAP(ARRAY[-128], ARRAY[127]), ARRAY[127])," +
+                        "(CAST(ROW(32767) AS ROW(field integer)), MAP(ARRAY[-32768], ARRAY[32767]), ARRAY[32767])," +
+                        "(CAST(ROW(2147483647) AS ROW(field integer)), MAP(ARRAY[-2147483648], ARRAY[2147483647]), ARRAY[2147483647])");
+
+        assertThat(query("SELECT * FROM " + tableName + " FOR VERSION AS OF 0"))
+                .returnsEmptyResult();
+        assertThat(query("SELECT * FROM " + tableName + " FOR VERSION AS OF 1"))
+                .matches("VALUES (CAST(ROW(127) AS ROW(field tinyint)), MAP(ARRAY[tinyint '-128'], ARRAY[tinyint '127']), ARRAY[tinyint '127'])");
+
+        // 2,3,4 versions changed nested fields from byte to short
+        assertThat(query("SELECT * FROM " + tableName + " FOR VERSION AS OF 5"))
+                .matches("VALUES (CAST(ROW(127) AS ROW(field smallint)), MAP(ARRAY[smallint '-128'], ARRAY[smallint '127']), ARRAY[smallint '127'])");
+
+        assertThat(query("SELECT * FROM " + tableName + " FOR VERSION AS OF 6"))
+                .matches("VALUES " +
+                        "(CAST(ROW(127) AS ROW(field smallint)), MAP(ARRAY[smallint '-128'], ARRAY[smallint '127']), ARRAY[smallint '127'])," +
+                        "(CAST(ROW(32767) AS ROW(field smallint)), MAP(ARRAY[smallint '-32768'], ARRAY[smallint '32767']), ARRAY[smallint '32767'])");
+
+        // 7,8,9 versions changed nested fields from short to int
+        assertThat(query("SELECT * FROM " + tableName + " FOR VERSION AS OF 10"))
+                .matches("VALUES " +
+                        "(CAST(ROW(127) AS ROW(field integer)), MAP(ARRAY[integer '-128'], ARRAY[integer '127']), ARRAY[integer '127'])," +
+                        "(CAST(ROW(32767) AS ROW(field integer)), MAP(ARRAY[integer '-32768'], ARRAY[integer '32767']), ARRAY[integer '32767'])");
+
+        assertThat(query("SELECT * FROM " + tableName + " FOR VERSION AS OF 11"))
+                .matches("VALUES " +
+                        "(CAST(ROW(127) AS ROW(field integer)), MAP(ARRAY[-128], ARRAY[127]), ARRAY[127])," +
+                        "(CAST(ROW(32767) AS ROW(field integer)), MAP(ARRAY[-32768], ARRAY[32767]), ARRAY[32767])," +
+                        "(CAST(ROW(2147483647) AS ROW(field integer)), MAP(ARRAY[-2147483648], ARRAY[2147483647]), ARRAY[2147483647])");
+    }
+
+    @Test
+    public void testTypeWideningUnsupported()
+            throws Exception
+    {
+        String tableName = "test_type_widening_" + randomNameSuffix();
+        Path tableLocation = Files.createTempFile(tableName, null);
+        copyDirectoryContents(new File(Resources.getResource("deltalake/type_widening_unsupported").toURI()).toPath(), tableLocation);
+        assertUpdate("CALL system.register_table(CURRENT_SCHEMA, '%s', '%s')".formatted(tableName, tableLocation.toUri()));
+
+        assertQueryFails("SELECT * FROM " + tableName, "Type change from 'byte' to 'unsupported' is not supported");
     }
 
     private static MetadataEntry loadMetadataEntry(long entryNumber, Path tableLocation)
