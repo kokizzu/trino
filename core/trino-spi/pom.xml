@@ -13,7 +13,6 @@
     <description>Trino - Service Provider Interface (SPI)</description>
 
     <properties>
-        <air.main.basedir>${project.parent.basedir}</air.main.basedir>
         <released-artifacts.dir>${project.build.directory}/released-artifacts</released-artifacts.dir>
         <trino.check.skip-revapi>${air.check.skip-basic}</trino.check.skip-revapi>
     </properties>
@@ -508,6 +507,16 @@
                                 <item>
                                     <code>java.method.visibilityIncreased</code>
                                     <new>method int io.trino.spi.block.ByteArrayBlock::getRawValuesOffset()</new>
+                                </item>
+                                <item>
+                                    <ignore>true</ignore>
+                                    <code>java.class.externalClassExposedInAPI</code>
+                                    <new>interface io.opentelemetry.api.metrics.DoubleGauge</new>
+                                </item>
+                                <item>
+                                    <ignore>true</ignore>
+                                    <code>java.class.externalClassExposedInAPI</code>
+                                    <new>interface io.opentelemetry.api.metrics.LongGauge</new>
                                 </item>
                             </differences>
                         </revapi.differences>

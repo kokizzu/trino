@@ -152,7 +152,6 @@
         <air.check.skip-jacoco>true</air.check.skip-jacoco>
         <air.java.version>22.0.0</air.java.version>
         <air.javadoc.lint>syntax,reference,html,-missing</air.javadoc.lint>
-        <air.main.basedir>${project.basedir}</air.main.basedir>
         <air.modernizer.java-version>8</air.modernizer.java-version>
         <air.release.preparation-goals>clean verify -DskipTests</air.release.preparation-goals>
         <!--
@@ -186,14 +185,14 @@
         <dep.alluxio.version>2.9.5</dep.alluxio.version>
         <dep.antlr.version>4.13.1</dep.antlr.version>
         <dep.avro.version>1.11.3</dep.avro.version>
-        <dep.aws-sdk.version>1.12.741</dep.aws-sdk.version>
+        <dep.aws-sdk.version>1.12.742</dep.aws-sdk.version>
         <dep.cassandra.version>4.17.0</dep.cassandra.version>
         <dep.confluent.version>7.5.1</dep.confluent.version>
         <dep.docker.images.version>96</dep.docker.images.version>
         <dep.drift.version>1.22</dep.drift.version>
         <dep.errorprone.version>2.28.0</dep.errorprone.version>
         <dep.flyway.version>10.15.0</dep.flyway.version>
-        <dep.google.http.client.version>1.44.1</dep.google.http.client.version>
+        <dep.google.http.client.version>1.44.2</dep.google.http.client.version>
         <dep.guava.version>33.2.0-jre</dep.guava.version>
         <dep.iceberg.version>1.5.2</dep.iceberg.version>
         <dep.jackson.version>2.17.1</dep.jackson.version>
@@ -202,6 +201,8 @@
         <dep.jsonwebtoken.version>0.12.5</dep.jsonwebtoken.version>
         <dep.kafka-clients.version>3.7.0</dep.kafka-clients.version>
         <dep.okio.version>3.9.0</dep.okio.version>
+        <!-- temporary: required to be in sync with version pulled by libraries-bom -->
+        <dep.opentelemetry.version>1.38.0</dep.opentelemetry.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
         <dep.parquet.version>1.14.0</dep.parquet.version>
         <dep.plugin.failsafe.version>${dep.plugin.surefire.version}</dep.plugin.failsafe.version>
@@ -229,7 +230,7 @@
             <dependency>
                 <groupId>com.google.cloud</groupId>
                 <artifactId>libraries-bom</artifactId>
-                <version>26.40.0</version>
+                <version>26.41.0</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -309,7 +310,7 @@
             <dependency>
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
-                <version>2.26.0</version>
+                <version>2.26.1</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -459,7 +460,7 @@
             <dependency>
                 <groupId>com.clickhouse</groupId>
                 <artifactId>clickhouse-jdbc</artifactId>
-                <version>0.6.0-patch4</version>
+                <version>0.6.1</version>
                 <classifier>all</classifier>
             </dependency>
 
@@ -514,7 +515,7 @@
             <dependency>
                 <groupId>com.google.cloud.bigdataoss</groupId>
                 <artifactId>gcs-connector</artifactId>
-                <version>hadoop3-2.2.22</version>
+                <version>hadoop3-2.2.23</version>
                 <classifier>shaded</classifier>
                 <exclusions>
                     <exclusion>
@@ -594,7 +595,7 @@
             <dependency>
                 <groupId>com.nimbusds</groupId>
                 <artifactId>nimbus-jose-jwt</artifactId>
-                <version>9.39.3</version>
+                <version>9.40</version>
             </dependency>
 
             <dependency>
