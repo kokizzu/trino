@@ -1948,7 +1948,18 @@ public class IcebergMetadata
         NestedField parent = icebergTable.schema().caseInsensitiveFindField(parentName);
 
         String caseSensitiveParentName = icebergTable.schema().findColumnName(parent.fieldId());
-        NestedField field = parent.type().asStructType().caseInsensitiveField(fieldName);
+
+        Types.StructType structType;
+        if (parent.type().isListType()) {
+            // list(struct...)
+            structType = parent.type().asListType().elementType().asStructType();
+        }
+        else {
+            // just struct
+            structType = parent.type().asStructType();
+        }
+
+        NestedField field = structType.caseInsensitiveField(fieldName);
         if (field != null) {
             if (ignoreExisting) {
                 return;
@@ -2130,7 +2141,19 @@ public class IcebergMetadata
         NestedField parent = icebergTable.schema().caseInsensitiveFindField(parentPath);
 
         String caseSensitiveParentName = icebergTable.schema().findColumnName(parent.fieldId());
-        NestedField field = parent.type().asStructType().caseInsensitiveField(getLast(fieldPath));
+
+        Types.StructType structType;
+        if (parent.type().isListType()) {
+            // list(struct...)
+            structType = parent.type().asListType().elementType().asStructType();
+            caseSensitiveParentName += ".element";
+        }
+        else {
+            // just struct
+            structType = parent.type().asStructType();
+        }
+        NestedField field = structType.caseInsensitiveField(getLast(fieldPath));
+
         // TODO: Add support for changing non-primitive field type
         if (!field.type().isPrimitiveType()) {
             throw new TrinoException(NOT_SUPPORTED, "Iceberg doesn't support changing field type from non-primitive types");

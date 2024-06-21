@@ -105,6 +105,7 @@ import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_ADD_COLUMN;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_ADD_COLUMN_NOT_NULL_CONSTRAINT;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_ADD_COLUMN_WITH_COMMENT;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_ADD_FIELD;
+import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_ADD_FIELD_IN_ARRAY;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_ARRAY;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_COMMENT_ON_COLUMN;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_COMMENT_ON_MATERIALIZED_VIEW_COLUMN;
@@ -126,6 +127,7 @@ import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_DELETE;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_DEREFERENCE_PUSHDOWN;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_DROP_COLUMN;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_DROP_FIELD;
+import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_DROP_FIELD_IN_ARRAY;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_DROP_NOT_NULL_CONSTRAINT;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_DROP_SCHEMA_CASCADE;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_INSERT;
@@ -147,6 +149,7 @@ import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_ROW_LEVEL_UPDAT
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_ROW_TYPE;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_SET_COLUMN_TYPE;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_SET_FIELD_TYPE;
+import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_SET_FIELD_TYPE_IN_ARRAY;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_TOPN_PUSHDOWN;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_TRUNCATE;
 import static io.trino.testing.TestingConnectorBehavior.SUPPORTS_UPDATE;
@@ -2434,6 +2437,76 @@ public abstract class BaseConnectorTest
     }
 
     @Test
+    public void testAddRowFieldInArray()
+    {
+        skipTestUnless(hasBehavior(SUPPORTS_CREATE_TABLE_WITH_DATA) && hasBehavior(SUPPORTS_ROW_TYPE));
+
+        if (!hasBehavior(SUPPORTS_ADD_FIELD_IN_ARRAY)) {
+            try (TestTable table = new TestTable(getQueryRunner()::execute, "test_add_field_in_array_", "AS SELECT CAST(array[row(1)] AS array(row(x integer))) AS col")) {
+                assertQueryFails(
+                        "ALTER TABLE " + table.getName() + " ADD COLUMN col.element.y integer",
+                        ".*does not support.*");
+            }
+            return;
+        }
+
+        try (TestTable table = new TestTable(getQueryRunner()::execute,
+                "test_add_field_in_array_",
+                "AS SELECT CAST(array[row(1, row(10), array[row(11)])] AS array(row(a integer, b row(x integer), c array(row(v integer))))) AS col")) {
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(row(a integer, b row(x integer), c array(row(v integer))))");
+
+            assertUpdate("ALTER TABLE " + table.getName() + " ADD COLUMN col.element.d integer");
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(row(a integer, b row(x integer), c array(row(v integer)), d integer))");
+            assertThat(query("SELECT * FROM " + table.getName())).matches("SELECT CAST(array[row(1, row(10), array[row(11)], NULL)] AS array(row(a integer, b row(x integer), c array(row(v integer)), d integer)))");
+
+            // Add a nested field
+            assertUpdate("ALTER TABLE " + table.getName() + " ADD COLUMN col.element.b.y integer");
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(row(a integer, b row(x integer, y integer), c array(row(v integer)), d integer))");
+            assertThat(query("SELECT * FROM " + table.getName())).matches("SELECT CAST(array[row(1, row(10, NULL), array[row(11)], NULL)] AS array(row(a integer, b row(x integer, y integer), c array(row(v integer)), d integer)))");
+
+            assertUpdate("ALTER TABLE " + table.getName() + " ADD COLUMN col.element.c.element.w integer");
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(row(a integer, b row(x integer, y integer), c array(row(v integer, w integer)), d integer))");
+            assertThat(query("SELECT * FROM " + table.getName())).matches("SELECT CAST(array[row(1, row(10, NULL), array[row(11, NULL)], NULL)] AS array(row(a integer, b row(x integer, y integer), c array(row(v integer, w integer)), d integer)))");
+
+            // Denote to array without 'element' designator
+            assertQueryFails(
+                    "ALTER TABLE " + table.getName() + " ADD COLUMN col.c.element.blah integer",
+                    "\\QARRAY type should be denoted by 'element' in the path; found 'c'");
+
+            // Specify existing fields with IF NOT EXISTS option
+            assertUpdate("ALTER TABLE " + table.getName() + " ADD COLUMN IF NOT EXISTS col.element.a varchar");
+            assertUpdate("ALTER TABLE " + table.getName() + " ADD COLUMN IF NOT EXISTS col.element.b.x varchar");
+            assertUpdate("ALTER TABLE " + table.getName() + " ADD COLUMN IF NOT EXISTS col.element.c.element.w varchar");
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(row(a integer, b row(x integer, y integer), c array(row(v integer, w integer)), d integer))");
+
+            // Specify existing fields without IF NOT EXISTS option
+            assertQueryFails("ALTER TABLE " + table.getName() + " ADD COLUMN col.element.a varchar", ".* Field 'a' already exists");
+            assertQueryFails("ALTER TABLE " + table.getName() + " ADD COLUMN col.element.b.x varchar", ".* Field 'x' already exists");
+            assertQueryFails("ALTER TABLE " + table.getName() + " ADD COLUMN col.element.c.element.w varchar", ".* Field 'w' already exists");
+        }
+
+        // test row in array of arrays
+        try (TestTable table = new TestTable(getQueryRunner()::execute,
+                "test_add_field_in_array_nested_",
+                "AS SELECT CAST(array[array[row(1, row(10), array[row(11)])]] AS array(array(row(a integer, b row(x integer), c array(row(v integer)))))) AS col")) {
+
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(array(row(a integer, b row(x integer), c array(row(v integer)))))");
+
+            assertUpdate("ALTER TABLE " + table.getName() + " ADD COLUMN col.element.element.d integer");
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(array(row(a integer, b row(x integer), c array(row(v integer)), d integer)))");
+            assertThat(query("SELECT * FROM " + table.getName())).matches("SELECT CAST(array[array[row(1, row(10), array[row(11)], NULL)]] AS array(array(row(a integer, b row(x integer), c array(row(v integer)), d integer))))");
+
+            assertUpdate("ALTER TABLE " + table.getName() + " ADD COLUMN col.element.element.b.y integer");
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(array(row(a integer, b row(x integer, y integer), c array(row(v integer)), d integer)))");
+            assertThat(query("SELECT * FROM " + table.getName())).matches("SELECT CAST(array[array[row(1, row(10, NULL), array[row(11)], NULL)]] AS array(array(row(a integer, b row(x integer, y integer), c array(row(v integer)), d integer))))");
+
+            assertUpdate("ALTER TABLE " + table.getName() + " ADD COLUMN col.element.element.c.element.w integer");
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(array(row(a integer, b row(x integer, y integer), c array(row(v integer, w integer)), d integer)))");
+            assertThat(query("SELECT * FROM " + table.getName())).matches("SELECT CAST(array[array[row(1, row(10, NULL), array[row(11, NULL)], NULL)]] AS array(array(row(a integer, b row(x integer, y integer), c array(row(v integer, w integer)), d integer))))");
+        }
+    }
+
+    @Test
     public void testDropColumn()
     {
         if (!hasBehavior(SUPPORTS_DROP_COLUMN)) {
@@ -2510,6 +2583,102 @@ public abstract class BaseConnectorTest
         }
     }
 
+    @Test
+    public void testDropRowFieldInArray()
+    {
+        if (!hasBehavior(SUPPORTS_DROP_FIELD_IN_ARRAY)) {
+            if (!hasBehavior(SUPPORTS_DROP_COLUMN) || !hasBehavior(SUPPORTS_ROW_TYPE)) {
+                return;
+            }
+            try (TestTable table = new TestTable(getQueryRunner()::execute, "test_drop_field_in_array_", "AS SELECT CAST(array[row(1, 2)] AS array(row(x integer, y integer))) AS col")) {
+                assertQueryFails(
+                        "ALTER TABLE " + table.getName() + " DROP COLUMN col.element.x",
+                        ".*does not support.*");
+            }
+            return;
+        }
+
+        try (TestTable table = new TestTable(getQueryRunner()::execute,
+                "test_drop_field_in_array_",
+                "AS SELECT CAST(array[row(1, 2, row(10, 20), array[row(30, 40)])] AS array(row(a integer, b integer, c row(x integer, y integer), d array(row(v integer, w integer))))) AS col")) {
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(row(a integer, b integer, c row(x integer, y integer), d array(row(v integer, w integer))))");
+
+            assertUpdate("ALTER TABLE " + table.getName() + " DROP COLUMN col.element.b");
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(row(a integer, c row(x integer, y integer), d array(row(v integer, w integer))))");
+            assertThat(query("SELECT * FROM " + table.getName())).matches("SELECT CAST(array[row(1, row(10, 20), array[row(30, 40)])] AS array(row(a integer, c row(x integer, y integer), d array(row(v integer, w integer)))))");
+
+            // Drop a nested field
+            assertUpdate("ALTER TABLE " + table.getName() + " DROP COLUMN col.element.c.y");
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(row(a integer, c row(x integer), d array(row(v integer, w integer))))");
+            assertThat(query("SELECT * FROM " + table.getName())).matches("SELECT CAST(array[row(1, row(10), array[row(30, 40)])] AS array(row(a integer, c row(x integer), d array(row(v integer, w integer)))))");
+
+            // Drop a nested field in array
+            assertUpdate("ALTER TABLE " + table.getName() + " DROP COLUMN col.element.d.element.v");
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(row(a integer, c row(x integer), d array(row(w integer))))");
+            assertThat(query("SELECT * FROM " + table.getName())).matches("SELECT CAST(array[row(1, row(10), array[row(40)])] AS array(row(a integer, c row(x integer), d array(row(w integer)))))");
+
+            // Verify failure when trying to drop unique field in nested row type
+            assertQueryFails("ALTER TABLE " + table.getName() + " DROP COLUMN col.element.c.x", ".* Cannot drop the only field in a row type");
+            assertQueryFails("ALTER TABLE " + table.getName() + " DROP COLUMN col.element.d.element.w", ".* Cannot drop the only field in a row type");
+
+            // Verify failure when trying to drop non-existing fields
+            assertQueryFails(
+                    "ALTER TABLE " + table.getName() + " DROP COLUMN col.element.c.non_existing",
+                    "\\Qline 1:1: Cannot resolve field 'non_existing' within row(x integer) type when dropping [element, c, non_existing] in array(row(a integer, c row(x integer), d array(row(w integer))))");
+
+            // Verify failure when trying to drop non-existing fields
+            assertQueryFails(
+                    "ALTER TABLE " + table.getName() + " DROP COLUMN col.element.d.element.non_existing",
+                    "\\Qline 1:1: Cannot resolve field 'non_existing' within row(w integer) type when dropping [element, d, element, non_existing] in array(row(a integer, c row(x integer), d array(row(w integer))))");
+
+            // Drop a row having fields
+            assertUpdate("ALTER TABLE " + table.getName() + " DROP COLUMN col.element.c");
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(row(a integer, d array(row(w integer))))");
+            assertThat(query("SELECT * FROM " + table.getName())).matches("SELECT CAST(array[row(1, array[row(40)])] AS array(row(a integer, d array(row(w integer)))))");
+
+            // Drop a array(row) having fields
+            assertUpdate("ALTER TABLE " + table.getName() + " DROP COLUMN col.element.d");
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(row(a integer))");
+            assertThat(query("SELECT * FROM " + table.getName())).matches("SELECT CAST(array[row(1)] AS array(row(a integer)))");
+
+            // Denote to array without 'element' designator
+            assertQueryFails(
+                    "ALTER TABLE " + table.getName() + " DROP COLUMN col.a",
+                    "\\QARRAY type should be denoted by 'element' in the path; found 'a'");
+
+            // Specify non-existing fields with IF EXISTS option
+            assertUpdate("ALTER TABLE " + table.getName() + " DROP COLUMN IF EXISTS non_existing.a");
+            assertUpdate("ALTER TABLE " + table.getName() + " DROP COLUMN IF EXISTS col.element.non_existing");
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(row(a integer))");
+        }
+
+        try (TestTable table = new TestTable(getQueryRunner()::execute,
+                "test_drop_field_in_array_nested_",
+                "AS SELECT CAST(array[array[row(1, 2, row(10, 20), array[row(30, 40)])]] AS array(array(row(a integer, b integer, c row(x integer, y integer), d array(row(v integer, w integer)))))) AS col")) {
+
+            // Use path ending with element
+            assertQueryFails(
+                    "ALTER TABLE " + table.getName() + " DROP COLUMN col.element.element",
+                    "\\Qline 1:1: Field path [element, element] does not point to row field");
+            assertQueryFails(
+                    "ALTER TABLE " + table.getName() + " DROP COLUMN col.element.element.d.element",
+                    "\\Qline 1:1: Field path [element, element, d, element] does not point to row field");
+
+            assertUpdate("ALTER TABLE " + table.getName() + " DROP COLUMN col.element.element.b");
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(array(row(a integer, c row(x integer, y integer), d array(row(v integer, w integer)))))");
+            assertThat(query("SELECT * FROM " + table.getName())).matches("SELECT CAST(array[array[row(1, row(10, 20), array[row(30, 40)])]] AS array(array(row(a integer, c row(x integer, y integer), d array(row(v integer, w integer))))))");
+
+            // Drop a nested field
+            assertUpdate("ALTER TABLE " + table.getName() + " DROP COLUMN col.element.element.c.y");
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(array(row(a integer, c row(x integer), d array(row(v integer, w integer)))))");
+            assertThat(query("SELECT * FROM " + table.getName())).matches("SELECT CAST(array[array[row(1, row(10), array[row(30, 40)])]] AS array(array(row(a integer, c row(x integer), d array(row(v integer, w integer))))))");
+
+            // Drop a nested field in array
+            assertUpdate("ALTER TABLE " + table.getName() + " DROP COLUMN col.element.element.d.element.v");
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(array(row(a integer, c row(x integer), d array(row(w integer)))))");
+            assertThat(query("SELECT * FROM " + table.getName())).matches("SELECT CAST(array[array[row(1, row(10), array[row(40)])]] AS array(array(row(a integer, c row(x integer), d array(row(w integer))))))");
+        }
+    }
     @Test
     public void testDropRowFieldWhenDuplicates()
     {
@@ -3046,6 +3215,53 @@ public abstract class BaseConnectorTest
                 "AS SELECT CAST(row(9223372036854775807) AS row(field bigint)) AS col")) {
             assertThatThrownBy(() -> assertUpdate("ALTER TABLE " + table.getName() + " ALTER COLUMN col.field SET DATA TYPE integer"))
                     .satisfies(this::verifySetFieldTypeFailurePermissible);
+        }
+    }
+
+    @Test
+    public void testSetFieldTypeInArray()
+    {
+        skipTestUnless(hasBehavior(SUPPORTS_CREATE_TABLE_WITH_DATA) && hasBehavior(SUPPORTS_ARRAY) && hasBehavior(SUPPORTS_ROW_TYPE));
+
+        if (!hasBehavior(SUPPORTS_SET_FIELD_TYPE_IN_ARRAY)) {
+            try (TestTable table = new TestTable(getQueryRunner()::execute, "test_set_field_type_in_array_", "(col array(row(field int)))")) {
+                assertQueryFails(
+                        "ALTER TABLE " + table.getName() + " ALTER COLUMN col.element.field SET DATA TYPE bigint",
+                        ".*does not support.*");
+            }
+            return;
+        }
+
+        try (TestTable table = new TestTable(getQueryRunner()::execute, "test_set_field_type_in_array_", "AS SELECT CAST(array[row(123)] AS array(row(field integer))) AS col")) {
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(row(field integer))");
+
+            assertUpdate("ALTER TABLE " + table.getName() + " ALTER COLUMN col.element.field SET DATA TYPE bigint");
+
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(row(field bigint))");
+            assertThat(query("SELECT * FROM " + table.getName()))
+                    .skippingTypesCheck()
+                    .matches("SELECT array[row(bigint '123')]");
+        }
+    }
+
+    @Test
+    public void testSetFieldTypeInNestedArray()
+    {
+        skipTestUnless(hasBehavior(SUPPORTS_SET_FIELD_TYPE_IN_ARRAY) && hasBehavior(SUPPORTS_CREATE_TABLE_WITH_DATA) && hasBehavior(SUPPORTS_ARRAY) && hasBehavior(SUPPORTS_ROW_TYPE));
+
+        try (TestTable table = new TestTable(getQueryRunner()::execute, "test_set_field_type_in_nested_array_", "AS SELECT CAST(array[array[row(array[row(123)])]] AS array(array(row(field array(row(a integer)))))) AS col")) {
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(array(row(field array(row(a integer)))))");
+
+            assertUpdate("ALTER TABLE " + table.getName() + " ALTER COLUMN col.element.element.field.element.a SET DATA TYPE bigint");
+
+            assertThat(getColumnType(table.getName(), "col")).isEqualTo("array(array(row(field array(row(a bigint)))))");
+            assertThat(query("SELECT * FROM " + table.getName()))
+                    .skippingTypesCheck()
+                    .matches("SELECT array[array[row(array[row(bigint '123')])]]");
+
+            assertQueryFails(
+                    "ALTER TABLE " + table.getName() + " ALTER COLUMN col.element.element SET DATA TYPE bigint",
+                    "\\Qline 1:1: Field path [col, element, element] does not point to row field");
         }
     }
 
