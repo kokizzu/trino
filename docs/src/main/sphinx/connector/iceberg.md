@@ -714,6 +714,10 @@ connector using a {doc}`WITH </sql/create-table-as>` clause.
 * - `orc_bloom_filter_fpp`
   - The ORC bloom filters false positive probability. Requires ORC format.
     Defaults to `0.05`.
+* - `parquet_bloom_filter_columns`
+  - Comma-separated list of columns to use for Parquet bloom filter. It improves
+    the performance of queries using Equality and IN predicates when reading
+    Parquet files. Requires Parquet format. Defaults to `[]`.
 :::
 
 The table definition below specifies to use Parquet files, partitioning by columns
@@ -745,6 +749,18 @@ WITH (
     location = '/var/example_tables/test_table',
     orc_bloom_filter_columns = ARRAY['c1', 'c2'],
     orc_bloom_filter_fpp = 0.05)
+```
+
+The table definition below specifies to use Avro files, partitioning 
+by `child1` field in `parent` column:
+
+```
+CREATE TABLE test_table (
+    data INTEGER,
+    parent ROW(child1 DOUBLE, child2 INTEGER))
+WITH (
+    format = 'AVRO',
+    partitioning = ARRAY['"parent.child1"'])
 ```
 
 (iceberg-metadata-tables)=
