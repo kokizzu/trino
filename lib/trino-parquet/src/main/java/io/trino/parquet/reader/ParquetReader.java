@@ -323,8 +323,8 @@ public class ParquetReader
             return;
         }
 
-        for (int column = 0; column < primitiveFields.size(); column++) {
-            ChunkedInputStream chunkedStream = chunkReaders.get(new ChunkKey(column, currentRowGroup));
+        for (PrimitiveField field : primitiveFields) {
+            ChunkedInputStream chunkedStream = chunkReaders.get(new ChunkKey(field.getId(), currentRowGroup));
             if (chunkedStream != null) {
                 chunkedStream.close();
             }
@@ -494,7 +494,8 @@ public class ParquetReader
             throws IOException
     {
         for (ColumnChunkMetadata metadata : blockMetaData.getColumns()) {
-            if (metadata.getPath().equals(ColumnPath.get(columnDescriptor.getPath()))) {
+            // Column paths for nested structures have common root, so we compare in reverse to find mismatch sooner
+            if (arrayEqualsReversed(metadata.getPath().toArray(), columnDescriptor.getPath())) {
                 return metadata;
             }
         }
@@ -622,5 +623,18 @@ public class ParquetReader
         if (writeValidation.isPresent() && !test.test(writeValidation.get())) {
             throw new ParquetCorruptionException(dataSource.getId(), "Write validation failed: " + messageFormat, args);
         }
+    }
+
+    private static boolean arrayEqualsReversed(String[] a, String[] b)
+    {
+        if (a.length != b.length) {
+            return false;
+        }
+        for (int i = a.length - 1; i >= 0; i--) {
+            if (!a[i].equals(b[i])) {
+                return false;
+            }
+        }
+        return true;
     }
 }
