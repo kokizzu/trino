@@ -650,7 +650,7 @@ public class IcebergMetadata
                                             partitionColumnValueStrings.get(columnId).orElse(null),
                                             column.getName());
 
-                                    return NullableValue.of(column.getType(), prestoValue);
+                                    return new NullableValue(column.getType(), prestoValue);
                                 }));
 
                 return TupleDomain.fromFixedValues(partitionValues);
@@ -1931,9 +1931,8 @@ public class IcebergMetadata
             difference(existingPartitionFields, partitionFields).stream()
                     .map(PartitionField::name)
                     .forEach(updatePartitionSpec::removeField);
-            difference(partitionFields, existingPartitionFields).stream()
-                    .map(partitionField -> toIcebergTerm(schema, partitionField))
-                    .forEach(updatePartitionSpec::addField);
+            difference(partitionFields, existingPartitionFields)
+                    .forEach(partitionField -> updatePartitionSpec.addField(partitionField.name(), toIcebergTerm(schema, partitionField)));
         }
 
         try {
