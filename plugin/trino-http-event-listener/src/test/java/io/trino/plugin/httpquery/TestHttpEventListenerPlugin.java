@@ -14,23 +14,24 @@
 package io.trino.plugin.httpquery;
 
 import com.google.common.collect.ImmutableMap;
-import io.trino.spi.eventlistener.EventListener;
 import io.trino.spi.eventlistener.EventListenerFactory;
 import org.junit.jupiter.api.Test;
 
 import static com.google.common.collect.Iterables.getOnlyElement;
 
-final class TestHttpServerListenerPlugin
+final class TestHttpEventListenerPlugin
 {
     @Test
     void testCreateEventListener()
     {
-        HttpServerEventListenerPlugin plugin = new HttpServerEventListenerPlugin();
-        EventListenerFactory factory = getOnlyElement(plugin.getEventListenerFactories());
-        EventListener eventListener = factory.create(
-                ImmutableMap.of(
-                        "http-server.http.port", "0"));
+        HttpEventListenerPlugin plugin = new HttpEventListenerPlugin();
 
-        eventListener.shutdown();
+        EventListenerFactory factory = getOnlyElement(plugin.getEventListenerFactories());
+        factory.create(
+                ImmutableMap.<String, String>builder()
+                        .put("http-event-listener.connect-ingest-uri", "http://localhost:8080")
+                        .put("bootstrap.quiet", "true")
+                        .buildOrThrow())
+                .shutdown();
     }
 }

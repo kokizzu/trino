@@ -11,26 +11,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.httpquery;
+package io.trino.plugin.openlineage;
 
 import com.google.common.collect.ImmutableMap;
-import io.trino.spi.eventlistener.EventListener;
 import io.trino.spi.eventlistener.EventListenerFactory;
 import org.junit.jupiter.api.Test;
 
 import static com.google.common.collect.Iterables.getOnlyElement;
 
-final class TestHttpServerListenerPlugin
+final class TestOpenLineagePlugin
 {
     @Test
     void testCreateEventListener()
     {
-        HttpServerEventListenerPlugin plugin = new HttpServerEventListenerPlugin();
-        EventListenerFactory factory = getOnlyElement(plugin.getEventListenerFactories());
-        EventListener eventListener = factory.create(
-                ImmutableMap.of(
-                        "http-server.http.port", "0"));
+        OpenLineagePlugin plugin = new OpenLineagePlugin();
 
-        eventListener.shutdown();
+        EventListenerFactory factory = getOnlyElement(plugin.getEventListenerFactories());
+        factory.create(
+                ImmutableMap.<String, String>builder()
+                        .put("openlineage-event-listener.trino.uri", "http://localhost:8080")
+                        .put("bootstrap.quiet", "true")
+                        .buildOrThrow())
+                .shutdown();
     }
 }
