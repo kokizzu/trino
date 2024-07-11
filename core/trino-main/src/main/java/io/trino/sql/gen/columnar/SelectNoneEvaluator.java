@@ -11,17 +11,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.memory;
+package io.trino.sql.gen.columnar;
 
-import io.trino.spi.connector.ColumnHandle;
-import io.trino.spi.type.Type;
+import io.trino.operator.project.SelectedPositions;
+import io.trino.spi.Page;
+import io.trino.spi.connector.ConnectorSession;
 
-public record MemoryColumnHandle(int columnIndex, Type type)
-        implements ColumnHandle
+import static io.trino.operator.project.SelectedPositions.positionsRange;
+
+public final class SelectNoneEvaluator
+        implements FilterEvaluator
 {
     @Override
-    public String toString()
+    public SelectionResult evaluate(ConnectorSession session, SelectedPositions activePositions, Page page)
     {
-        return Integer.toString(columnIndex);
+        return new SelectionResult(positionsRange(0, 0), 0);
     }
 }

@@ -540,6 +540,63 @@ public class TestCassandraConnectorTest
     }
 
     @Test
+    void testInsertIntoTupleType()
+    {
+        try (TestCassandraTable table = testTable(
+                "insert_tuple_table",
+                ImmutableList.of(partitionColumn("key", "int"), generalColumn("value", "frozen<tuple<int, text, float>>")),
+                ImmutableList.of())) {
+            assertQueryFails(
+                    format("INSERT INTO %s (key, value) VALUES (1, ROW(1, 'text-1', 1.11))", table.getTableName()),
+                    "\\QUnsupported column type: row(integer, varchar, real)");
+        }
+    }
+
+    @Test
+    void testInsertIntoValuesToCassandraMaterializedView()
+    {
+        String materializedViewName = "test_insert_into_mv" + randomNameSuffix();
+        onCassandra("CREATE MATERIALIZED VIEW tpch." + materializedViewName + " AS " +
+                "SELECT * FROM tpch.nation " +
+                "WHERE nationkey IS NOT NULL " +
+                "PRIMARY KEY (id, nationkey)");
+
+        assertContainsEventually(() -> computeActual("SHOW TABLES FROM cassandra.tpch"), resultBuilder(getSession(), VARCHAR)
+                .row(materializedViewName)
+                .build(), new Duration(1, MINUTES));
+
+        assertQueryFails(
+                "INSERT INTO tpch.%s (nationkey) VALUES (null)".formatted(materializedViewName),
+                "Inserting into materialized views not yet supported");
+        assertQueryFails(
+                "DROP TABLE tpch." + materializedViewName,
+                "Dropping materialized views not yet supported");
+
+        onCassandra("DROP MATERIALIZED VIEW tpch." + materializedViewName);
+    }
+
+    @Test
+    void testInvalidTable()
+    {
+        String tableName = "cassandra.tpch.bogus";
+        assertQueryFails("SELECT * FROM " + tableName, ".* Table '%s' does not exist".formatted(tableName));
+    }
+
+    @Test
+    void testInvalidSchema()
+    {
+        assertQueryFails(
+                "SELECT * FROM cassandra.does_not_exist.bogus",
+                ".* Schema 'does_not_exist' does not exist");
+    }
+
+    @Test
+    void testInvalidColumn()
+    {
+        assertQueryFails("SELECT bogus FROM nation", ".* Column 'bogus' cannot be resolved");
+    }
+
+    @Test
     public void testCreateTableAs()
     {
         try (TestCassandraTable testCassandraTable = testTable(
@@ -1354,9 +1411,9 @@ public class TestCassandraConnectorTest
             assertThat(computeActual("SELECT * FROM " + keyspaceAndTable).getRowCount()).isEqualTo(12);
             assertThat(computeActual("SELECT * FROM " + keyspaceAndTable + wherePartitionKey).getRowCount()).isEqualTo(0);
 
-            String whereMultiplePartitionKey = " WHERE (partition_one=1 AND partition_two=1) OR (partition_one=1 AND partition_two=2)";
+            String whereMultiplePartitionKey = " WHERE (partition_one=1 AND partition_two=1) OR (partition_one=1 AND partition_two=3)";
             assertUpdate("DELETE FROM " + keyspaceAndTable + whereMultiplePartitionKey);
-            assertThat(computeActual("SELECT * FROM " + keyspaceAndTable).getRowCount()).isEqualTo(6);
+            assertThat(computeActual("SELECT * FROM " + keyspaceAndTable).getRowCount()).isEqualTo(9);
             assertThat(computeActual("SELECT * FROM " + keyspaceAndTable + whereMultiplePartitionKey).getRowCount()).isEqualTo(0);
         }
     }
