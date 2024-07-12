@@ -10,7 +10,7 @@
 
     <groupId>io.trino</groupId>
     <artifactId>trino-root</artifactId>
-    <version>452-SNAPSHOT</version>
+    <version>453-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>${project.artifactId}</name>
@@ -69,6 +69,7 @@
         <module>plugin/trino-elasticsearch</module>
         <module>plugin/trino-example-http</module>
         <module>plugin/trino-example-jdbc</module>
+        <module>plugin/trino-exasol</module>
         <module>plugin/trino-exchange-filesystem</module>
         <module>plugin/trino-exchange-hdfs</module>
         <module>plugin/trino-geospatial</module>
@@ -143,7 +144,7 @@
     <properties>
         <project.build.targetJdk>22</project.build.targetJdk>
         <!-- for reproducible build support, updated by release plugin -->
-        <project.build.outputTimestamp>2024-06-27T23:13:07Z</project.build.outputTimestamp>
+        <project.build.outputTimestamp>2024-07-12T02:16:11Z</project.build.outputTimestamp>
         <!-- TODO remove this property when no module overrides it -->
         <trino.error-prone.guarded-by>ERROR</trino.error-prone.guarded-by>
 
@@ -475,6 +476,12 @@
             </dependency>
 
             <dependency>
+                <groupId>com.exasol</groupId>
+                <artifactId>exasol-jdbc</artifactId>
+                <version>24.1.0</version>
+            </dependency>
+
+            <dependency>
                 <groupId>com.facebook.thirdparty</groupId>
                 <artifactId>libsvm</artifactId>
                 <version>3.18.1</version>
@@ -489,7 +496,7 @@
             <dependency>
                 <groupId>com.github.docker-java</groupId>
                 <artifactId>docker-java-api</artifactId>
-                <version>3.3.6</version>
+                <version>3.4.0</version>
             </dependency>
 
             <dependency>
