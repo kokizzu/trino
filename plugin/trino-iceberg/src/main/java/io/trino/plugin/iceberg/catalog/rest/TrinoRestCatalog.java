@@ -54,6 +54,7 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SessionCatalog;
 import org.apache.iceberg.catalog.SessionCatalog.SessionContext;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.ForbiddenException;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.exceptions.NoSuchViewException;
@@ -75,6 +76,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -207,22 +209,31 @@ public class TrinoRestCatalog
 
         ImmutableList.Builder<TableInfo> tables = ImmutableList.builder();
         for (Namespace restNamespace : namespaces) {
-            try {
-                restSessionCatalog.listTables(sessionContext, restNamespace).stream()
-                        .map(id -> new TableInfo(SchemaTableName.schemaTableName(id.namespace().toString(), id.name()), TableInfo.ExtendedRelationType.TABLE))
-                        .forEach(tables::add);
-                restSessionCatalog.listViews(sessionContext, restNamespace).stream()
-                        .map(id -> new TableInfo(SchemaTableName.schemaTableName(id.namespace().toString(), id.name()), TableInfo.ExtendedRelationType.OTHER_VIEW))
-                        .forEach(tables::add);
-            }
-            catch (NoSuchNamespaceException e) {
-                // Namespace may have been deleted during listing
-            }
-            catch (RESTException e) {
-                throw new TrinoException(ICEBERG_CATALOG_ERROR, format("Failed to list tables from namespace: %s", restNamespace), e);
-            }
+            listTableIdentifiers(restNamespace, () -> restSessionCatalog.listTables(sessionContext, restNamespace)).stream()
+                    .map(id -> new TableInfo(SchemaTableName.schemaTableName(id.namespace().toString(), id.name()), TableInfo.ExtendedRelationType.TABLE))
+                    .forEach(tables::add);
+            listTableIdentifiers(restNamespace, () -> restSessionCatalog.listViews(sessionContext, restNamespace)).stream()
+                    .map(id -> new TableInfo(SchemaTableName.schemaTableName(id.namespace().toString(), id.name()), TableInfo.ExtendedRelationType.OTHER_VIEW))
+                    .forEach(tables::add);
         }
         return tables.build();
+    }
+
+    private static List<TableIdentifier> listTableIdentifiers(Namespace restNamespace, Supplier<List<TableIdentifier>> tableIdentifiersProvider)
+    {
+        try {
+            return tableIdentifiersProvider.get();
+        }
+        catch (NoSuchNamespaceException e) {
+            // Namespace may have been deleted during listing
+        }
+        catch (ForbiddenException e) {
+            log.debug(e, "Failed to list tables from %s namespace because of insufficient permissions", restNamespace);
+        }
+        catch (RESTException e) {
+            throw new TrinoException(ICEBERG_CATALOG_ERROR, format("Failed to list tables from namespace: %s", restNamespace), e);
+        }
+        return ImmutableList.of();
     }
 
     @Override
