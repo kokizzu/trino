@@ -11,12 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.tests.product.sqlserver;
+package io.trino.client.uri;
 
-public final class TestConstants
+public enum LoggingLevel
 {
-    public static final String CONNECTOR_NAME = "sqlserver";
-    public static final String KEY_SPACE = "dbo";
-
-    private TestConstants() {}
+    NONE, BASIC, HEADERS, BODY;
 }
