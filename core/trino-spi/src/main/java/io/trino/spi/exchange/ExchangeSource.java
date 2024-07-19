@@ -93,7 +93,7 @@ public interface ExchangeSource
     long getMemoryUsage();
 
     /**
-     * Get metrics describing this ExchangeSource.
+     * Get metrics describing ExchangeSource.
      * Metrics will be exposed via matching ExchangeOperator description.
      */
     default Optional<Metrics> getMetrics()

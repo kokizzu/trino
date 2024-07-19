@@ -129,7 +129,7 @@ public class AzureBlobFileSystemExchangeStorage
     @Override
     public ExchangeStorageReader createExchangeStorageReader(List<ExchangeSourceFile> sourceFiles, int maxPageStorageSize, MetricsBuilder metricsBuilder)
     {
-        return new AzureExchangeStorageReader(blobServiceAsyncClient, sourceFiles, blockSize, maxPageStorageSize, metricsBuilder);
+        return new AzureExchangeStorageReader(blobServiceAsyncClient, sourceFiles, metricsBuilder, blockSize, maxPageStorageSize);
     }
 
     @Override
@@ -299,15 +299,15 @@ public class AzureBlobFileSystemExchangeStorage
         public AzureExchangeStorageReader(
                 BlobServiceAsyncClient blobServiceAsyncClient,
                 List<ExchangeSourceFile> sourceFiles,
+                MetricsBuilder metricsBuilder,
                 int blockSize,
-                int maxPageStorageSize,
-                MetricsBuilder metricsBuilder)
+                int maxPageStorageSize)
         {
             this.blobServiceAsyncClient = requireNonNull(blobServiceAsyncClient, "blobServiceAsyncClient is null");
             this.sourceFiles = new ArrayDeque<>(requireNonNull(sourceFiles, "sourceFiles is null"));
-            this.blockSize = blockSize;
             requireNonNull(metricsBuilder, "metricsBuilder is null");
             sourceFilesProcessedMetric = metricsBuilder.getCounterMetric(SOURCE_FILES_PROCESSED);
+            this.blockSize = blockSize;
             // Make sure buffer can accommodate at least one complete Slice, and keep reads aligned to block boundaries
             this.bufferSize = maxPageStorageSize + blockSize;
 

@@ -156,6 +156,22 @@ public class TestClientOptions
     }
 
     @Test
+    public void testPath()
+    {
+        assertThatThrownBy(() -> {
+            Console console = createConsole("--path=name.name.name");
+            console.clientOptions.toClientSession(console.clientOptions.getTrinoUri());
+        })
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("Connection property 'path' has invalid syntax, should be [catalog].[schema] or [schema]");
+
+        Console console = createConsole("--path=catalog.schema");
+        TrinoUri trinoUri = console.clientOptions.getTrinoUri();
+        assertThat(trinoUri.getPath()).hasValue(ImmutableList.of("catalog.schema"));
+        assertThat(console.clientOptions.toClientSession(trinoUri).getPath()).isEqualTo(ImmutableList.of("catalog.schema"));
+    }
+
+    @Test
     public void testURLHostOnly()
     {
         Console console = createConsole("test");
@@ -257,6 +273,21 @@ public class TestClientOptions
 
         ClientSession session = options.toClientSession(options.getTrinoUri());
         assertThat(session.getTimeZone()).isEqualTo(ZoneId.of("Europe/Vilnius"));
+    }
+
+    @Test
+    public void testTimeout()
+    {
+        Console console = createConsole("--client-request-timeout=17s");
+
+        ClientOptions options = console.clientOptions;
+        assertThat(options.clientRequestTimeout).isEqualTo(Duration.succinctDuration(17, SECONDS));
+
+        ClientSession session = options.toClientSession(options.getTrinoUri());
+        assertThat(session.getClientRequestTimeout()).isEqualTo(Duration.succinctDuration(17, SECONDS));
+
+        assertThatThrownBy(() -> createConsole("--client-request-timeout=17s", "trino://localhost:8080?timeout=30s").clientOptions.getTrinoUri())
+                .hasMessageContaining("Connection property timeout is passed both by URL and properties");
     }
 
     @Test

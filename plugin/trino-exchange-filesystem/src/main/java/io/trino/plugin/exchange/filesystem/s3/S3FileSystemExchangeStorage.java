@@ -234,7 +234,7 @@ public class S3FileSystemExchangeStorage
     @Override
     public ExchangeStorageReader createExchangeStorageReader(List<ExchangeSourceFile> sourceFiles, int maxPageStorageSize, MetricsBuilder metricsBuilder)
     {
-        return new S3ExchangeStorageReader(stats, s3AsyncClient, multiUploadPartSize, sourceFiles, maxPageStorageSize, metricsBuilder);
+        return new S3ExchangeStorageReader(stats, s3AsyncClient, multiUploadPartSize, sourceFiles, metricsBuilder, maxPageStorageSize);
     }
 
     @Override
@@ -495,11 +495,11 @@ public class S3FileSystemExchangeStorage
 
         private final S3FileSystemExchangeStorageStats stats;
         private final S3AsyncClient s3AsyncClient;
-        private final int partSize;
-        private final int bufferSize;
         CounterMetricBuilder sourceFilesProcessedMetric;
         DistributionMetricBuilder s3GetObjectRequestsSuccessMetric;
         DistributionMetricBuilder s3GetObjectRequestsFailedMetric;
+        private final int partSize;
+        private final int bufferSize;
 
         @GuardedBy("this")
         private final Queue<ExchangeSourceFile> sourceFiles;
@@ -520,8 +520,8 @@ public class S3FileSystemExchangeStorage
                 S3AsyncClient s3AsyncClient,
                 int partSize,
                 List<ExchangeSourceFile> sourceFiles,
-                int maxPageStorageSize,
-                MetricsBuilder metricsBuilder)
+                MetricsBuilder metricsBuilder,
+                int maxPageStorageSize)
         {
             this.stats = requireNonNull(stats, "stats is null");
             this.s3AsyncClient = requireNonNull(s3AsyncClient, "s3AsyncClient is null");

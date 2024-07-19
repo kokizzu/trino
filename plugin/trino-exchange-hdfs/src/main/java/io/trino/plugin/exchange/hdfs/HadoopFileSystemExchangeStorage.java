@@ -81,7 +81,7 @@ public class HadoopFileSystemExchangeStorage
     @Override
     public ExchangeStorageReader createExchangeStorageReader(List<ExchangeSourceFile> sourceFiles, int maxPageStorageSize, MetricsBuilder metricsBuilder)
     {
-        return new HadoopExchangeStorageReader(fileSystem, sourceFiles, blockSize, metricsBuilder);
+        return new HadoopExchangeStorageReader(fileSystem, sourceFiles, metricsBuilder, blockSize);
     }
 
     @Override
@@ -161,21 +161,21 @@ public class HadoopFileSystemExchangeStorage
         private final FileSystem fileSystem;
         @GuardedBy("this")
         private final Queue<ExchangeSourceFile> sourceFiles;
-        private final int blockSize;
         private final MetricsBuilder.CounterMetricBuilder sourceFilesProcessedMetric;
+        private final int blockSize;
 
         @GuardedBy("this")
         private InputStreamSliceInput sliceInput;
         @GuardedBy("this")
         private boolean closed;
 
-        public HadoopExchangeStorageReader(FileSystem fileSystem, List<ExchangeSourceFile> sourceFiles, int blockSize, MetricsBuilder metricsBuilder)
+        public HadoopExchangeStorageReader(FileSystem fileSystem, List<ExchangeSourceFile> sourceFiles, MetricsBuilder metricsBuilder, int blockSize)
         {
             this.fileSystem = requireNonNull(fileSystem, "fileSystem is null");
             this.sourceFiles = new ArrayDeque<>(requireNonNull(sourceFiles, "sourceFiles is null"));
-            this.blockSize = blockSize;
             requireNonNull(metricsBuilder, "metricsBuilder is null");
             sourceFilesProcessedMetric = metricsBuilder.getCounterMetric(SOURCE_FILES_PROCESSED);
+            this.blockSize = blockSize;
         }
 
         @Override
