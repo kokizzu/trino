@@ -476,7 +476,7 @@ public class TrinoUri
         return uri.getScheme().equals("https") || (uri.getScheme().equals("trino") && uri.getPort() == 443);
     }
 
-    public ClientSession toClientSession()
+    public ClientSession.Builder toClientSessionBuilder()
     {
         return ClientSession.builder()
                 .server(getHttpUri())
@@ -496,8 +496,7 @@ public class TrinoUri
                 .credentials(getExtraCredentials())
                 .transactionId(null)
                 .resourceEstimates(getResourceEstimates())
-                .compressionDisabled(isCompressionDisabled())
-                .build();
+                .compressionDisabled(isCompressionDisabled());
     }
 
     protected static Set<ConnectionProperty<?, ?>> allProperties()
@@ -555,14 +554,10 @@ public class TrinoUri
     {
         validatePrefix(url);
         URI uri = parseUrl(url);
-
         if (isNullOrEmpty(uri.getHost())) {
             throw new RuntimeException("No host specified: " + url);
         }
-        if (uri.getPort() == -1) {
-            throw new RuntimeException("No port number specified: " + url);
-        }
-        if ((uri.getPort() < 1) || (uri.getPort() > 65535)) {
+        if (uri.getPort() == 0 || uri.getPort() > 65535) {
             throw new RuntimeException("Invalid port number: " + url);
         }
         return uri;

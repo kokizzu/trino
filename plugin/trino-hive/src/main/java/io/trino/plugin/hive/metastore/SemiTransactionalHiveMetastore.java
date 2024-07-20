@@ -32,20 +32,31 @@ import io.trino.filesystem.FileIterator;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
-import io.trino.hive.thrift.metastore.DataOperationType;
-import io.trino.plugin.hive.HiveBasicStatistics;
+import io.trino.metastore.AcidOperation;
+import io.trino.metastore.AcidTransactionOwner;
+import io.trino.metastore.Column;
+import io.trino.metastore.Database;
+import io.trino.metastore.HiveBasicStatistics;
+import io.trino.metastore.HiveColumnStatistics;
+import io.trino.metastore.HivePrincipal;
+import io.trino.metastore.HivePrivilegeInfo;
+import io.trino.metastore.HivePrivilegeInfo.HivePrivilege;
+import io.trino.metastore.HiveType;
+import io.trino.metastore.Partition;
+import io.trino.metastore.PartitionStatistics;
+import io.trino.metastore.PartitionWithStatistics;
+import io.trino.metastore.PrincipalPrivileges;
+import io.trino.metastore.StatisticsUpdateMode;
+import io.trino.metastore.Table;
+import io.trino.metastore.TableInfo;
 import io.trino.plugin.hive.HiveMetastoreClosure;
 import io.trino.plugin.hive.HiveTableHandle;
-import io.trino.plugin.hive.HiveType;
 import io.trino.plugin.hive.LocationHandle.WriteMode;
 import io.trino.plugin.hive.PartitionNotFoundException;
-import io.trino.plugin.hive.PartitionStatistics;
 import io.trino.plugin.hive.PartitionUpdateAndMergeResults;
 import io.trino.plugin.hive.TableAlreadyExistsException;
 import io.trino.plugin.hive.TableInvalidationCallback;
-import io.trino.plugin.hive.acid.AcidOperation;
 import io.trino.plugin.hive.acid.AcidTransaction;
-import io.trino.plugin.hive.metastore.HivePrivilegeInfo.HivePrivilege;
 import io.trino.plugin.hive.security.SqlStandardAccessControlMetadataMetastore;
 import io.trino.plugin.hive.util.ValidTxnWriteIdList;
 import io.trino.spi.TrinoException;
@@ -95,6 +106,13 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.airlift.concurrent.MoreFutures.getFutureValue;
+import static io.trino.metastore.HivePrivilegeInfo.HivePrivilege.OWNERSHIP;
+import static io.trino.metastore.Partition.toPartitionValues;
+import static io.trino.metastore.PrincipalPrivileges.NO_PRIVILEGES;
+import static io.trino.metastore.StatisticsUpdateMode.MERGE_INCREMENTAL;
+import static io.trino.metastore.StatisticsUpdateMode.OVERWRITE_ALL;
+import static io.trino.metastore.StatisticsUpdateMode.OVERWRITE_SOME_COLUMNS;
+import static io.trino.metastore.StatisticsUpdateMode.UNDO_MERGE_INCREMENTAL;
 import static io.trino.plugin.hive.HiveErrorCode.HIVE_CORRUPTED_COLUMN_STATISTICS;
 import static io.trino.plugin.hive.HiveErrorCode.HIVE_FILESYSTEM_ERROR;
 import static io.trino.plugin.hive.HiveErrorCode.HIVE_METASTORE_ERROR;
@@ -107,19 +125,12 @@ import static io.trino.plugin.hive.TableType.MANAGED_TABLE;
 import static io.trino.plugin.hive.ViewReaderUtil.isTrinoMaterializedView;
 import static io.trino.plugin.hive.ViewReaderUtil.isTrinoView;
 import static io.trino.plugin.hive.acid.AcidTransaction.NO_ACID_TRANSACTION;
-import static io.trino.plugin.hive.metastore.HivePrivilegeInfo.HivePrivilege.OWNERSHIP;
 import static io.trino.plugin.hive.metastore.MetastoreUtil.buildInitialPrivilegeSet;
 import static io.trino.plugin.hive.metastore.MetastoreUtil.getBasicStatisticsWithSparkFallback;
 import static io.trino.plugin.hive.metastore.MetastoreUtil.getHiveBasicStatistics;
-import static io.trino.plugin.hive.metastore.PrincipalPrivileges.NO_PRIVILEGES;
 import static io.trino.plugin.hive.metastore.SparkMetastoreUtil.getSparkTableStatistics;
-import static io.trino.plugin.hive.metastore.StatisticsUpdateMode.MERGE_INCREMENTAL;
-import static io.trino.plugin.hive.metastore.StatisticsUpdateMode.OVERWRITE_ALL;
-import static io.trino.plugin.hive.metastore.StatisticsUpdateMode.OVERWRITE_SOME_COLUMNS;
-import static io.trino.plugin.hive.metastore.StatisticsUpdateMode.UNDO_MERGE_INCREMENTAL;
 import static io.trino.plugin.hive.util.AcidTables.isTransactionalTable;
 import static io.trino.plugin.hive.util.HiveUtil.makePartName;
-import static io.trino.plugin.hive.util.HiveUtil.toPartitionValues;
 import static io.trino.plugin.hive.util.HiveWriteUtils.isFileCreatedByQuery;
 import static io.trino.spi.StandardErrorCode.ALREADY_EXISTS;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
@@ -495,8 +506,8 @@ public class SemiTransactionalHiveMetastore
     // TODO: Allow updating statistics for 2 tables in the same transaction
     public synchronized void setTableStatistics(Table table, PartitionStatistics tableStatistics)
     {
-        AcidTransaction transaction = getOptionalAcidTransaction();
-        setExclusive(delegate -> delegate.updateTableStatistics(table.getDatabaseName(), table.getTableName(), transaction, OVERWRITE_SOME_COLUMNS, tableStatistics));
+        OptionalLong acidWriteId = getOptionalAcidTransaction().getOptionalWriteId();
+        setExclusive(delegate -> delegate.updateTableStatistics(table.getDatabaseName(), table.getTableName(), acidWriteId, OVERWRITE_SOME_COLUMNS, tableStatistics));
     }
 
     // TODO: Allow updating statistics for 2 tables in the same transaction
@@ -1229,15 +1240,15 @@ public class SemiTransactionalHiveMetastore
 
     public AcidTransaction beginInsert(ConnectorSession session, Table table)
     {
-        return beginOperation(session, table, AcidOperation.INSERT, DataOperationType.INSERT);
+        return beginOperation(session, table, AcidOperation.INSERT);
     }
 
     public AcidTransaction beginMerge(ConnectorSession session, Table table)
     {
-        return beginOperation(session, table, AcidOperation.MERGE, DataOperationType.UPDATE);
+        return beginOperation(session, table, AcidOperation.MERGE);
     }
 
-    private AcidTransaction beginOperation(ConnectorSession session, Table table, AcidOperation operation, DataOperationType hiveOperation)
+    private AcidTransaction beginOperation(ConnectorSession session, Table table, AcidOperation operation)
     {
         String queryId = session.getQueryId();
 
@@ -1253,7 +1264,7 @@ public class SemiTransactionalHiveMetastore
                         transactionId,
                         table.getDatabaseName(),
                         table.getTableName(),
-                        hiveOperation,
+                        operation,
                         !table.getPartitionColumns().isEmpty());
                 long writeId = allocateWriteId(table.getDatabaseName(), table.getTableName(), transactionId);
                 return new AcidTransaction(operation, transactionId, writeId);
@@ -2931,7 +2942,7 @@ public class SemiTransactionalHiveMetastore
             tableCreated = true;
 
             if (created && !isTrinoView(newTable) && !isTrinoMaterializedView(newTable)) {
-                metastore.updateTableStatistics(newTable.getDatabaseName(), newTable.getTableName(), transaction, OVERWRITE_ALL, statistics);
+                metastore.updateTableStatistics(newTable.getDatabaseName(), newTable.getTableName(), transaction.getOptionalWriteId(), OVERWRITE_ALL, statistics);
             }
         }
 
@@ -3076,7 +3087,7 @@ public class SemiTransactionalHiveMetastore
                 metastore.updatePartitionStatistics(tableName.getSchemaName(), tableName.getTableName(), mode, ImmutableMap.of(partitionName.get(), statistics));
             }
             else {
-                metastore.updateTableStatistics(tableName.getSchemaName(), tableName.getTableName(), transaction, mode, statistics);
+                metastore.updateTableStatistics(tableName.getSchemaName(), tableName.getTableName(), transaction.getOptionalWriteId(), mode, statistics);
             }
             done = true;
         }
@@ -3090,7 +3101,7 @@ public class SemiTransactionalHiveMetastore
                 metastore.updatePartitionStatistics(tableName.getSchemaName(), tableName.getTableName(), UNDO_MERGE_INCREMENTAL, ImmutableMap.of(partitionName.get(), statistics));
             }
             else {
-                metastore.updateTableStatistics(tableName.getSchemaName(), tableName.getTableName(), transaction, UNDO_MERGE_INCREMENTAL, statistics);
+                metastore.updateTableStatistics(tableName.getSchemaName(), tableName.getTableName(), transaction.getOptionalWriteId(), UNDO_MERGE_INCREMENTAL, statistics);
             }
         }
 
@@ -3227,7 +3238,7 @@ public class SemiTransactionalHiveMetastore
             long transactionId,
             String dbName,
             String tableName,
-            DataOperationType operation,
+            AcidOperation operation,
             boolean isPartitioned)
     {
         delegate.acquireTableWriteLock(transactionOwner, queryId, transactionId, dbName, tableName, operation, isPartitioned);
