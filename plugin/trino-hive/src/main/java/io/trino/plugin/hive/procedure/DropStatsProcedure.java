@@ -17,10 +17,10 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.inject.Inject;
 import com.google.inject.Provider;
+import io.trino.metastore.HiveMetastore;
 import io.trino.metastore.PartitionStatistics;
 import io.trino.plugin.base.util.UncheckedCloseable;
 import io.trino.plugin.hive.HiveColumnHandle;
-import io.trino.plugin.hive.HiveMetastoreClosure;
 import io.trino.plugin.hive.HiveTableHandle;
 import io.trino.plugin.hive.TransactionalMetadata;
 import io.trino.plugin.hive.TransactionalMetadataFactory;
@@ -30,6 +30,7 @@ import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorAccessControl;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.SchemaTableName;
+import io.trino.spi.connector.TableNotFoundException;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.procedure.Procedure;
 import io.trino.spi.procedure.Procedure.Argument;
@@ -120,7 +121,7 @@ public class DropStatsProcedure
                     .map(HiveColumnHandle::getName)
                     .collect(toImmutableList());
 
-            HiveMetastoreClosure metastore = hiveMetadata.getMetastore().unsafeGetRawHiveMetastoreClosure();
+            HiveMetastore metastore = hiveMetadata.getMetastore().unsafeGetRawHiveMetastore();
             if (partitionValues != null) {
                 // drop stats for specified partitions
                 List<List<String>> partitionStringValues = partitionValues.stream()
@@ -129,8 +130,8 @@ public class DropStatsProcedure
                 validatePartitions(partitionStringValues, partitionColumns);
 
                 partitionStringValues.forEach(values -> metastore.updatePartitionStatistics(
-                        schema,
-                        table,
+                        metastore.getTable(schema, table)
+                                .orElseThrow(() -> new TableNotFoundException(new SchemaTableName(schema, table))),
                         CLEAR_ALL,
                         ImmutableMap.of(
                                 makePartName(partitionColumns, values),
@@ -149,10 +150,10 @@ public class DropStatsProcedure
                 }
                 else {
                     // the table is partitioned; remove stats for every partition
-                    metastore.getPartitionNamesByFilter(handle.getSchemaName(), handle.getTableName(), partitionColumns, TupleDomain.all())
+                    hiveMetadata.getMetastore().getPartitionNamesByFilter(handle.getSchemaName(), handle.getTableName(), partitionColumns, TupleDomain.all())
                             .ifPresent(partitions -> partitions.forEach(partitionName -> metastore.updatePartitionStatistics(
-                                    schema,
-                                    table,
+                                    metastore.getTable(schema, table)
+                                            .orElseThrow(() -> new TableNotFoundException(new SchemaTableName(schema, table))),
                                     CLEAR_ALL,
                                     ImmutableMap.of(
                                             partitionName,
