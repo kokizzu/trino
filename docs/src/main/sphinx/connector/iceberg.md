@@ -166,6 +166,15 @@ implementation is used:
     `query_partition_filter_required` catalog session property for temporary,
     catalog specific use.
   - `false`
+* - `iceberg.query-partition-filter-required-schemas`
+  - Allow specifying the list of schemas for which Trino will enforce that
+    queries use a filter on partition keys for source tables. The list can be
+    specified using the `iceberg.query-partition-filter-required-schemas`,
+    or the `query_partition_filter_required_schemas` session property. The list
+    is taken into consideration only if the `iceberg.query-partition-filter-required`
+    configuration property or the `query_partition_filter_required` session
+    property is set to `true`.
+  - `[]`
 * - `iceberg.incremental-refresh-enabled`
   - Set to `false` to force the materialized view refresh operation to always
     perform a full refresh. You can use the `incremental_refresh_enabled`
@@ -177,6 +186,13 @@ implementation is used:
     the new records.
   - `true`
 :::
+
+(iceberg-fte-support)=
+### Fault-tolerant execution support
+
+The connector supports {doc}`/admin/fault-tolerant-execution` of query
+processing. Read and write operations are both supported with any retry policy.
+
 
 (iceberg-file-system-configuration)=
 ## File system access configuration
@@ -1534,17 +1550,11 @@ use the data from the storage tables, even after the grace period expired.
 Dropping a materialized view with {doc}`/sql/drop-materialized-view` removes
 the definition and the storage table.
 
-(iceberg-fte-support)=
-## Fault-tolerant execution support
-
-The connector supports {doc}`/admin/fault-tolerant-execution` of query
-processing. Read and write operations are both supported with any retry policy.
-
-## Table functions
+### Table functions
 
 The connector supports the table functions described in the following sections.
 
-### table_changes
+#### table_changes
 
 Allows reading row-level changes between two versions of an Iceberg table.
 The following query shows an example of displaying the changes of the `t1`
