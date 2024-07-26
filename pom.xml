@@ -10,7 +10,7 @@
 
     <groupId>io.trino</groupId>
     <artifactId>trino-root</artifactId>
-    <version>453-SNAPSHOT</version>
+    <version>454-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>${project.artifactId}</name>
@@ -145,7 +145,7 @@
     <properties>
         <project.build.targetJdk>22</project.build.targetJdk>
         <!-- for reproducible build support, updated by release plugin -->
-        <project.build.outputTimestamp>2024-07-12T02:16:11Z</project.build.outputTimestamp>
+        <project.build.outputTimestamp>2024-07-26T00:21:17Z</project.build.outputTimestamp>
         <!-- TODO remove this property when no module overrides it -->
         <trino.error-prone.guarded-by>ERROR</trino.error-prone.guarded-by>
 
@@ -188,7 +188,7 @@
         <dep.aws-sdk.version>1.12.761</dep.aws-sdk.version>
         <dep.cassandra.version>4.17.0</dep.cassandra.version>
         <dep.confluent.version>7.5.1</dep.confluent.version>
-        <dep.docker.images.version>98</dep.docker.images.version>
+        <dep.docker.images.version>99</dep.docker.images.version>
         <dep.drift.version>1.22</dep.drift.version>
         <dep.errorprone.version>2.29.2</dep.errorprone.version>
         <dep.flyway.version>10.16.0</dep.flyway.version>

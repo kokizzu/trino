@@ -169,6 +169,10 @@ mode:
     selected set of options.
 * - `--no-progress`
   - Do not show query processing progress.
+* - `--path`
+  - Set the default [SQL path](/sql/set-path) for the session. Useful for
+    setting a catalog and schema location for [catalog
+    routines](routine-catalog).
 * - `--password`
   - Prompts for a password. Use if your Trino server requires password
     authentication. You can set the `TRINO_PASSWORD` environment variable with
@@ -252,6 +256,11 @@ certificate usage:
   - Determined by the keystore file format. The default keystore type is JKS.
     This advanced option is only necessary if you use a custom Java Cryptography
     Architecture (JCA) provider implementation.
+* - `--use-system-keystore`
+  - Use a client certificate obtained from the system keystore of the operating
+    system. Windows and macOS are supported. For other operating systems, the
+    default Java keystore is used. The keystore type can be overriden using
+    `--keystore-type`.
 * - `--truststore-password`
   - The password for the truststore. This must match the password you specified
     when creating the truststore.

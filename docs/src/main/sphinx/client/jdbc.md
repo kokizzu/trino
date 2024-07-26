@@ -133,6 +133,9 @@ may not be specified using both methods.
   - Extra information about the client.
 * - `clientTags`
   - Client tags for selecting resource groups. Example: `abc,xyz`
+* - `path`
+  - Set the default [SQL path](/sql/set-path) for the session. Useful for
+    setting a catalog and schema location for [catalog routines](routine-catalog).
 * - `traceToken`
   - Trace token for correlating requests across systems.
 * - `source`
@@ -163,6 +166,12 @@ may not be specified using both methods.
 * - `SSLKeyStoreType`
   - The type of the KeyStore. The default type is provided by the Java
     `keystore.type` security property or `jks` if none exists.
+* - `SSLUseSystemKeyStore`
+  - Set `true` to automatically use the system KeyStore based on the operating
+    system. The supported OSes are Windows and macOS. For Windows, the
+    `Windows-MY` KeyStore is selected. For macOS, the `KeychainStore`
+    KeyStore is selected. For other OSes, the default Java KeyStore is loaded.
+    The KeyStore specification can be overridden using `SSLKeyStoreType`.
 * - `SSLTrustStorePath`
   - The location of the Java TrustStore file to use to validate HTTPS server
     certificates.
