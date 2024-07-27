@@ -185,13 +185,16 @@
         <dep.alluxio.version>2.9.6</dep.alluxio.version>
         <dep.antlr.version>4.13.1</dep.antlr.version>
         <dep.avro.version>1.11.3</dep.avro.version>
-        <dep.aws-sdk.version>1.12.761</dep.aws-sdk.version>
+        <dep.aws-sdk.version>1.12.765</dep.aws-sdk.version>
         <dep.cassandra.version>4.17.0</dep.cassandra.version>
         <dep.confluent.version>7.5.1</dep.confluent.version>
         <dep.docker.images.version>99</dep.docker.images.version>
         <dep.drift.version>1.22</dep.drift.version>
         <dep.errorprone.version>2.29.2</dep.errorprone.version>
         <dep.flyway.version>10.16.0</dep.flyway.version>
+        <dep.frontend-maven-plugin.version>1.15.0</dep.frontend-maven-plugin.version>
+        <dep.frontend-node.version>v20.15.1</dep.frontend-node.version>
+        <dep.frontend-npm.version>10.8.2</dep.frontend-npm.version>
         <dep.google.http.client.version>1.44.2</dep.google.http.client.version>
         <dep.iceberg.version>1.6.0</dep.iceberg.version>
         <dep.jna.version>5.14.0</dep.jna.version>
@@ -204,8 +207,8 @@
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
         <dep.parquet.version>1.14.1</dep.parquet.version>
         <dep.plugin.failsafe.version>${dep.plugin.surefire.version}</dep.plugin.failsafe.version>
-        <dep.protobuf.version>3.25.3</dep.protobuf.version>
-        <dep.snowflake.version>3.17.0</dep.snowflake.version>
+        <dep.protobuf.version>3.25.4</dep.protobuf.version>
+        <dep.snowflake.version>3.18.0</dep.snowflake.version>
         <dep.swagger.version>2.2.22</dep.swagger.version>
         <dep.takari.version>2.1.5</dep.takari.version>
         <dep.tcnative.version>2.0.65.Final</dep.tcnative.version>
@@ -308,7 +311,7 @@
             <dependency>
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
-                <version>2.26.20</version>
+                <version>2.26.25</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -477,7 +480,7 @@
             <dependency>
                 <groupId>com.exasol</groupId>
                 <artifactId>exasol-jdbc</artifactId>
-                <version>24.1.0</version>
+                <version>24.1.1</version>
             </dependency>
 
             <dependency>
@@ -2072,7 +2075,7 @@
             <dependency>
                 <groupId>org.checkerframework</groupId>
                 <artifactId>checker-qual</artifactId>
-                <version>3.44.0</version>
+                <version>3.45.0</version>
             </dependency>
 
             <dependency>
@@ -2280,6 +2283,15 @@
     <build>
         <pluginManagement>
             <plugins>
+                <plugin>
+                    <groupId>com.github.eirslett</groupId>
+                    <artifactId>frontend-maven-plugin</artifactId>
+                    <version>${dep.frontend-maven-plugin.version}</version>
+                    <configuration>
+                        <nodeVersion>${dep.frontend-node.version}</nodeVersion>
+                        <npmVersion>${dep.frontend-npm.version}</npmVersion>
+                    </configuration>
+                </plugin>
                 <plugin>
                     <groupId>org.antlr</groupId>
                     <artifactId>antlr4-maven-plugin</artifactId>
