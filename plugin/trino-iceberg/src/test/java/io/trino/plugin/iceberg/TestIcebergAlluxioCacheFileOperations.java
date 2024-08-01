@@ -63,6 +63,7 @@ public class TestIcebergAlluxioCacheFileOperations
                 .put("fs.cache.enabled", "true")
                 .put("fs.cache.directories", cacheDirectory.toAbsolutePath().toString())
                 .put("fs.cache.max-sizes", "100MB")
+                .put("iceberg.metadata-cache.enabled", "false")
                 .put("hive.metastore.catalog.dir", metastoreDirectory.toUri().toString())
                 .buildOrThrow();
 

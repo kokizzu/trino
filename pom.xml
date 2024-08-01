@@ -38,6 +38,7 @@
         <module>core/trino-server-main</module>
         <module>core/trino-server-rpm</module>
         <module>core/trino-spi</module>
+        <module>core/trino-web-ui</module>
         <module>docs</module>
         <module>lib/trino-array</module>
         <module>lib/trino-cache</module>
@@ -181,7 +182,7 @@
         <!-- keep dependency properties sorted -->
         <dep.accumulo-hadoop.version>2.7.7-1</dep.accumulo-hadoop.version>
         <dep.accumulo.version>3.0.0</dep.accumulo.version>
-        <dep.airlift.version>252</dep.airlift.version>
+        <dep.airlift.version>254</dep.airlift.version>
         <dep.alluxio.version>2.9.6</dep.alluxio.version>
         <dep.antlr.version>4.13.1</dep.antlr.version>
         <dep.avro.version>1.11.3</dep.avro.version>
@@ -1529,6 +1530,12 @@
             </dependency>
 
             <dependency>
+                <groupId>io.trino</groupId>
+                <artifactId>trino-web-ui</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
                 <groupId>io.trino.benchto</groupId>
                 <artifactId>benchto-driver</artifactId>
                 <version>0.29</version>
@@ -2777,6 +2784,7 @@
                                     -Xep:StaticAssignmentOfThrowable:ERROR \
                                     -Xep:StaticGuardedByInstance:ERROR \
                                     -Xep:StreamResourceLeak:ERROR \
+                                    -Xep:StringCaseLocaleUsage:ERROR \
                                     -Xep:SuppressWarningsDeprecated:ERROR \
                                     -Xep:ThreeLetterTimeZoneID:ERROR \
                                     -Xep:UnicodeEscape:ERROR \
