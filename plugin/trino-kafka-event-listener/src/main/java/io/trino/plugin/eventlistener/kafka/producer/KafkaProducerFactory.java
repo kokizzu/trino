@@ -11,17 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.delta.kernel.internal.deletionvectors;
 
-import java.io.IOException;
+package io.trino.plugin.eventlistener.kafka.producer;
 
-public final class RoaringBitmapArrays
+import org.apache.kafka.clients.producer.KafkaProducer;
+
+import java.util.Map;
+
+public interface KafkaProducerFactory
 {
-    private RoaringBitmapArrays() {}
-
-    public static RoaringBitmapArray readFrom(byte[] bytes)
-            throws IOException
-    {
-        return RoaringBitmapArray.readFrom(bytes);
-    }
+    KafkaProducer<String, String> producer(Map<String, String> overrides);
 }
