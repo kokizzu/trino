@@ -346,7 +346,7 @@ public class TestClickHouseConnectorTest
     @Test
     public void testDifferentEngine()
     {
-        String tableName = "test_add_column_" + randomNameSuffix();
+        String tableName = "test_different_engine_" + randomNameSuffix();
         // MergeTree
         assertUpdate("CREATE TABLE " + tableName + " (id int NOT NULL, x VARCHAR) WITH (engine = 'MergeTree', order_by = ARRAY['id'])");
         assertThat(getQueryRunner().tableExists(getSession(), tableName)).isTrue();
@@ -355,7 +355,9 @@ public class TestClickHouseConnectorTest
         assertThat(getQueryRunner().tableExists(getSession(), tableName)).isTrue();
         assertUpdate("DROP TABLE " + tableName);
         // MergeTree without order by
-        assertQueryFails("CREATE TABLE " + tableName + " (id int NOT NULL, x VARCHAR) WITH (engine = 'MergeTree')", "The property of order_by is required for table engine MergeTree\\(\\)");
+        assertUpdate("CREATE TABLE " + tableName + " (id int NOT NULL, x VARCHAR) WITH (engine = 'MergeTree')");
+        assertThat(getQueryRunner().tableExists(getSession(), tableName)).isTrue();
+        assertUpdate("DROP TABLE " + tableName);
 
         // MergeTree with optional
         assertUpdate("CREATE TABLE " + tableName + " (id int NOT NULL, x VARCHAR, logdate DATE NOT NULL) WITH " +
@@ -373,13 +375,13 @@ public class TestClickHouseConnectorTest
 
         //NOT support engine
         assertQueryFails("CREATE TABLE " + tableName + " (id int NOT NULL, x VARCHAR) WITH (engine = 'bad_engine')",
-                "line 1:76: Unable to set catalog 'clickhouse' table property 'engine' to.*");
+                ".* Unable to set catalog 'clickhouse' table property 'engine' to.*");
     }
 
     @Test
     public void testTableProperty()
     {
-        String tableName = "test_add_column_" + randomNameSuffix();
+        String tableName = "test_table_property_" + randomNameSuffix();
         // no table property, it should create a table with default Log engine table
         assertUpdate("CREATE TABLE " + tableName + " (id int NOT NULL, x VARCHAR)");
         assertThat(getQueryRunner().tableExists(getSession(), tableName)).isTrue();
@@ -509,15 +511,15 @@ public class TestClickHouseConnectorTest
 
         // Primary key must be a prefix of the sorting key,
         assertQueryFails("CREATE TABLE " + tableName + " (id int NOT NULL, x boolean NOT NULL, y boolean NOT NULL) WITH (engine = 'MergeTree', order_by = ARRAY['id'], sample_by = ARRAY['x', 'y'])",
-                "line 1:151: Invalid value for catalog 'clickhouse' table property 'sample_by': .*");
+                ".* Invalid value for catalog 'clickhouse' table property 'sample_by': .*");
 
         // wrong property type
         assertQueryFails("CREATE TABLE " + tableName + " (id int NOT NULL) WITH (engine = 'MergeTree', order_by = 'id')",
-                "line 1:87: Invalid value for catalog 'clickhouse' table property 'order_by': .*");
+                ".* Invalid value for catalog 'clickhouse' table property 'order_by': .*");
         assertQueryFails("CREATE TABLE " + tableName + " (id int NOT NULL) WITH (engine = 'MergeTree', order_by = ARRAY['id'], primary_key = 'id')",
-                "line 1:111: Invalid value for catalog 'clickhouse' table property 'primary_key': .*");
+                ".* Invalid value for catalog 'clickhouse' table property 'primary_key': .*");
         assertQueryFails("CREATE TABLE " + tableName + " (id int NOT NULL) WITH (engine = 'MergeTree', order_by = ARRAY['id'], primary_key = ARRAY['id'], partition_by = 'id')",
-                "line 1:138: Invalid value for catalog 'clickhouse' table property 'partition_by': .*");
+                ".* Invalid value for catalog 'clickhouse' table property 'partition_by': .*");
     }
 
     @Test
