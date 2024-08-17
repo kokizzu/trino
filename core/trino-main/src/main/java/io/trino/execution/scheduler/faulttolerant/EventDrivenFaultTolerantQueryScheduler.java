@@ -1465,8 +1465,6 @@ public class EventDrivenFaultTolerantQueryScheduler
                         sinkPartitioningScheme.getPartitionCount(),
                         preserveOrderWithinPartition));
 
-                boolean coordinatorStage = stage.getFragment().getPartitioning().equals(COORDINATOR_DISTRIBUTION);
-
                 if (eager) {
                     sourceExchanges.values().forEach(sourceExchange -> sourceExchange.setSourceHandlesDeliveryMode(EAGER));
                 }
@@ -1493,7 +1491,7 @@ public class EventDrivenFaultTolerantQueryScheduler
                         memoryEstimatorFactory.createPartitionMemoryEstimator(session, fragment, planFragmentLookup),
                         outputStatsEstimator,
                         // do not retry coordinator only tasks
-                        coordinatorStage ? 1 : maxTaskExecutionAttempts,
+                        shouldRetry(stage) ? maxTaskExecutionAttempts : 1,
                         schedulingPriority,
                         eager,
                         speculative,
@@ -1516,6 +1514,24 @@ public class EventDrivenFaultTolerantQueryScheduler
                 }
                 throw t;
             }
+        }
+
+        private static boolean shouldRetry(SqlStage stage)
+        {
+            boolean coordinatorStage = stage.getFragment().getPartitioning().equals(COORDINATOR_DISTRIBUTION);
+
+            if (!coordinatorStage) {
+                return true;
+            }
+
+            if (!stage.getFragment().getRemoteSourceNodes().isEmpty()) {
+                // If coordinator stage is processing workers data we want to enable retries.
+                // Even if coordinator is working fine the task from coordinator stage may fail e.g. if
+                // upstream task fails while data it produces is speculatively processed by coordinator stage task.
+                return true;
+            }
+
+            return false;
         }
 
         private StageId getStageId(PlanFragmentId fragmentId)
@@ -2465,7 +2481,7 @@ public class EventDrivenFaultTolerantQueryScheduler
                 return ImmutableList.of();
             }
 
-            if (partition.getRemainingAttempts() == 0 || (errorCode != null && errorCode.getType() == USER_ERROR)) {
+            if (partition.getRemainingAttempts() == 0 || (errorCode != null && (errorCode.getType() == USER_ERROR || errorCode.isFatal()))) {
                 stage.fail(failure);
                 // stage failed, don't reschedule
                 return ImmutableList.of();
