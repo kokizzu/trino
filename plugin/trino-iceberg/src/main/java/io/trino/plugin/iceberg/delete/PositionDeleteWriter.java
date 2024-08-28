@@ -24,34 +24,33 @@ import io.trino.plugin.iceberg.IcebergFileWriterFactory;
 import io.trino.plugin.iceberg.MetricsWrapper;
 import io.trino.plugin.iceberg.PartitionData;
 import io.trino.spi.Page;
+import io.trino.spi.PageBuilder;
 import io.trino.spi.block.Block;
 import io.trino.spi.block.RunLengthEncodedBlock;
-import io.trino.spi.connector.ConnectorPageSink;
 import io.trino.spi.connector.ConnectorSession;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.io.LocationProvider;
+import org.roaringbitmap.longlong.ImmutableLongBitmapDataProvider;
 
-import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.airlift.slice.Slices.wrappedBuffer;
 import static io.trino.spi.predicate.Utils.nativeValueToBlock;
+import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.Objects.requireNonNull;
 import static java.util.UUID.randomUUID;
-import static java.util.concurrent.CompletableFuture.completedFuture;
 
-public class IcebergPositionDeletePageSink
-        implements ConnectorPageSink
+public class PositionDeleteWriter
 {
     private final String dataFilePath;
+    private final Block dataFilePathBlock;
     private final PartitionSpec partitionSpec;
     private final Optional<PartitionData> partition;
     private final String outputPath;
@@ -59,10 +58,7 @@ public class IcebergPositionDeletePageSink
     private final IcebergFileWriter writer;
     private final IcebergFileFormat fileFormat;
 
-    private long validationCpuNanos;
-    private boolean writtenData;
-
-    public IcebergPositionDeletePageSink(
+    public PositionDeleteWriter(
             String dataFilePath,
             PartitionSpec partitionSpec,
             Optional<PartitionData> partition,
@@ -75,12 +71,14 @@ public class IcebergPositionDeletePageSink
             Map<String, String> storageProperties)
     {
         this.dataFilePath = requireNonNull(dataFilePath, "dataFilePath is null");
+        this.dataFilePathBlock = nativeValueToBlock(VARCHAR, utf8Slice(dataFilePath));
         this.jsonCodec = requireNonNull(jsonCodec, "jsonCodec is null");
         this.partitionSpec = requireNonNull(partitionSpec, "partitionSpec is null");
         this.partition = requireNonNull(partition, "partition is null");
         this.fileFormat = requireNonNull(fileFormat, "fileFormat is null");
-        // prepend query id to a file name so we can determine which files were written by which query. This is needed for opportunistic cleanup of extra files
-        // which may be present for successfully completing query in presence of failure recovery mechanisms.
+        // Prepend query ID to the file name, allowing us to determine the files written by a query.
+        // This is necessary for opportunistic cleanup of extra files, which may be present for
+        // successfully completed queries in the presence of failure recovery mechanisms.
         String fileName = fileFormat.toIceberg().addExtension(session.getQueryId() + "-" + randomUUID());
         this.outputPath = partition
                 .map(partitionData -> locationProvider.newDataLocation(partitionSpec, partitionData, fileName))
@@ -88,70 +86,52 @@ public class IcebergPositionDeletePageSink
         this.writer = fileWriterFactory.createPositionDeleteWriter(fileSystem, Location.of(outputPath), session, fileFormat, storageProperties);
     }
 
-    @Override
-    public long getCompletedBytes()
+    public Collection<Slice> write(ImmutableLongBitmapDataProvider rowsToDelete)
     {
-        return writer.getWrittenBytes();
+        writeDeletes(rowsToDelete);
+        writer.commit();
+
+        CommitTaskData task = new CommitTaskData(
+                outputPath,
+                fileFormat,
+                writer.getWrittenBytes(),
+                new MetricsWrapper(writer.getFileMetrics().metrics()),
+                PartitionSpecParser.toJson(partitionSpec),
+                partition.map(PartitionData::toJson),
+                FileContent.POSITION_DELETES,
+                Optional.of(dataFilePath),
+                writer.getFileMetrics().splitOffsets());
+
+        return List.of(wrappedBuffer(jsonCodec.toJsonBytes(task)));
     }
 
-    @Override
-    public long getMemoryUsage()
-    {
-        return writer.getMemoryUsage();
-    }
-
-    @Override
-    public long getValidationCpuNanos()
-    {
-        return validationCpuNanos;
-    }
-
-    @Override
-    public CompletableFuture<?> appendPage(Page page)
-    {
-        checkArgument(page.getChannelCount() == 1, "IcebergPositionDeletePageSink expected a Page with only one channel, but got " + page.getChannelCount());
-
-        Block[] blocks = new Block[2];
-        blocks[0] = RunLengthEncodedBlock.create(nativeValueToBlock(VARCHAR, utf8Slice(dataFilePath)), page.getPositionCount());
-        blocks[1] = page.getBlock(0);
-        writer.appendRows(new Page(blocks));
-
-        writtenData = true;
-        return NOT_BLOCKED;
-    }
-
-    @Override
-    public CompletableFuture<Collection<Slice>> finish()
-    {
-        Collection<Slice> commitTasks = new ArrayList<>();
-        if (writtenData) {
-            writer.commit();
-            CommitTaskData task = new CommitTaskData(
-                    outputPath,
-                    fileFormat,
-                    writer.getWrittenBytes(),
-                    new MetricsWrapper(writer.getFileMetrics().metrics()),
-                    PartitionSpecParser.toJson(partitionSpec),
-                    partition.map(PartitionData::toJson),
-                    FileContent.POSITION_DELETES,
-                    Optional.of(dataFilePath),
-                    writer.getFileMetrics().splitOffsets());
-            Long recordCount = task.metrics().recordCount();
-            if (recordCount != null && recordCount > 0) {
-                commitTasks.add(wrappedBuffer(jsonCodec.toJsonBytes(task)));
-            }
-            validationCpuNanos = writer.getValidationCpuNanos();
-        }
-        else {
-            // clean up the empty delete file
-            writer.rollback();
-        }
-        return completedFuture(commitTasks);
-    }
-
-    @Override
     public void abort()
     {
         writer.rollback();
+    }
+
+    private void writeDeletes(ImmutableLongBitmapDataProvider rowsToDelete)
+    {
+        PageBuilder pageBuilder = new PageBuilder(List.of(BIGINT));
+
+        rowsToDelete.forEach(rowPosition -> {
+            pageBuilder.declarePosition();
+            BIGINT.writeLong(pageBuilder.getBlockBuilder(0), rowPosition);
+            if (pageBuilder.isFull()) {
+                writePage(pageBuilder.build());
+                pageBuilder.reset();
+            }
+        });
+
+        if (!pageBuilder.isEmpty()) {
+            writePage(pageBuilder.build());
+        }
+    }
+
+    private void writePage(Page page)
+    {
+        writer.appendRows(new Page(
+                RunLengthEncodedBlock.create(dataFilePathBlock, page.getPositionCount()),
+                page.getBlock(0)));
     }
 }
