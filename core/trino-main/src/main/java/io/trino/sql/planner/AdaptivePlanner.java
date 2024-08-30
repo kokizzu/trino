@@ -348,18 +348,24 @@ public class AdaptivePlanner
             }
 
             List<PlanNode> sourceNodes = sourceNodesBuilder.build();
-            List<List<Symbol>> inputs = sourceNodes.stream().map(PlanNode::getOutputSymbols).collect(toImmutableList());
-            PartitioningScheme partitioningScheme = node.getSourceFragmentIds().stream()
+
+            // Find the input symbols for the exchange node
+            List<PartitioningScheme> outputPartitioningSchemes = node.getSourceFragmentIds().stream()
                     .map(runtimeInfoProvider::getPlanFragment)
                     .map(PlanFragment::getOutputPartitioningScheme)
-                    .findFirst()
-                    .orElseThrow();
+                    .collect(toImmutableList());
+            verify(outputPartitioningSchemes.size() == sourceNodes.size(), "Output partitioning schemes size does not match source nodes size");
+            List<List<Symbol>> inputs = outputPartitioningSchemes.stream()
+                    .map(PartitioningScheme::getOutputLayout)
+                    .collect(toImmutableList());
 
             return new ExchangeNode(
                     node.getId(),
                     node.getExchangeType(),
                     REMOTE,
-                    partitioningScheme,
+                    // We need to translate the output layout of the partitioning scheme to the output layout
+                    // of the RemoteSourceNode.
+                    outputPartitioningSchemes.getFirst().translateOutputLayout(node.getOutputSymbols()),
                     sourceNodes,
                     inputs,
                     node.getOrderingScheme());
