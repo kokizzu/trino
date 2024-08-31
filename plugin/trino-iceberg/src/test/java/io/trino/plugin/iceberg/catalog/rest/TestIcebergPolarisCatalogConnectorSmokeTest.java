@@ -165,6 +165,7 @@ final class TestIcebergPolarisCatalogConnectorSmokeTest
 
     @Test
     @Override
+    @Disabled("Disable as register table is broken with S3 in Polaris. More info at https://github.com/trinodb/trino/pull/23099")
     public void testRegisterTableWithDroppedTable()
     {
         assertThatThrownBy(super::testRegisterTableWithDroppedTable)
@@ -181,7 +182,6 @@ final class TestIcebergPolarisCatalogConnectorSmokeTest
 
     @Test
     @Override
-    @Disabled("Disable as register table is broken with S3 in Polaris. More info at https://github.com/trinodb/trino/pull/23099")
     public void testRegisterTableWithTrailingSpaceInLocation()
     {
         assertThatThrownBy(super::testRegisterTableWithTrailingSpaceInLocation)
