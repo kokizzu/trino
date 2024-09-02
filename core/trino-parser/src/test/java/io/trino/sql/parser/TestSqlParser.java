@@ -2928,29 +2928,29 @@ public class TestSqlParser
     @Test
     public void testCommentTable()
     {
-        assertStatement("COMMENT ON TABLE a IS 'test'", new Comment(Comment.Type.TABLE, QualifiedName.of("a"), Optional.of("test")));
-        assertStatement("COMMENT ON TABLE a IS ''", new Comment(Comment.Type.TABLE, QualifiedName.of("a"), Optional.of("")));
-        assertStatement("COMMENT ON TABLE a IS NULL", new Comment(Comment.Type.TABLE, QualifiedName.of("a"), Optional.empty()));
+        assertStatement("COMMENT ON TABLE a IS 'test'", new Comment(location(1, 1), Comment.Type.TABLE, QualifiedName.of("a"), Optional.of("test")));
+        assertStatement("COMMENT ON TABLE a IS ''", new Comment(location(1, 1), Comment.Type.TABLE, QualifiedName.of("a"), Optional.of("")));
+        assertStatement("COMMENT ON TABLE a IS NULL", new Comment(location(1, 1), Comment.Type.TABLE, QualifiedName.of("a"), Optional.empty()));
     }
 
     @Test
     public void testCommentView()
     {
-        assertStatement("COMMENT ON VIEW a IS 'test'", new Comment(Comment.Type.VIEW, QualifiedName.of("a"), Optional.of("test")));
-        assertStatement("COMMENT ON VIEW a IS ''", new Comment(Comment.Type.VIEW, QualifiedName.of("a"), Optional.of("")));
-        assertStatement("COMMENT ON VIEW a IS NULL", new Comment(Comment.Type.VIEW, QualifiedName.of("a"), Optional.empty()));
+        assertStatement("COMMENT ON VIEW a IS 'test'", new Comment(location(1, 1), Comment.Type.VIEW, QualifiedName.of("a"), Optional.of("test")));
+        assertStatement("COMMENT ON VIEW a IS ''", new Comment(location(1, 1), Comment.Type.VIEW, QualifiedName.of("a"), Optional.of("")));
+        assertStatement("COMMENT ON VIEW a IS NULL", new Comment(location(1, 1), Comment.Type.VIEW, QualifiedName.of("a"), Optional.empty()));
     }
 
     @Test
     public void testCommentColumn()
     {
-        assertStatement("COMMENT ON COLUMN a.b IS 'test'", new Comment(Comment.Type.COLUMN, QualifiedName.of("a", "b"), Optional.of("test")));
-        assertStatement("COMMENT ON COLUMN a.b IS ''", new Comment(Comment.Type.COLUMN, QualifiedName.of("a", "b"), Optional.of("")));
-        assertStatement("COMMENT ON COLUMN a.b IS NULL", new Comment(Comment.Type.COLUMN, QualifiedName.of("a", "b"), Optional.empty()));
+        assertStatement("COMMENT ON COLUMN a.b IS 'test'", new Comment(location(1, 1), Comment.Type.COLUMN, QualifiedName.of("a", "b"), Optional.of("test")));
+        assertStatement("COMMENT ON COLUMN a.b IS ''", new Comment(location(1, 1), Comment.Type.COLUMN, QualifiedName.of("a", "b"), Optional.of("")));
+        assertStatement("COMMENT ON COLUMN a.b IS NULL", new Comment(location(1, 1), Comment.Type.COLUMN, QualifiedName.of("a", "b"), Optional.empty()));
 
-        assertStatement("COMMENT ON COLUMN a IS 'test'", new Comment(Comment.Type.COLUMN, QualifiedName.of("a"), Optional.of("test")));
-        assertStatement("COMMENT ON COLUMN a.b.c IS 'test'", new Comment(Comment.Type.COLUMN, QualifiedName.of("a", "b", "c"), Optional.of("test")));
-        assertStatement("COMMENT ON COLUMN a.b.c.d IS 'test'", new Comment(Comment.Type.COLUMN, QualifiedName.of("a", "b", "c", "d"), Optional.of("test")));
+        assertStatement("COMMENT ON COLUMN a IS 'test'", new Comment(location(1, 1), Comment.Type.COLUMN, QualifiedName.of("a"), Optional.of("test")));
+        assertStatement("COMMENT ON COLUMN a.b.c IS 'test'", new Comment(location(1, 1), Comment.Type.COLUMN, QualifiedName.of("a", "b", "c"), Optional.of("test")));
+        assertStatement("COMMENT ON COLUMN a.b.c.d IS 'test'", new Comment(location(1, 1), Comment.Type.COLUMN, QualifiedName.of("a", "b", "c", "d"), Optional.of("test")));
     }
 
     @Test
@@ -3136,30 +3136,35 @@ public class TestSqlParser
         assertThat(statement("ALTER TABLE foo.t ADD COLUMN c bigint"))
                 .ignoringLocation()
                 .isEqualTo(new AddColumn(
+                        new NodeLocation(1, 1),
                         QualifiedName.of("foo", "t"),
                         new ColumnDefinition(QualifiedName.of("c"), simpleType(location(1, 31), "bigint"), true, emptyList(), Optional.empty()), false, false));
 
         assertThat(statement("ALTER TABLE foo.t ADD COLUMN d double NOT NULL"))
                 .ignoringLocation()
                 .isEqualTo(new AddColumn(
+                        location(1, 1),
                         QualifiedName.of("foo", "t"),
                         new ColumnDefinition(QualifiedName.of("d"), simpleType(location(1, 31), "double"), false, emptyList(), Optional.empty()), false, false));
 
         assertThat(statement("ALTER TABLE IF EXISTS foo.t ADD COLUMN d double NOT NULL"))
                 .ignoringLocation()
                 .isEqualTo(new AddColumn(
+                        location(1, 1),
                         QualifiedName.of("foo", "t"),
                         new ColumnDefinition(QualifiedName.of("d"), simpleType(location(1, 31), "double"), false, emptyList(), Optional.empty()), true, false));
 
         assertThat(statement("ALTER TABLE foo.t ADD COLUMN IF NOT EXISTS d double NOT NULL"))
                 .ignoringLocation()
                 .isEqualTo(new AddColumn(
+                        location(1, 1),
                         QualifiedName.of("foo", "t"),
                         new ColumnDefinition(QualifiedName.of("d"), simpleType(location(1, 31), "double"), false, emptyList(), Optional.empty()), false, true));
 
         assertThat(statement("ALTER TABLE IF EXISTS foo.t ADD COLUMN IF NOT EXISTS d double NOT NULL"))
                 .ignoringLocation()
                 .isEqualTo(new AddColumn(
+                        location(1, 1),
                         QualifiedName.of("foo", "t"),
                         new ColumnDefinition(QualifiedName.of("d"), simpleType(location(1, 31), "double"), false, emptyList(), Optional.empty()), true, true));
 
@@ -3741,12 +3746,12 @@ public class TestSqlParser
         assertStatement("EXPLAIN (TYPE LOGICAL) SELECT * FROM t",
                 new Explain(
                         simpleQuery(selectList(new AllColumns()), table(QualifiedName.of("t"))),
-                        ImmutableList.of(new ExplainType(ExplainType.Type.LOGICAL))));
+                        ImmutableList.of(new ExplainType(location(1, 1), ExplainType.Type.LOGICAL))));
         assertStatement("EXPLAIN (TYPE LOGICAL, FORMAT TEXT) SELECT * FROM t",
                 new Explain(
                         simpleQuery(selectList(new AllColumns()), table(QualifiedName.of("t"))),
                         ImmutableList.of(
-                                new ExplainType(ExplainType.Type.LOGICAL),
+                                new ExplainType(location(1, 1),ExplainType.Type.LOGICAL),
                                 new ExplainFormat(ExplainFormat.Type.TEXT))));
 
         assertStatementIsInvalid("EXPLAIN VERBOSE SELECT * FROM t")
@@ -4000,15 +4005,15 @@ public class TestSqlParser
     public void testBinaryLiteralToHex()
     {
         // note that toHexString() always outputs in upper case
-        assertThat(new BinaryLiteral("ab 01").toHexString())
+        assertThat(new BinaryLiteral(location(1, 1), "ab 01").toHexString())
                 .isEqualTo("AB01");
     }
 
     @Test
     public void testCall()
     {
-        assertStatement("CALL foo()", new Call(QualifiedName.of("foo"), ImmutableList.of()));
-        assertStatement("CALL foo(123, a => 1, b => 'go', 456)", new Call(QualifiedName.of("foo"), ImmutableList.of(
+        assertStatement("CALL foo()", new Call(location(1, 1), QualifiedName.of("foo"), ImmutableList.of()));
+        assertStatement("CALL foo(123, a => 1, b => 'go', 456)", new Call(location(1, 1), QualifiedName.of("foo"), ImmutableList.of(
                 new CallArgument(new LongLiteral("123")),
                 new CallArgument(identifier("a"), new LongLiteral("1")),
                 new CallArgument(identifier("b"), new StringLiteral("go")),
@@ -4537,12 +4542,12 @@ public class TestSqlParser
     @Test
     public void testDropRole()
     {
-        assertStatement("DROP ROLE role", new DropRole(new Identifier("role"), Optional.empty()));
-        assertStatement("DROP ROLE IF EXISTS role", new DropRole(new Identifier("role"), Optional.empty()));
-        assertStatement("DROP ROLE \"role\"", new DropRole(new Identifier("role"), Optional.empty()));
-        assertStatement("DROP ROLE \"ro le\"", new DropRole(new Identifier("ro le"), Optional.empty()));
-        assertStatement("DROP ROLE \"!@#$%^&*'ад\"\"мін\"", new DropRole(new Identifier("!@#$%^&*'ад\"мін"), Optional.empty()));
-        assertStatement("DROP ROLE role IN my_catalog", new DropRole(new Identifier("role"), Optional.of(new Identifier("my_catalog"))));
+        assertStatement("DROP ROLE role", new DropRole(location(1, 1), new Identifier("role"), Optional.empty(), false));
+        assertStatement("DROP ROLE IF EXISTS role", new DropRole(location(1, 1), new Identifier("role"), Optional.empty(), false));
+        assertStatement("DROP ROLE \"role\"", new DropRole(location(1, 1), new Identifier("role"), Optional.empty(), false));
+        assertStatement("DROP ROLE \"ro le\"", new DropRole(location(1, 1), new Identifier("ro le"), Optional.empty(), false));
+        assertStatement("DROP ROLE \"!@#$%^&*'ад\"\"мін\"", new DropRole(location(1, 1), new Identifier("!@#$%^&*'ад\"мін"), Optional.empty(), false));
+        assertStatement("DROP ROLE role IN my_catalog", new DropRole(location(1, 1), new Identifier("role"), Optional.of(new Identifier("my_catalog")), false));
     }
 
     @Test
@@ -4961,13 +4966,13 @@ public class TestSqlParser
     @Test
     public void testDropMaterializedView()
     {
-        assertStatement("DROP MATERIALIZED VIEW a", new DropMaterializedView(QualifiedName.of("a"), false));
-        assertStatement("DROP MATERIALIZED VIEW a.b", new DropMaterializedView(QualifiedName.of("a", "b"), false));
-        assertStatement("DROP MATERIALIZED VIEW a.b.c", new DropMaterializedView(QualifiedName.of("a", "b", "c"), false));
+        assertStatement("DROP MATERIALIZED VIEW a", new DropMaterializedView(location(1, 1), QualifiedName.of("a"), false));
+        assertStatement("DROP MATERIALIZED VIEW a.b", new DropMaterializedView(location(1, 1), QualifiedName.of("a", "b"), false));
+        assertStatement("DROP MATERIALIZED VIEW a.b.c", new DropMaterializedView(location(1, 1), QualifiedName.of("a", "b", "c"), false));
 
-        assertStatement("DROP MATERIALIZED VIEW IF EXISTS a", new DropMaterializedView(QualifiedName.of("a"), true));
-        assertStatement("DROP MATERIALIZED VIEW IF EXISTS a.b", new DropMaterializedView(QualifiedName.of("a", "b"), true));
-        assertStatement("DROP MATERIALIZED VIEW IF EXISTS a.b.c", new DropMaterializedView(QualifiedName.of("a", "b", "c"), true));
+        assertStatement("DROP MATERIALIZED VIEW IF EXISTS a", new DropMaterializedView(location(1, 1), QualifiedName.of("a"), true));
+        assertStatement("DROP MATERIALIZED VIEW IF EXISTS a.b", new DropMaterializedView(location(1, 1), QualifiedName.of("a", "b"), true));
+        assertStatement("DROP MATERIALIZED VIEW IF EXISTS a.b.c", new DropMaterializedView(location(1, 1), QualifiedName.of("a", "b", "c"), true));
     }
 
     @Test

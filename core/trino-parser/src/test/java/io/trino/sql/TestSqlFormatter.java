@@ -443,6 +443,7 @@ public class TestSqlFormatter
     {
         assertThat(formatSql(
                 new AddColumn(
+                        new NodeLocation(1, 1),
                         QualifiedName.of("foo", "t"),
                         new ColumnDefinition(QualifiedName.of("c"),
                                 new GenericDataType(new NodeLocation(1, 1), new Identifier("VARCHAR", false), ImmutableList.of()),
@@ -453,6 +454,7 @@ public class TestSqlFormatter
                 .isEqualTo("ALTER TABLE foo.t ADD COLUMN c VARCHAR");
         assertThat(formatSql(
                 new AddColumn(
+                        new NodeLocation(1, 1),
                         QualifiedName.of("foo", "t"),
                         new ColumnDefinition(QualifiedName.of("c"),
                                 new GenericDataType(new NodeLocation(1, 1), new Identifier("VARCHAR", false), ImmutableList.of()),
@@ -467,10 +469,10 @@ public class TestSqlFormatter
     public void testCommentOnTable()
     {
         assertThat(formatSql(
-                new Comment(Comment.Type.TABLE, QualifiedName.of("a"), Optional.of("test"))))
+                new Comment(new NodeLocation(1, 1), Comment.Type.TABLE, QualifiedName.of("a"), Optional.of("test"))))
                 .isEqualTo("COMMENT ON TABLE a IS 'test'");
         assertThat(formatSql(
-                new Comment(Comment.Type.TABLE, QualifiedName.of("a"), Optional.of("攻殻機動隊"))))
+                new Comment(new NodeLocation(1, 1), Comment.Type.TABLE, QualifiedName.of("a"), Optional.of("攻殻機動隊"))))
                 .isEqualTo("COMMENT ON TABLE a IS '攻殻機動隊'");
     }
 
@@ -478,10 +480,10 @@ public class TestSqlFormatter
     public void testCommentOnView()
     {
         assertThat(formatSql(
-                new Comment(Comment.Type.VIEW, QualifiedName.of("a"), Optional.of("test"))))
+                new Comment(new NodeLocation(1, 1), Comment.Type.VIEW, QualifiedName.of("a"), Optional.of("test"))))
                 .isEqualTo("COMMENT ON VIEW a IS 'test'");
         assertThat(formatSql(
-                new Comment(Comment.Type.VIEW, QualifiedName.of("a"), Optional.of("攻殻機動隊"))))
+                new Comment(new NodeLocation(1, 1), Comment.Type.VIEW, QualifiedName.of("a"), Optional.of("攻殻機動隊"))))
                 .isEqualTo("COMMENT ON VIEW a IS '攻殻機動隊'");
     }
 
@@ -489,10 +491,10 @@ public class TestSqlFormatter
     public void testCommentOnColumn()
     {
         assertThat(formatSql(
-                new Comment(Comment.Type.COLUMN, QualifiedName.of("test", "a"), Optional.of("test"))))
+                new Comment(new NodeLocation(1, 1), Comment.Type.COLUMN, QualifiedName.of("test", "a"), Optional.of("test"))))
                 .isEqualTo("COMMENT ON COLUMN test.a IS 'test'");
         assertThat(formatSql(
-                new Comment(Comment.Type.COLUMN, QualifiedName.of("test", "a"), Optional.of("攻殻機動隊"))))
+                new Comment(new NodeLocation(1, 1), Comment.Type.COLUMN, QualifiedName.of("test", "a"), Optional.of("攻殻機動隊"))))
                 .isEqualTo("COMMENT ON COLUMN test.a IS '攻殻機動隊'");
     }
 
