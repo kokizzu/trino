@@ -370,15 +370,6 @@ public class TracingConnectorMetadata
     }
 
     @Override
-    public void createTable(ConnectorSession session, ConnectorTableMetadata tableMetadata, boolean ignoreExisting)
-    {
-        Span span = startSpan("createTable", tableMetadata.getTable());
-        try (var _ = scopedSpan(span)) {
-            delegate.createTable(session, tableMetadata, ignoreExisting);
-        }
-    }
-
-    @Override
     public void createTable(ConnectorSession session, ConnectorTableMetadata tableMetadata, SaveMode saveMode)
     {
         Span span = startSpan("createTable", tableMetadata.getTable());
@@ -622,15 +613,6 @@ public class TracingConnectorMetadata
     }
 
     @Override
-    public ConnectorOutputTableHandle beginCreateTable(ConnectorSession session, ConnectorTableMetadata tableMetadata, Optional<ConnectorTableLayout> layout, RetryMode retryMode)
-    {
-        Span span = startSpan("beginCreateTable", tableMetadata.getTable());
-        try (var _ = scopedSpan(span)) {
-            return delegate.beginCreateTable(session, tableMetadata, layout, retryMode);
-        }
-    }
-
-    @Override
     public ConnectorOutputTableHandle beginCreateTable(ConnectorSession session, ConnectorTableMetadata tableMetadata, Optional<ConnectorTableLayout> layout, RetryMode retryMode, boolean replace)
     {
         Span span = startSpan("beginCreateTable", tableMetadata.getTable());
@@ -684,18 +666,6 @@ public class TracingConnectorMetadata
         Span span = startSpan("supportsMissingColumnsOnInsert");
         try (var _ = scopedSpan(span)) {
             return delegate.supportsMissingColumnsOnInsert();
-        }
-    }
-
-    @Override
-    public Optional<ConnectorOutputMetadata> finishInsert(ConnectorSession session, ConnectorInsertTableHandle insertHandle, Collection<Slice> fragments, Collection<ComputedStatistics> computedStatistics)
-    {
-        Span span = startSpan("finishInsert");
-        if (span.isRecording()) {
-            span.setAttribute(TrinoAttributes.HANDLE, insertHandle.toString());
-        }
-        try (var _ = scopedSpan(span)) {
-            return delegate.finishInsert(session, insertHandle, fragments, computedStatistics);
         }
     }
 

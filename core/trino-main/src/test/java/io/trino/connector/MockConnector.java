@@ -78,6 +78,7 @@ import io.trino.spi.connector.RecordPageSource;
 import io.trino.spi.connector.RelationColumnsMetadata;
 import io.trino.spi.connector.RetryMode;
 import io.trino.spi.connector.RowChangeParadigm;
+import io.trino.spi.connector.SaveMode;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.SchemaTablePrefix;
 import io.trino.spi.connector.SortItem;
@@ -639,7 +640,7 @@ public class MockConnector
         }
 
         @Override
-        public void createTable(ConnectorSession session, ConnectorTableMetadata tableMetadata, boolean ignoreExisting) {}
+        public void createTable(ConnectorSession session, ConnectorTableMetadata tableMetadata, SaveMode saveMode) {}
 
         @Override
         public void dropTable(ConnectorSession session, ConnectorTableHandle tableHandle) {}
@@ -815,7 +816,12 @@ public class MockConnector
         }
 
         @Override
-        public Optional<ConnectorOutputMetadata> finishInsert(ConnectorSession session, ConnectorInsertTableHandle insertHandle, Collection<Slice> fragments, Collection<ComputedStatistics> computedStatistics)
+        public Optional<ConnectorOutputMetadata> finishInsert(
+                ConnectorSession session,
+                ConnectorInsertTableHandle insertHandle,
+                List<ConnectorTableHandle> sourceTableHandles,
+                Collection<Slice> fragments,
+                Collection<ComputedStatistics> computedStatistics)
         {
             return Optional.empty();
         }
@@ -834,7 +840,7 @@ public class MockConnector
         }
 
         @Override
-        public ConnectorOutputTableHandle beginCreateTable(ConnectorSession session, ConnectorTableMetadata tableMetadata, Optional<ConnectorTableLayout> layout, RetryMode retryMode)
+        public ConnectorOutputTableHandle beginCreateTable(ConnectorSession session, ConnectorTableMetadata tableMetadata, Optional<ConnectorTableLayout> layout, RetryMode retryMode, boolean replace)
         {
             return new MockConnectorOutputTableHandle(tableMetadata.getTable());
         }

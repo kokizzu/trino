@@ -127,4 +127,5 @@ public interface QueryRunner
 
     void loadExchangeManager(String name, Map<String, String> properties);
 
-    record MaterializedResultWithPlan(QueryId queryId, Optional<Plan> queryPlan, MaterializedResult result) {}}
+    record MaterializedResultWithPlan(QueryId queryId, Optional<Plan> queryPlan, MaterializedResult result) {}
+}
