@@ -1739,28 +1739,30 @@ public class TestSqlParser
     @Test
     public void testCreateCatalog()
     {
-        assertStatement("CREATE CATALOG test USING conn",
-                new CreateCatalog(new Identifier("test"), false, new Identifier("conn"), ImmutableList.of(), Optional.empty(), Optional.empty()));
+        assertThat(statement("CREATE CATALOG test USING conn")).isEqualTo(
+                new CreateCatalog(location(1, 1), new Identifier(location(1, 16), "test", false), false, new Identifier(location(1, 27), "conn", false), ImmutableList.of(), Optional.empty(), Optional.empty()));
 
-        assertStatement("CREATE CATALOG IF NOT EXISTS test USING conn",
-                new CreateCatalog(new Identifier("test"), true, new Identifier("conn"), ImmutableList.of(), Optional.empty(), Optional.empty()));
+        assertThat(statement("CREATE CATALOG IF NOT EXISTS test USING conn")).isEqualTo(
+                new CreateCatalog(location(1, 1), new Identifier(location(1, 30), "test", false), true, new Identifier(location(1, 41), "conn", false), ImmutableList.of(), Optional.empty(), Optional.empty()));
 
-        assertStatement("CREATE CATALOG test USING conn COMMENT 'awesome' AUTHORIZATION ROLE dragon WITH (\"a\" = 'apple', \"b\" = 123)",
+        assertThat(statement("CREATE CATALOG test USING conn COMMENT 'awesome' AUTHORIZATION ROLE dragon WITH (\"a\" = 'apple', \"b\" = 123)")).isEqualTo(
                 new CreateCatalog(
-                        new Identifier("test"),
+                        location(1, 1),
+                        new Identifier(location(1, 16), "test", false),
                         false,
-                        new Identifier("conn"),
+                        new Identifier(location(1, 27), "conn", false),
                         ImmutableList.of(
-                                new Property(new Identifier("a"), new StringLiteral("apple")),
-                                new Property(new Identifier("b"), new LongLiteral("123"))),
-                        Optional.of(new PrincipalSpecification(Type.ROLE, new Identifier("dragon"))),
+                                new Property(location(1, 82), new Identifier(location(1, 82), "a", true), new StringLiteral(location(1, 88),  "apple")),
+                                new Property(location(1, 97), new Identifier(location(1, 97), "b", true), new LongLiteral(location(1, 103), "123"))),
+                        Optional.of(new PrincipalSpecification(Type.ROLE, new Identifier(location(1, 69), "dragon", false))),
                         Optional.of("awesome")));
 
-        assertStatement("CREATE CATALOG \"some name that contains space\" USING \"conn-with-dash\"",
+        assertThat(statement("CREATE CATALOG \"some name that contains space\" USING \"conn-with-dash\"")).isEqualTo(
                 new CreateCatalog(
-                        new Identifier("some name that contains space"),
+                        location(1, 1),
+                        new Identifier(location(1, 16), "some name that contains space", true),
                         false,
-                        new Identifier("conn-with-dash"),
+                        new Identifier(location(1, 54), "conn-with-dash", true),
                         ImmutableList.of(),
                         Optional.empty(),
                         Optional.empty()));
@@ -1769,20 +1771,20 @@ public class TestSqlParser
     @Test
     public void testDropCatalog()
     {
-        assertStatement("DROP CATALOG test",
-                new DropCatalog(new Identifier("test"), false, false));
+        assertThat(statement("DROP CATALOG test")).isEqualTo(
+                new DropCatalog(location(1, 1), new Identifier(location(1, 14), "test", false), false, false));
 
-        assertStatement("DROP CATALOG test CASCADE",
-                new DropCatalog(new Identifier("test"), false, true));
+        assertThat(statement("DROP CATALOG test CASCADE")).isEqualTo(
+                new DropCatalog(location(1, 1), new Identifier(location(1, 14), "test", false), false, true));
 
-        assertStatement("DROP CATALOG IF EXISTS test",
-                new DropCatalog(new Identifier("test"), true, false));
+        assertThat(statement("DROP CATALOG IF EXISTS test")).isEqualTo(
+                new DropCatalog(location(1, 1), new Identifier(location(1, 24), "test", false), true, false));
 
-        assertStatement("DROP CATALOG IF EXISTS test RESTRICT",
-                new DropCatalog(new Identifier("test"), true, false));
+        assertThat(statement("DROP CATALOG IF EXISTS test RESTRICT")).isEqualTo(
+                new DropCatalog(location(1, 1), new Identifier(location(1, 24), "test", false), true, false));
 
-        assertStatement("DROP CATALOG \"some catalog that contains space\"",
-                new DropCatalog(new Identifier("some catalog that contains space"), false, false));
+        assertThat(statement("DROP CATALOG \"some catalog that contains space\"")).isEqualTo(
+                new DropCatalog(location(1, 1), new Identifier(location(1, 14), "some catalog that contains space", true), false, false));
     }
 
     @Test
@@ -2818,11 +2820,18 @@ public class TestSqlParser
 
     @Test
     public void testTruncateTable()
-            throws Exception
     {
-        assertStatement("TRUNCATE TABLE a", new TruncateTable(QualifiedName.of("a")));
-        assertStatement("TRUNCATE TABLE a.b", new TruncateTable(QualifiedName.of("a", "b")));
-        assertStatement("TRUNCATE TABLE a.b.c", new TruncateTable(QualifiedName.of("a", "b", "c")));
+        assertThat(statement("TRUNCATE TABLE a"))
+                .isEqualTo(new TruncateTable(location(1, 1), QualifiedName.of(ImmutableList.of(new Identifier(location(1, 16), "a", false)))));
+        assertThat(statement("TRUNCATE TABLE a.b"))
+                .isEqualTo(new TruncateTable(location(1, 1), QualifiedName.of(ImmutableList.of(
+                        new Identifier(location(1, 16), "a", false),
+                        new Identifier(location(1, 18), "b", false)))));
+        assertThat(statement("TRUNCATE TABLE a.b.c"))
+                .isEqualTo(new TruncateTable(location(1, 1), QualifiedName.of(ImmutableList.of(
+                        new Identifier(location(1, 16), "a", false),
+                        new Identifier(location(1, 18), "b", false),
+                        new Identifier(location(1, 20), "c", false)))));
     }
 
     @Test
@@ -2853,13 +2862,18 @@ public class TestSqlParser
     @Test
     public void testDelete()
     {
-        assertStatement("DELETE FROM t", new Delete(table(QualifiedName.of("t")), Optional.empty()));
-        assertStatement("DELETE FROM \"awesome table\"", new Delete(table(QualifiedName.of("awesome table")), Optional.empty()));
+        assertThat(statement("DELETE FROM t"))
+                .isEqualTo(new Delete(location(1, 1), new Table(location(1, 1), QualifiedName.of(ImmutableList.of(new Identifier(location(1, 13), "t", false)))), Optional.empty()));
+        assertThat(statement("DELETE FROM \"awesome table\""))
+                .isEqualTo(new Delete(location(1, 1), new Table(location(1, 1), QualifiedName.of(ImmutableList.of(new Identifier(location(1, 13), "awesome table", true)))), Optional.empty()));
 
-        assertStatement("DELETE FROM t WHERE a = b", new Delete(table(QualifiedName.of("t")), Optional.of(
-                new ComparisonExpression(ComparisonExpression.Operator.EQUAL,
-                        new Identifier("a"),
-                        new Identifier("b")))));
+        assertThat(statement("DELETE FROM t WHERE a = b"))
+                .isEqualTo(new Delete(location(1, 1), new Table(location(1, 1), QualifiedName.of(ImmutableList.of(new Identifier(location(1, 13), "t", false)))), Optional.of(
+                        new ComparisonExpression(
+                                location(1, 23),
+                                ComparisonExpression.Operator.EQUAL,
+                                new Identifier(location(1, 21), "a", false),
+                                new Identifier(location(1, 25), "b", false)))));
     }
 
     @Test
@@ -3574,12 +3588,12 @@ public class TestSqlParser
     @Test
     public void testShowGrants()
     {
-        assertStatement("SHOW GRANTS ON TABLE t",
-                new ShowGrants(Optional.of(new GrantObject(location(1, 1), Optional.of("TABLE"), QualifiedName.of("t")))));
-        assertStatement("SHOW GRANTS ON t",
-                new ShowGrants(Optional.of(new GrantObject(location(1, 1), Optional.empty(), QualifiedName.of("t")))));
-        assertStatement("SHOW GRANTS",
-                new ShowGrants(Optional.empty()));
+        assertThat(statement("SHOW GRANTS ON TABLE t"))
+                .isEqualTo(new ShowGrants(location(1, 1), Optional.of(new GrantObject(location(1, 1), Optional.of("TABLE"), QualifiedName.of(ImmutableList.of(new Identifier(location(1, 22), "t", false)))))));
+        assertThat(statement("SHOW GRANTS ON t"))
+                .isEqualTo(new ShowGrants(location(1, 1), Optional.of(new GrantObject(location(1, 1), Optional.empty(), QualifiedName.of(ImmutableList.of(new Identifier(location(1, 16), "t", false)))))));
+        assertThat(statement("SHOW GRANTS"))
+                .isEqualTo(new ShowGrants(location(1, 1), Optional.empty()));
     }
 
     @Test
@@ -3603,10 +3617,10 @@ public class TestSqlParser
     @Test
     public void testShowRoleGrants()
     {
-        assertStatement("SHOW ROLE GRANTS",
-                new ShowRoleGrants(Optional.empty(), Optional.empty()));
-        assertStatement("SHOW ROLE GRANTS FROM catalog",
-                new ShowRoleGrants(Optional.of(new Identifier("catalog"))));
+        assertThat(statement("SHOW ROLE GRANTS"))
+                .isEqualTo(new ShowRoleGrants(location(1, 1), Optional.empty()));
+        assertThat(statement("SHOW ROLE GRANTS FROM catalog"))
+                .isEqualTo(new ShowRoleGrants(location(1, 1), Optional.of(new Identifier(location(1, 23), "catalog", false))));
     }
 
     @Test
@@ -3917,8 +3931,8 @@ public class TestSqlParser
     @Test
     public void testCommit()
     {
-        assertStatement("COMMIT", new Commit());
-        assertStatement("COMMIT WORK", new Commit());
+        assertThat(statement("COMMIT")).isEqualTo(new Commit(location(1, 1)));
+        assertThat(statement("COMMIT WORK")).isEqualTo(new Commit(location(1, 1)));
     }
 
     @Test
@@ -4128,7 +4142,8 @@ public class TestSqlParser
     @Test
     public void testDeallocatePrepare()
     {
-        assertStatement("DEALLOCATE PREPARE myquery", new Deallocate(identifier("myquery")));
+        assertThat(statement("DEALLOCATE PREPARE myquery"))
+                .isEqualTo(new Deallocate(location(1, 1), new Identifier(location(1, 20), "myquery", false)));
     }
 
     @Test
@@ -4391,13 +4406,15 @@ public class TestSqlParser
     @Test
     public void testDescribeOutput()
     {
-        assertStatement("DESCRIBE OUTPUT myquery", new DescribeOutput(identifier("myquery")));
+        assertThat(statement("DESCRIBE OUTPUT myquery"))
+                .isEqualTo(new DescribeOutput(location(1, 1), new Identifier(location(1, 17), "myquery", false)));
     }
 
     @Test
     public void testDescribeInput()
     {
-        assertStatement("DESCRIBE INPUT myquery", new DescribeInput(identifier("myquery")));
+        assertThat(statement("DESCRIBE INPUT myquery"))
+                .isEqualTo(new DescribeInput(location(1, 1), new Identifier(location(1, 16), "myquery", false)));
     }
 
     @Test
@@ -5073,7 +5090,7 @@ public class TestSqlParser
                         Optional.empty(),
                         false,
                         Optional.empty(),
-                        Optional.of(new ProcessingMode(Optional.empty(), RUNNING)),
+                        Optional.of(new ProcessingMode(location(1, 1), RUNNING)),
                         ImmutableList.of(new Identifier("x"), new LongLiteral("1"))));
         assertExpression("FINAL FIRST(x, 1)",
                 new FunctionCall(
@@ -5084,7 +5101,7 @@ public class TestSqlParser
                         Optional.empty(),
                         false,
                         Optional.empty(),
-                        Optional.of(new ProcessingMode(Optional.empty(), FINAL)),
+                        Optional.of(new ProcessingMode(location(1, 1), FINAL)),
                         ImmutableList.of(new Identifier("x"), new LongLiteral("1"))));
     }
 
@@ -6166,7 +6183,8 @@ public class TestSqlParser
     @Test
     public void testResetSessionAuthorization()
     {
-        assertStatement("RESET SESSION AUTHORIZATION", new ResetSessionAuthorization());
+        assertThat(statement("RESET SESSION AUTHORIZATION"))
+                .isEqualTo(new ResetSessionAuthorization(location(1, 1)));
     }
 
     private static QualifiedName makeQualifiedName(String tableName)
