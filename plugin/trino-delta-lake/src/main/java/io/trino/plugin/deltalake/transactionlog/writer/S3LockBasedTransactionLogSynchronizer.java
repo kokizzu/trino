@@ -13,8 +13,6 @@
  */
 package io.trino.plugin.deltalake.transactionlog.writer;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import com.google.inject.Inject;
 import io.airlift.json.JsonCodec;
@@ -46,14 +44,12 @@ import static java.time.temporal.ChronoUnit.MINUTES;
 import static java.util.Objects.requireNonNull;
 
 /**
- * The S3 Native synhcornizer is a {@link TransactionLogSynchronizer} for S3 that requires no other dependencies.
+ * The S3 lock-based synchronizer is a {@link TransactionLogSynchronizer} for S3-compatible storage that doesn't support conditional writes
  */
-public class S3NativeTransactionLogSynchronizer
+public class S3LockBasedTransactionLogSynchronizer
         implements TransactionLogSynchronizer
 {
-    public static final Logger LOG = Logger.get(S3NativeTransactionLogSynchronizer.class);
-
-    // TODO: add refreshing of log expiration time (https://github.com/trinodb/trino/issues/12008)
+    public static final Logger LOG = Logger.get(S3LockBasedTransactionLogSynchronizer.class);
     private static final Duration EXPIRATION_DURATION = Duration.of(5, MINUTES);
     private static final String LOCK_DIRECTORY = "_sb_lock";
     private static final String LOCK_INFIX = "sb-lock_";
@@ -63,10 +59,10 @@ public class S3NativeTransactionLogSynchronizer
     private final JsonCodec<LockFileContents> lockFileContentsJsonCodec;
 
     @Inject
-    public S3NativeTransactionLogSynchronizer(TrinoFileSystemFactory fileSystemFactory, JsonCodec<LockFileContents> lockFileContentesCodec)
+    S3LockBasedTransactionLogSynchronizer(TrinoFileSystemFactory fileSystemFactory, JsonCodec<LockFileContents> lockFileContentsJsonCodec)
     {
         this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
-        this.lockFileContentsJsonCodec = requireNonNull(lockFileContentesCodec, "lockFileContentesCodec is null");
+        this.lockFileContentsJsonCodec = requireNonNull(lockFileContentsJsonCodec, "lockFileContentsJsonCodec is null");
     }
 
     @Override
@@ -254,53 +250,26 @@ public class S3NativeTransactionLogSynchronizer
 
         public String getClusterId()
         {
-            return contents.getClusterId();
+            return contents.clusterId();
         }
 
         public String getOwningQuery()
         {
-            return contents.getOwningQuery();
+            return contents.owningQuery();
         }
 
         public Instant getExpirationTime()
         {
-            return Instant.ofEpochMilli(contents.getExpirationEpochMillis());
+            return Instant.ofEpochMilli(contents.expirationEpochMillis());
         }
     }
 
-    public static class LockFileContents
+    public record LockFileContents(String clusterId, String owningQuery, long expirationEpochMillis)
     {
-        private final String clusterId;
-        private final String owningQuery;
-        private final long expirationEpochMillis;
-
-        @JsonCreator
-        public LockFileContents(
-                @JsonProperty("clusterId") String clusterId,
-                @JsonProperty("owningQuery") String owningQuery,
-                @JsonProperty("expirationEpochMillis") long expirationEpochMillis)
+        public LockFileContents
         {
-            this.clusterId = requireNonNull(clusterId, "clusterId is null");
-            this.owningQuery = requireNonNull(owningQuery, "owningQuery is null");
-            this.expirationEpochMillis = expirationEpochMillis;
-        }
-
-        @JsonProperty
-        public String getClusterId()
-        {
-            return clusterId;
-        }
-
-        @JsonProperty
-        public String getOwningQuery()
-        {
-            return owningQuery;
-        }
-
-        @JsonProperty
-        public long getExpirationEpochMillis()
-        {
-            return expirationEpochMillis;
+            requireNonNull(clusterId, "clusterId is null");
+            requireNonNull(owningQuery, "owningQuery is null");
         }
     }
 }

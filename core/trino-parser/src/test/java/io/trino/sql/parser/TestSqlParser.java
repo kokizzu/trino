@@ -1790,41 +1790,43 @@ public class TestSqlParser
     @Test
     public void testCreateSchema()
     {
-        assertStatement("CREATE SCHEMA test",
-                new CreateSchema(QualifiedName.of("test"), false, ImmutableList.of()));
+        assertThat(statement("CREATE SCHEMA test"))
+                .isEqualTo(new CreateSchema(location(1, 1), QualifiedName.of(List.of(new Identifier(location(1, 15), "test", false))), false, ImmutableList.of(), Optional.empty()));
 
-        assertStatement("CREATE SCHEMA IF NOT EXISTS test",
-                new CreateSchema(QualifiedName.of("test"), true, ImmutableList.of()));
+        assertThat(statement("CREATE SCHEMA IF NOT EXISTS test"))
+                .isEqualTo(new CreateSchema(location(1, 1), QualifiedName.of(List.of(new Identifier(location(1, 29), "test", false))), true, ImmutableList.of(), Optional.empty()));
 
-        assertStatement("CREATE SCHEMA test WITH (a = 'apple', b = 123)",
+        assertThat(statement("CREATE SCHEMA test WITH (a = 'apple', b = 123)")).isEqualTo(
                 new CreateSchema(
-                        QualifiedName.of("test"),
+                        location(1, 1),
+                        QualifiedName.of(List.of(new Identifier(location(1, 15), "test", false))),
                         false,
                         ImmutableList.of(
-                                new Property(new Identifier("a"), new StringLiteral("apple")),
-                                new Property(new Identifier("b"), new LongLiteral("123")))));
+                                new Property(location(1, 26), new Identifier(location(1, 26), "a", false), new StringLiteral(location(1, 30), "apple")),
+                                new Property(location(1, 39), new Identifier(location(1, 39), "b", false), new LongLiteral(location(1, 43), "123"))),
+                        Optional.empty()));
 
-        assertStatement("CREATE SCHEMA \"some name that contains space\"",
-                new CreateSchema(QualifiedName.of("some name that contains space"), false, ImmutableList.of()));
+        assertThat(statement("CREATE SCHEMA \"some name that contains space\""))
+                .isEqualTo(new CreateSchema(location(1, 1), QualifiedName.of(List.of(new Identifier(location(1, 15), "some name that contains space", true))), false, ImmutableList.of(), Optional.empty()));
     }
 
     @Test
     public void testDropSchema()
     {
-        assertStatement("DROP SCHEMA test",
-                new DropSchema(QualifiedName.of("test"), false, false));
+        assertThat(statement("DROP SCHEMA test")).isEqualTo(
+                new DropSchema(location(1, 1), QualifiedName.of(List.of(new Identifier(location(1, 13), "test", false))), false, false));
 
-        assertStatement("DROP SCHEMA test CASCADE",
-                new DropSchema(QualifiedName.of("test"), false, true));
+        assertThat(statement("DROP SCHEMA test CASCADE")).isEqualTo(
+                new DropSchema(location(1, 1), QualifiedName.of(List.of(new Identifier(location(1, 13), "test", false))), false, true));
 
-        assertStatement("DROP SCHEMA IF EXISTS test",
-                new DropSchema(QualifiedName.of("test"), true, false));
+        assertThat(statement("DROP SCHEMA IF EXISTS test")).isEqualTo(
+                new DropSchema(location(1, 1), QualifiedName.of(List.of(new Identifier(location(1, 23), "test", false))), true, false));
 
-        assertStatement("DROP SCHEMA IF EXISTS test RESTRICT",
-                new DropSchema(QualifiedName.of("test"), true, false));
+        assertThat(statement("DROP SCHEMA IF EXISTS test RESTRICT")).isEqualTo(
+                new DropSchema(location(1, 1), QualifiedName.of(List.of(new Identifier(location(1, 23), "test", false))), true, false));
 
-        assertStatement("DROP SCHEMA \"some schema that contains space\"",
-                new DropSchema(QualifiedName.of("some schema that contains space"), false, false));
+        assertThat(statement("DROP SCHEMA \"some schema that contains space\"")).isEqualTo(
+                new DropSchema(location(1, 1), QualifiedName.of(List.of(new Identifier(location(1, 13), "some schema that contains space", true))), false, false));
     }
 
     @Test
@@ -3428,26 +3430,30 @@ public class TestSqlParser
     @Test
     public void testDeny()
     {
-        assertStatement("DENY INSERT, DELETE ON t TO u",
+        assertThat(statement("DENY INSERT, DELETE ON t TO u")).isEqualTo(
                 new Deny(
+                        location(1, 1),
                         Optional.of(ImmutableList.of("INSERT", "DELETE")),
-                        new GrantObject(location(1, 1), Optional.empty(), QualifiedName.of("t")),
-                        new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier("u"))));
-        assertStatement("DENY UPDATE ON t TO u",
+                        new GrantObject(location(1, 1), Optional.empty(), QualifiedName.of(List.of(new Identifier(location(1, 24), "t", false)))),
+                        new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier(location(1, 29), "u", false))));
+        assertThat(statement("DENY UPDATE ON t TO u")).isEqualTo(
                 new Deny(
+                        location(1, 1),
                         Optional.of(ImmutableList.of("UPDATE")),
-                        new GrantObject(location(1, 1), Optional.empty(), QualifiedName.of("t")),
-                        new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier("u"))));
-        assertStatement("DENY ALL PRIVILEGES ON TABLE t TO USER u",
+                        new GrantObject(location(1, 1), Optional.empty(), QualifiedName.of(List.of(new Identifier(location(1, 16), "t", false)))),
+                        new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier(location(1, 21), "u", false))));
+        assertThat(statement("DENY ALL PRIVILEGES ON TABLE t TO USER u")).isEqualTo(
                 new Deny(
+                        location(1, 1),
                         Optional.empty(),
-                        new GrantObject(location(1, 1), Optional.of("TABLE"), QualifiedName.of("t")),
-                        new PrincipalSpecification(PrincipalSpecification.Type.USER, new Identifier("u"))));
-        assertStatement("DENY SELECT ON SCHEMA s TO USER u",
+                        new GrantObject(location(1, 1), Optional.of("TABLE"), QualifiedName.of(List.of(new Identifier(location(1, 30), "t", false)))),
+                        new PrincipalSpecification(PrincipalSpecification.Type.USER, new Identifier(location(1, 40), "u", false))));
+        assertThat(statement("DENY SELECT ON SCHEMA s TO USER u")).isEqualTo(
                 new Deny(
+                        location(1, 1),
                         Optional.of(ImmutableList.of("SELECT")),
-                        new GrantObject(location(1, 1), Optional.of("SCHEMA"), QualifiedName.of("s")),
-                        new PrincipalSpecification(PrincipalSpecification.Type.USER, new Identifier("u"))));
+                        new GrantObject(location(1, 1), Optional.of("SCHEMA"), QualifiedName.of(List.of(new Identifier(location(1, 23), "s", false)))),
+                        new PrincipalSpecification(PrincipalSpecification.Type.USER, new Identifier(location(1, 33), "u", false))));
     }
 
     @Test
@@ -4149,14 +4155,21 @@ public class TestSqlParser
     @Test
     public void testExecute()
     {
-        assertStatement("EXECUTE myquery", new Execute(identifier("myquery"), emptyList()));
+        assertThat(statement("EXECUTE myquery")).isEqualTo(
+                new Execute(location(1, 1), new Identifier(location(1, 9), "myquery", false), emptyList()));
     }
 
     @Test
     public void testExecuteWithUsing()
     {
-        assertStatement("EXECUTE myquery USING 1, 'abc', ARRAY ['hello']",
-                new Execute(identifier("myquery"), ImmutableList.of(new LongLiteral("1"), new StringLiteral("abc"), new Array(ImmutableList.of(new StringLiteral("hello"))))));
+        assertThat(statement("EXECUTE myquery USING 1, 'abc', ARRAY ['hello']")).isEqualTo(
+                new Execute(
+                        location(1, 1),
+                        new Identifier(location(1, 9), "myquery", false),
+                        ImmutableList.of(
+                                new LongLiteral(location(1, 23), "1"),
+                                new StringLiteral(location(1, 26), "abc"),
+                                new Array(location(1, 33), ImmutableList.of(new StringLiteral(location(1, 40), "hello"))))));
     }
 
     @Test
