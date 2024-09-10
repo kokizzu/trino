@@ -14,6 +14,7 @@
 package io.trino.spooling.filesystem;
 
 import io.airlift.units.DataSize;
+import io.azam.ulidj.ULID;
 import io.trino.filesystem.s3.S3FileSystemConfig;
 import io.trino.filesystem.s3.S3FileSystemFactory;
 import io.trino.spi.QueryId;
@@ -30,11 +31,11 @@ import org.junit.jupiter.api.TestInstance;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 
-import static io.airlift.slice.Slices.utf8Slice;
 import static io.opentelemetry.api.OpenTelemetry.noop;
+import static io.trino.spooling.filesystem.encryption.EncryptionUtils.generateRandomKey;
 import static io.trino.testing.containers.Minio.MINIO_REGION;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -44,6 +45,9 @@ import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS;
 @TestInstance(PER_CLASS)
 public class TestFileSystemSpoolingManager
 {
+    private static final String BUCKET_NAME = "spooling" + UUID.randomUUID().toString()
+            .replace("-", "");
+
     private Minio minio;
 
     @BeforeAll
@@ -51,7 +55,7 @@ public class TestFileSystemSpoolingManager
     {
         minio = Minio.builder().build();
         minio.start();
-        minio.createBucket("test");
+        minio.createBucket(BUCKET_NAME);
     }
 
     @AfterAll
@@ -104,17 +108,22 @@ public class TestFileSystemSpoolingManager
     @Test
     public void testHandleRoundTrip()
     {
-        FileSystemSpooledSegmentHandle handle = new FileSystemSpooledSegmentHandle("test", Instant.now(), Optional.of(utf8Slice("superSecretKey")));
-
+        FileSystemSpooledSegmentHandle handle = FileSystemSpooledSegmentHandle.of(QueryId.valueOf("a"), ULID.randomBinary(), Optional.of(generateRandomKey()));
         SpooledLocation location = getSpoolingManager().location(handle);
-        assertThat(getSpoolingManager().handle(location)).isEqualTo(handle);
+        FileSystemSpooledSegmentHandle handle2 = (FileSystemSpooledSegmentHandle) getSpoolingManager().handle(location);
+
+        assertThat(handle.queryId()).isEqualTo(handle2.queryId());
+        assertThat(handle.storageObjectName()).isEqualTo(handle2.storageObjectName());
+        assertThat(handle.uuid()).isEqualTo(handle2.uuid());
+        assertThat(handle.expirationTime()).isEqualTo(handle2.expirationTime());
+        assertThat(handle.encryptionKey()).isEqualTo(handle2.encryptionKey());
     }
 
     private SpoolingManager getSpoolingManager()
     {
         FileSystemSpoolingConfig spoolingConfig = new FileSystemSpoolingConfig();
-        spoolingConfig.setNativeS3Enabled(true);
-        spoolingConfig.setLocation("s3://test");
+        spoolingConfig.setS3Enabled(true);
+        spoolingConfig.setLocation("s3://%s/".formatted(BUCKET_NAME));
         S3FileSystemConfig filesystemConfig = new S3FileSystemConfig()
                 .setEndpoint(minio.getMinioAddress())
                 .setRegion(MINIO_REGION)

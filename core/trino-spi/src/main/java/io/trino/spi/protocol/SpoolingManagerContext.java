@@ -27,4 +27,9 @@ public interface SpoolingManagerContext
     {
         throw new UnsupportedOperationException();
     }
+
+    default boolean isCoordinator()
+    {
+        throw new UnsupportedOperationException();
+    }
 }

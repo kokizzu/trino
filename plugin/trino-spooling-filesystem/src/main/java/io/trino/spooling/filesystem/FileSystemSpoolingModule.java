@@ -14,6 +14,7 @@
 package io.trino.spooling.filesystem;
 
 import com.google.inject.Binder;
+import com.google.inject.Key;
 import com.google.inject.Provides;
 import com.google.inject.Scopes;
 import com.google.inject.Singleton;
@@ -32,31 +33,51 @@ import io.trino.spi.protocol.SpoolingManager;
 import io.trino.spi.protocol.SpoolingManagerContext;
 
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Function;
 
 import static com.google.inject.multibindings.MapBinder.newMapBinder;
+import static io.airlift.concurrent.Threads.threadsNamed;
+import static io.trino.plugin.base.ClosingBinder.closingBinder;
 
-public class FilesystemSpoolingModule
+public class FileSystemSpoolingModule
         extends AbstractConfigurationAwareModule
 {
+    private final boolean coordinator;
+
+    public FileSystemSpoolingModule(boolean coordinator)
+    {
+        this.coordinator = coordinator;
+    }
+
     @Override
     protected void setup(Binder binder)
     {
         FileSystemSpoolingConfig config = buildConfigObject(FileSystemSpoolingConfig.class);
         var factories = newMapBinder(binder, String.class, TrinoFileSystemFactory.class);
-        if (config.isNativeAzureEnabled()) {
+        if (config.isAzureEnabled()) {
             install(new AzureFileSystemModule());
             factories.addBinding("abfs").to(AzureFileSystemFactory.class);
         }
-        if (config.isNativeS3Enabled()) {
+        if (config.isS3Enabled()) {
             install(new S3FileSystemModule());
             factories.addBinding("s3").to(S3FileSystemFactory.class);
         }
-        if (config.isNativeGcsEnabled()) {
+        if (config.isGcsEnabled()) {
             install(new GcsFileSystemModule());
             factories.addBinding("gs").to(GcsFileSystemFactory.class);
         }
         binder.bind(SpoolingManager.class).to(FileSystemSpoolingManager.class).in(Scopes.SINGLETON);
+
+        if (coordinator) {
+            binder.bind(FileSystemSegmentPruner.class).asEagerSingleton();
+            binder.bind(ScheduledExecutorService.class)
+                    .annotatedWith(ForSegmentPruner.class)
+                    .toInstance(Executors.newScheduledThreadPool(1, threadsNamed("segment-pruner-%d")));
+
+            closingBinder(binder).registerExecutor(Key.get(ScheduledExecutorService.class, ForSegmentPruner.class));
+        }
     }
 
     @Provides

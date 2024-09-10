@@ -17,12 +17,11 @@ import com.google.common.collect.ImmutableMap;
 import io.trino.Session;
 import io.trino.client.ClientSession;
 import io.trino.client.StatementClient;
-import io.trino.client.spooling.encoding.QueryDataDecoders;
 import io.trino.connector.MockConnectorFactory;
 import io.trino.connector.MockConnectorPlugin;
 import io.trino.plugin.memory.MemoryQueryRunner;
 import io.trino.server.testing.TestingTrinoServer;
-import io.trino.spooling.filesystem.FilesystemSpoolingPlugin;
+import io.trino.spooling.filesystem.FileSystemSpoolingPlugin;
 import io.trino.testing.AbstractTestEngineOnlyQueries;
 import io.trino.testing.DistributedQueryRunner;
 import io.trino.testing.QueryRunner;
@@ -72,10 +71,10 @@ public abstract class AbstractSpooledQueryDataDistributedQueries
                 .addExtraProperty("experimental.protocol.spooling.enabled", "true")
                 .addExtraProperty("protocol.spooling.shared-secret-key", randomAES256Key())
                 .setAdditionalSetup(runner -> {
-                    runner.installPlugin(new FilesystemSpoolingPlugin());
+                    runner.installPlugin(new FileSystemSpoolingPlugin());
                     Map<String, String> spoolingConfig = ImmutableMap.<String, String>builder()
-                            .put("fs.native-s3.enabled", "true")
-                            .put("location", "s3://" + bucketName)
+                            .put("fs.s3.enabled", "true")
+                            .put("fs.location", "s3://" + bucketName + "/")
                             .put("s3.endpoint", minio.getMinioAddress())
                             .put("s3.region", MINIO_REGION)
                             .put("s3.aws-access-key", MINIO_ACCESS_KEY)
@@ -105,7 +104,11 @@ public abstract class AbstractSpooledQueryDataDistributedQueries
             @Override
             public StatementClient create(OkHttpClient httpClient, Session session, ClientSession clientSession, String query)
             {
-                return newStatementClient(httpClient, QueryDataDecoders.get(encodingId), clientSession, query, Optional.empty());
+                ClientSession clientSessionSpooled = ClientSession
+                        .builder(clientSession)
+                        .encodingId(Optional.ofNullable(encodingId))
+                        .build();
+                return newStatementClient(httpClient, clientSessionSpooled, query, Optional.empty());
             }
         }, session, new OkHttpClient());
     }

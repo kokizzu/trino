@@ -11,20 +11,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.server.protocol.spooling;
+package io.trino.plugin.jdbc;
 
-import java.util.Optional;
+import com.google.inject.BindingAnnotation;
 
-/**
- * Responsible for choosing a QueryDataEncoder implementation based on a query Session.
- *
- * Important: needs to be stable across runs as it will be executed on multiple nodes participated in query execution
- * and output generation.
- *
- * Returning Optional.empty() fallbacks to the direct protocol.
- */
-@FunctionalInterface
-public interface QueryDataEncoderSelector
+import java.lang.annotation.Retention;
+import java.lang.annotation.Target;
+
+import static java.lang.annotation.ElementType.FIELD;
+import static java.lang.annotation.ElementType.METHOD;
+import static java.lang.annotation.ElementType.PARAMETER;
+import static java.lang.annotation.RetentionPolicy.RUNTIME;
+
+@Retention(RUNTIME)
+@Target({FIELD, PARAMETER, METHOD})
+@BindingAnnotation
+public @interface ForCaching
 {
-    Optional<QueryDataEncoder.Factory> select(String encodingId);
 }

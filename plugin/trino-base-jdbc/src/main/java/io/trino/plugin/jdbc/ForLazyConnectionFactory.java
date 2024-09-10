@@ -11,19 +11,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.spooling.filesystem;
+package io.trino.plugin.jdbc;
 
-import io.trino.spi.Plugin;
-import io.trino.spi.protocol.SpoolingManagerFactory;
+import com.google.inject.BindingAnnotation;
 
-import java.util.List;
+import java.lang.annotation.Retention;
+import java.lang.annotation.Target;
 
-public class FilesystemSpoolingPlugin
-        implements Plugin
+import static java.lang.annotation.ElementType.FIELD;
+import static java.lang.annotation.ElementType.METHOD;
+import static java.lang.annotation.ElementType.PARAMETER;
+import static java.lang.annotation.RetentionPolicy.RUNTIME;
+
+@Retention(RUNTIME)
+@Target({FIELD, PARAMETER, METHOD})
+@BindingAnnotation
+public @interface ForLazyConnectionFactory
 {
-    @Override
-    public Iterable<SpoolingManagerFactory> getSpoolingManagerFactories()
-    {
-        return List.of(new FileSystemSpoolingManagerFactory());
-    }
 }
