@@ -13,6 +13,7 @@
  */
 package io.trino.filesystem.tracing;
 
+import io.airlift.units.Duration;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import io.trino.filesystem.FileIterator;
@@ -20,8 +21,10 @@ import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoInputFile;
 import io.trino.filesystem.TrinoOutputFile;
+import io.trino.filesystem.UriLocation;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.Optional;
 import java.util.Set;
@@ -44,13 +47,19 @@ final class TracingFileSystem
     @Override
     public TrinoInputFile newInputFile(Location location)
     {
-        return new TracingInputFile(tracer, delegate.newInputFile(location), Optional.empty());
+        return new TracingInputFile(tracer, delegate.newInputFile(location), Optional.empty(), Optional.empty());
     }
 
     @Override
     public TrinoInputFile newInputFile(Location location, long length)
     {
-        return new TracingInputFile(tracer, delegate.newInputFile(location, length), Optional.of(length));
+        return new TracingInputFile(tracer, delegate.newInputFile(location, length), Optional.of(length), Optional.empty());
+    }
+
+    @Override
+    public TrinoInputFile newInputFile(Location location, long length, Instant lastModified)
+    {
+        return new TracingInputFile(tracer, delegate.newInputFile(location, length, lastModified), Optional.of(length), Optional.of(lastModified));
     }
 
     @Override
@@ -157,5 +166,15 @@ final class TracingFileSystem
                 .setAttribute(FileSystemAttributes.FILE_LOCATION, targetPath.toString())
                 .startSpan();
         return withTracing(span, () -> delegate.createTemporaryDirectory(targetPath, temporaryPrefix, relativePrefix));
+    }
+
+    @Override
+    public Optional<UriLocation> preSignedUri(Location location, Duration ttl)
+            throws IOException
+    {
+        Span span = tracer.spanBuilder("FileSystem.preSignedUri")
+                .setAttribute(FileSystemAttributes.FILE_LOCATION, location.toString())
+                .startSpan();
+        return withTracing(span, () -> delegate.preSignedUri(location, ttl));
     }
 }
