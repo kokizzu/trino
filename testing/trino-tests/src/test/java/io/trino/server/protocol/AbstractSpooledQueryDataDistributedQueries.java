@@ -48,7 +48,7 @@ public abstract class AbstractSpooledQueryDataDistributedQueries
 {
     private Minio minio;
 
-    protected abstract String encodingId();
+    protected abstract String encoding();
 
     protected Map<String, String> spoolingConfig()
     {
@@ -67,7 +67,7 @@ public abstract class AbstractSpooledQueryDataDistributedQueries
 
         DistributedQueryRunner queryRunner = MemoryQueryRunner.builder()
                 .setInitialTables(TpchTable.getTables())
-                .setTestingTrinoClientFactory((trinoServer, session) -> createClient(trinoServer, session, encodingId()))
+                .setTestingTrinoClientFactory((trinoServer, session) -> createClient(trinoServer, session, encoding()))
                 .addExtraProperty("experimental.protocol.spooling.enabled", "true")
                 .addExtraProperty("protocol.spooling.shared-secret-key", randomAES256Key())
                 .setAdditionalSetup(runner -> {
@@ -75,6 +75,8 @@ public abstract class AbstractSpooledQueryDataDistributedQueries
                     Map<String, String> spoolingConfig = ImmutableMap.<String, String>builder()
                             .put("fs.s3.enabled", "true")
                             .put("fs.location", "s3://" + bucketName + "/")
+                            // Direct storage access with encryption requires SSE-c which is not yet implemented
+                            .put("fs.segment.encryption", "false")
                             .put("s3.endpoint", minio.getMinioAddress())
                             .put("s3.region", MINIO_REGION)
                             .put("s3.aws-access-key", MINIO_ACCESS_KEY)
@@ -98,7 +100,7 @@ public abstract class AbstractSpooledQueryDataDistributedQueries
         return queryRunner;
     }
 
-    private static TestingTrinoClient createClient(TestingTrinoServer testingTrinoServer, Session session, String encodingId)
+    private static TestingTrinoClient createClient(TestingTrinoServer testingTrinoServer, Session session, String encoding)
     {
         return new TestingTrinoClient(testingTrinoServer, new TestingStatementClientFactory() {
             @Override
@@ -106,7 +108,7 @@ public abstract class AbstractSpooledQueryDataDistributedQueries
             {
                 ClientSession clientSessionSpooled = ClientSession
                         .builder(clientSession)
-                        .encodingId(Optional.ofNullable(encodingId))
+                        .encoding(Optional.ofNullable(encoding))
                         .build();
                 return newStatementClient(httpClient, clientSessionSpooled, query, Optional.empty());
             }

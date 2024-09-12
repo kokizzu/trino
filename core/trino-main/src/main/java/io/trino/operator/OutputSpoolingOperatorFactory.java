@@ -23,18 +23,20 @@ import io.trino.operator.OperationTimer.OperationTiming;
 import io.trino.server.protocol.OutputColumn;
 import io.trino.server.protocol.spooling.QueryDataEncoder;
 import io.trino.server.protocol.spooling.SpooledBlock;
-import io.trino.server.protocol.spooling.SpoolingManagerBridge;
 import io.trino.spi.Mergeable;
 import io.trino.spi.Page;
 import io.trino.spi.block.Block;
 import io.trino.spi.protocol.SpooledSegmentHandle;
 import io.trino.spi.protocol.SpoolingContext;
+import io.trino.spi.protocol.SpoolingManager;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.plan.OutputNode;
 import io.trino.sql.planner.plan.PlanNodeId;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -65,11 +67,11 @@ public class OutputSpoolingOperatorFactory
     private final int operatorId;
     private final PlanNodeId planNodeId;
     private final Map<Symbol, Integer> operatorLayout;
-    private final SpoolingManagerBridge spoolingManager;
+    private final SpoolingManager spoolingManager;
     private final QueryDataEncoder queryDataEncoder;
     private boolean closed;
 
-    public OutputSpoolingOperatorFactory(int operatorId, PlanNodeId planNodeId, Map<Symbol, Integer> operatorLayout, QueryDataEncoder queryDataEncoder, SpoolingManagerBridge spoolingManager)
+    public OutputSpoolingOperatorFactory(int operatorId, PlanNodeId planNodeId, Map<Symbol, Integer> operatorLayout, QueryDataEncoder queryDataEncoder, SpoolingManager spoolingManager)
     {
         this.operatorId = operatorId;
         this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
@@ -144,7 +146,7 @@ public class OutputSpoolingOperatorFactory
         private final OperatorContext operatorContext;
         private final LocalMemoryContext userMemoryContext;
         private final QueryDataEncoder queryDataEncoder;
-        private final SpoolingManagerBridge spoolingManager;
+        private final SpoolingManager spoolingManager;
         private final Map<Symbol, Integer> layout;
         private final PageBuffer buffer = PageBuffer.create();
         private final Block[] emptyBlocks;
@@ -153,16 +155,16 @@ public class OutputSpoolingOperatorFactory
         private final OperationTiming spoolingTiming = new OperationTiming();
         private Page outputPage;
 
-        public OutputSpoolingOperator(OperatorContext operatorContext, QueryDataEncoder queryDataEncoder, SpoolingManagerBridge spoolingManager, Map<Symbol, Integer> layout)
+        public OutputSpoolingOperator(OperatorContext operatorContext, QueryDataEncoder queryDataEncoder, SpoolingManager spoolingManager, Map<Symbol, Integer> layout)
         {
             this.operatorContext = requireNonNull(operatorContext, "operatorContext is null");
             this.controller = new OutputSpoolingController(
-                    spoolingManager.useInlineSegments(),
+                    spoolingManager.allowSegmentInlining(),
                     20,
                     1024,
                     spoolingManager.initialSegmentSize(),
                     spoolingManager.maximumSegmentSize());
-            this.userMemoryContext = operatorContext.localUserMemoryContext();
+            this.userMemoryContext = operatorContext.newLocalUserMemoryContext(OutputSpoolingOperator.class.getSimpleName());
             this.queryDataEncoder = requireNonNull(queryDataEncoder, "queryDataEncoder is null");
             this.spoolingManager = requireNonNull(spoolingManager, "spoolingManager is null");
             this.layout = requireNonNull(layout, "layout is null");
@@ -258,25 +260,31 @@ public class OutputSpoolingOperatorFactory
                 controller.recordSpooled(rows, size); // final buffer
             }
 
-            SpoolingContext spoolingContext = new SpoolingContext(operatorContext.getDriverContext().getSession().getQueryId(), rows);
-            SpooledSegmentHandle segmentHandle = spoolingManager.create(spoolingContext);
-
-            try (OutputStream output = spoolingManager.createOutputStream(segmentHandle);
-                    ByteArrayOutputStream bufferedOutput = new ByteArrayOutputStream(toIntExact(controller.getCurrentSpooledSegmentTarget()))) {
+            userMemoryContext.setBytes(controller.getCurrentSpooledSegmentTarget()); // Track allocated memory
+            try (ByteArrayOutputStream bufferedOutput = new ByteArrayOutputStream(toIntExact(controller.getCurrentSpooledSegmentTarget()))) {
                 OperationTimer encodingTimer = new OperationTimer(true);
                 DataAttributes attributes = queryDataEncoder.encodeTo(bufferedOutput, pages)
                         .toBuilder()
                         .set(ROWS_COUNT, rows)
                         .build();
                 encodingTimer.end(encodingTiming);
-                OperationTimer spoolingTimer = new OperationTimer(true);
-                output.write(bufferedOutput.toByteArray());
-                spoolingTimer.end(spoolingTiming);
-                controller.recordEncoded(attributes.get(SEGMENT_SIZE, Integer.class));
-                return emptySingleRowPage(layout, new SpooledBlock(spoolingManager.location(segmentHandle), attributes).serialize());
+
+                userMemoryContext.setBytes(bufferedOutput.size()); // Update memory to actual segment size
+                SpooledSegmentHandle segmentHandle = spoolingManager.create(new SpoolingContext(
+                        queryDataEncoder.encoding(),
+                        operatorContext.getDriverContext().getSession().getQueryId(),
+                        rows,
+                        bufferedOutput.size()));
+                try (OutputStream output = spoolingManager.createOutputStream(segmentHandle)) {
+                    OperationTimer spoolingTimer = new OperationTimer(true);
+                    output.write(bufferedOutput.toByteArray());
+                    spoolingTimer.end(spoolingTiming);
+                    controller.recordEncoded(attributes.get(SEGMENT_SIZE, Integer.class));
+                    return emptySingleRowPage(layout, new SpooledBlock(spoolingManager.location(segmentHandle), attributes).serialize());
+                }
             }
-            catch (Exception e) {
-                throw new RuntimeException(e);
+            catch (IOException e) {
+                throw new UncheckedIOException(e);
             }
             finally {
                 userMemoryContext.setBytes(0);

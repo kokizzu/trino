@@ -103,7 +103,7 @@ public class TrinoConnection
     private final URI httpUri;
     private final Optional<String> user;
     private final boolean compressionDisabled;
-    private final Optional<String> encodingId;
+    private final Optional<String> encoding;
     private final boolean assumeLiteralNamesInMetadataCallsForNonConformingClients;
     private final boolean assumeLiteralUnderscoreInMetadataCallsForNonConformingClients;
     private final Map<String, String> extraCredentials;
@@ -115,11 +115,12 @@ public class TrinoConnection
     private final Map<String, ClientSelectedRole> roles = new ConcurrentHashMap<>();
     private final AtomicReference<String> transactionId = new AtomicReference<>();
     private final Call.Factory httpCallFactory;
+    private final Call.Factory segmentHttpCallFactory;
     private final Set<TrinoStatement> statements = newSetFromMap(new ConcurrentHashMap<>());
     private boolean useExplicitPrepare = true;
     private boolean assumeNullCatalogMeansCurrentCatalog;
 
-    TrinoConnection(TrinoDriverUri uri, Call.Factory httpCallFactory)
+    TrinoConnection(TrinoDriverUri uri, Call.Factory httpCallFactory, Call.Factory segmentHttpCallFactory)
     {
         requireNonNull(uri, "uri is null");
         this.jdbcUri = uri.getUri();
@@ -132,7 +133,7 @@ public class TrinoConnection
         this.source = uri.getSource();
         this.extraCredentials = uri.getExtraCredentials();
         this.compressionDisabled = uri.isCompressionDisabled();
-        this.encodingId = uri.getEncodingId();
+        this.encoding = uri.getEncoding();
         this.assumeLiteralNamesInMetadataCallsForNonConformingClients = uri.isAssumeLiteralNamesInMetadataCallsForNonConformingClients();
 
         if (this.assumeLiteralNamesInMetadataCallsForNonConformingClients) {
@@ -143,6 +144,7 @@ public class TrinoConnection
         this.assumeLiteralUnderscoreInMetadataCallsForNonConformingClients = uri.isAssumeLiteralUnderscoreInMetadataCallsForNonConformingClients();
 
         this.httpCallFactory = requireNonNull(httpCallFactory, "httpCallFactory is null");
+        this.segmentHttpCallFactory = requireNonNull(segmentHttpCallFactory, "segmentHttpCallFactory is null");
         uri.getClientInfo().ifPresent(tags -> clientInfo.put(CLIENT_INFO, tags));
         uri.getClientTags().ifPresent(tags -> clientInfo.put(CLIENT_TAGS, Joiner.on(",").join(tags)));
         uri.getTraceToken().ifPresent(tags -> clientInfo.put(TRACE_TOKEN, tags));
@@ -773,10 +775,10 @@ public class TrinoConnection
                 .transactionId(transactionId.get())
                 .clientRequestTimeout(timeout)
                 .compressionDisabled(compressionDisabled)
-                .encodingId(encodingId)
+                .encoding(encoding)
                 .build();
 
-        return newStatementClient(httpCallFactory, session, sql);
+        return newStatementClient(httpCallFactory, segmentHttpCallFactory, session, sql);
     }
 
     void updateSession(StatementClient client)

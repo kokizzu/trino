@@ -1376,45 +1376,110 @@ public class TestSqlParser
     @Test
     public void testShowSession()
     {
-        assertStatement("SHOW SESSION", new ShowSession(Optional.empty(), Optional.empty()));
-        assertStatement("SHOW SESSION LIKE '%'", new ShowSession(Optional.of("%"), Optional.empty()));
-        assertStatement("SHOW SESSION LIKE '%' ESCAPE '$'", new ShowSession(Optional.of("%"), Optional.of("$")));
+        assertThat(statement("SHOW SESSION")).isEqualTo(new ShowSession(location(1, 1), Optional.empty(), Optional.empty()));
+        assertThat(statement("SHOW SESSION LIKE '%'")).isEqualTo(new ShowSession(location(1, 1), Optional.of("%"), Optional.empty()));
+        assertThat(statement("SHOW SESSION LIKE '%' ESCAPE '$'")).isEqualTo(new ShowSession(location(1, 1), Optional.of("%"), Optional.of("$")));
     }
 
     @Test
     public void testShowCatalogs()
     {
-        assertStatement("SHOW CATALOGS", new ShowCatalogs(Optional.empty(), Optional.empty()));
-        assertStatement("SHOW CATALOGS LIKE '%'", new ShowCatalogs(Optional.of("%"), Optional.empty()));
-        assertStatement("SHOW CATALOGS LIKE '%$_%' ESCAPE '$'", new ShowCatalogs(Optional.of("%$_%"), Optional.of("$")));
+        assertThat(statement("SHOW CATALOGS")).isEqualTo(new ShowCatalogs(location(1, 1), Optional.empty(), Optional.empty()));
+        assertThat(statement("SHOW CATALOGS LIKE '%'")).isEqualTo(new ShowCatalogs(location(1, 1), Optional.of("%"), Optional.empty()));
+        assertThat(statement("SHOW CATALOGS LIKE '%$_%' ESCAPE '$'")).isEqualTo(new ShowCatalogs(location(1, 1), Optional.of("%$_%"), Optional.of("$")));
     }
 
     @Test
     public void testShowSchemas()
     {
-        assertStatement("SHOW SCHEMAS", new ShowSchemas(Optional.empty(), Optional.empty(), Optional.empty()));
-        assertStatement("SHOW SCHEMAS FROM foo", new ShowSchemas(Optional.of(identifier("foo")), Optional.empty(), Optional.empty()));
-        assertStatement("SHOW SCHEMAS IN foo LIKE '%'", new ShowSchemas(Optional.of(identifier("foo")), Optional.of("%"), Optional.empty()));
-        assertStatement("SHOW SCHEMAS IN foo LIKE '%$_%' ESCAPE '$'", new ShowSchemas(Optional.of(identifier("foo")), Optional.of("%$_%"), Optional.of("$")));
+        assertThat(statement("SHOW SCHEMAS"))
+                .isEqualTo(new ShowSchemas(
+                        location(1, 1),
+                        Optional.empty(),
+                        Optional.empty(),
+                        Optional.empty()));
+        assertThat(statement("SHOW SCHEMAS FROM foo"))
+                .isEqualTo(new ShowSchemas(
+                        location(1, 1),
+                        Optional.of(new Identifier(location(1, 19), "foo", false)),
+                        Optional.empty(),
+                        Optional.empty()));
+        assertThat(statement("SHOW SCHEMAS IN foo LIKE '%'"))
+                .isEqualTo(new ShowSchemas(
+                        location(1, 1),
+                        Optional.of(new Identifier(location(1, 17), "foo", false)),
+                        Optional.of("%"),
+                        Optional.empty()));
+        assertThat(statement("SHOW SCHEMAS IN foo LIKE '%$_%' ESCAPE '$'"))
+                .isEqualTo(new ShowSchemas(
+                        location(1, 1),
+                        Optional.of(new Identifier(location(1, 17), "foo", false)),
+                        Optional.of("%$_%"),
+                        Optional.of("$")));
     }
 
     @Test
     public void testShowTables()
     {
-        assertStatement("SHOW TABLES", new ShowTables(Optional.empty(), Optional.empty(), Optional.empty()));
-        assertStatement("SHOW TABLES FROM a", new ShowTables(Optional.of(QualifiedName.of("a")), Optional.empty(), Optional.empty()));
-        assertStatement("SHOW TABLES FROM \"awesome schema\"", new ShowTables(Optional.of(QualifiedName.of("awesome schema")), Optional.empty(), Optional.empty()));
-        assertStatement("SHOW TABLES IN a LIKE '%$_%' ESCAPE '$'", new ShowTables(Optional.of(QualifiedName.of("a")), Optional.of("%$_%"), Optional.of("$")));
+        assertThat(statement("SHOW TABLES"))
+                .isEqualTo(new ShowTables(
+                        location(1, 1),
+                        Optional.empty(),
+                        Optional.empty(),
+                        Optional.empty()));
+        assertThat(statement("SHOW TABLES FROM a"))
+                .isEqualTo(new ShowTables(
+                        location(1, 1),
+                        Optional.of(QualifiedName.of(ImmutableList.of(new Identifier(location(1, 18), "a", false)))),
+                        Optional.empty(),
+                        Optional.empty()));
+        assertThat(statement("SHOW TABLES FROM \"awesome schema\""))
+                .isEqualTo(new ShowTables(
+                        location(1, 1),
+                        Optional.of(QualifiedName.of(ImmutableList.of(new Identifier(location(1, 18), "awesome schema", true)))),
+                        Optional.empty(),
+                        Optional.empty()));
+        assertThat(statement("SHOW TABLES IN a LIKE '%$_%' ESCAPE '$'"))
+                .isEqualTo(new ShowTables(
+                        location(1, 1),
+                        Optional.of(QualifiedName.of(ImmutableList.of(new Identifier(location(1, 16), "a", false)))),
+                        Optional.of("%$_%"),
+                        Optional.of("$")));
     }
 
     @Test
     public void testShowColumns()
     {
-        assertStatement("SHOW COLUMNS FROM a", new ShowColumns(QualifiedName.of("a"), Optional.empty(), Optional.empty()));
-        assertStatement("SHOW COLUMNS FROM a.b", new ShowColumns(QualifiedName.of("a", "b"), Optional.empty(), Optional.empty()));
-        assertStatement("SHOW COLUMNS FROM \"awesome table\"", new ShowColumns(QualifiedName.of("awesome table"), Optional.empty(), Optional.empty()));
-        assertStatement("SHOW COLUMNS FROM \"awesome schema\".\"awesome table\"", new ShowColumns(QualifiedName.of("awesome schema", "awesome table"), Optional.empty(), Optional.empty()));
-        assertStatement("SHOW COLUMNS FROM a.b LIKE '%$_%' ESCAPE '$'", new ShowColumns(QualifiedName.of("a", "b"), Optional.of("%$_%"), Optional.of("$")));
+        assertThat(statement("SHOW COLUMNS FROM a"))
+                .isEqualTo(new ShowColumns(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 19), "a", false))),
+                        Optional.empty(),
+                        Optional.empty()));
+        assertThat(statement("SHOW COLUMNS FROM a.b"))
+                .isEqualTo(new ShowColumns(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 19), "a", false), new Identifier(location(1, 21), "b", false))),
+                        Optional.empty(),
+                        Optional.empty()));
+        assertThat(statement("SHOW COLUMNS FROM \"awesome table\""))
+                .isEqualTo(new ShowColumns(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 19), "awesome table", true))),
+                        Optional.empty(),
+                        Optional.empty()));
+        assertThat(statement("SHOW COLUMNS FROM \"awesome schema\".\"awesome table\""))
+                .isEqualTo(new ShowColumns(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 19), "awesome schema", true), new Identifier(location(1, 36), "awesome table", true))),
+                        Optional.empty(),
+                        Optional.empty()));
+        assertThat(statement("SHOW COLUMNS FROM a.b LIKE '%$_%' ESCAPE '$'"))
+                .isEqualTo(new ShowColumns(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 19), "a", false), new Identifier(location(1, 21), "b", false))),
+                        Optional.of("%$_%"),
+                        Optional.of("$")));
 
         assertStatementIsInvalid("SHOW COLUMNS FROM a.b LIKE null")
                 .withMessage("line 1:28: mismatched input 'null'. Expecting: <string>");
@@ -1426,10 +1491,30 @@ public class TestSqlParser
     @Test
     public void testShowFunctions()
     {
-        assertStatement("SHOW FUNCTIONS", new ShowFunctions(Optional.empty(), Optional.empty(), Optional.empty()));
-        assertStatement("SHOW FUNCTIONS FROM x", new ShowFunctions(Optional.of(QualifiedName.of("x")), Optional.empty(), Optional.empty()));
-        assertStatement("SHOW FUNCTIONS LIKE '%'", new ShowFunctions(Optional.empty(), Optional.of("%"), Optional.empty()));
-        assertStatement("SHOW FUNCTIONS LIKE '%' ESCAPE '$'", new ShowFunctions(Optional.empty(), Optional.of("%"), Optional.of("$")));
+        assertThat(statement("SHOW FUNCTIONS"))
+                .isEqualTo(new ShowFunctions(
+                        location(1, 1),
+                        Optional.empty(),
+                        Optional.empty(),
+                        Optional.empty()));
+        assertThat(statement("SHOW FUNCTIONS FROM x"))
+                .isEqualTo(new ShowFunctions(
+                        location(1, 1),
+                        Optional.of(QualifiedName.of(ImmutableList.of(new Identifier(location(1, 21), "x", false)))),
+                        Optional.empty(),
+                        Optional.empty()));
+        assertThat(statement("SHOW FUNCTIONS LIKE '%'"))
+                .isEqualTo(new ShowFunctions(
+                        location(1, 1),
+                        Optional.empty(),
+                        Optional.of("%"),
+                        Optional.empty()));
+        assertThat(statement("SHOW FUNCTIONS LIKE '%' ESCAPE '$'"))
+                .isEqualTo(new ShowFunctions(
+                        location(1, 1),
+                        Optional.empty(),
+                        Optional.of("%"),
+                        Optional.of("$")));
     }
 
     @Test
@@ -3605,19 +3690,19 @@ public class TestSqlParser
     @Test
     public void testShowRoles()
     {
-        assertStatement("SHOW ROLES",
-                new ShowRoles(Optional.empty(), false));
-        assertStatement("SHOW ROLES FROM foo",
-                new ShowRoles(Optional.of(new Identifier("foo")), false));
-        assertStatement("SHOW ROLES IN foo",
-                new ShowRoles(Optional.of(new Identifier("foo")), false));
+        assertThat(statement("SHOW ROLES")).isEqualTo(
+                new ShowRoles(location(1, 1), Optional.empty(), false));
+        assertThat(statement("SHOW ROLES FROM foo")).isEqualTo(
+                new ShowRoles(location(1, 1), Optional.of(new Identifier(location(1, 17), "foo", false)), false));
+        assertThat(statement("SHOW ROLES IN foo")).isEqualTo(
+                new ShowRoles(location(1, 1), Optional.of(new Identifier(location(1, 15), "foo", false)), false));
 
-        assertStatement("SHOW CURRENT ROLES",
-                new ShowRoles(Optional.empty(), true));
-        assertStatement("SHOW CURRENT ROLES FROM foo",
-                new ShowRoles(Optional.of(new Identifier("foo")), true));
-        assertStatement("SHOW CURRENT ROLES IN foo",
-                new ShowRoles(Optional.of(new Identifier("foo")), true));
+        assertThat(statement("SHOW CURRENT ROLES")).isEqualTo(
+                new ShowRoles(location(1, 1), Optional.empty(), true));
+        assertThat(statement("SHOW CURRENT ROLES FROM foo")).isEqualTo(
+                new ShowRoles(location(1, 1), Optional.of(new Identifier(location(1, 25), "foo", false)), true));
+        assertThat(statement("SHOW CURRENT ROLES IN foo")).isEqualTo(
+                new ShowRoles(location(1, 1), Optional.of(new Identifier(location(1, 23), "foo", false)), true));
     }
 
     @Test
@@ -3867,6 +3952,7 @@ public class TestSqlParser
     public void testLateral()
     {
         Lateral lateralRelation = new Lateral(
+                location(1, 18),
                 query(new Values(ImmutableList.of(new LongLiteral("1")))));
 
         assertStatement("SELECT * FROM t, LATERAL (VALUES 1) a(x)",
@@ -3901,35 +3987,35 @@ public class TestSqlParser
     public void testStartTransaction()
     {
         assertStatement("START TRANSACTION",
-                new StartTransaction(ImmutableList.of()));
+                new StartTransaction(location(1, 1), ImmutableList.of()));
         assertStatement("START TRANSACTION ISOLATION LEVEL READ UNCOMMITTED",
-                new StartTransaction(ImmutableList.of(
+                new StartTransaction(location(1, 1), ImmutableList.of(
                         new Isolation(Isolation.Level.READ_UNCOMMITTED))));
         assertStatement("START TRANSACTION ISOLATION LEVEL READ COMMITTED",
-                new StartTransaction(ImmutableList.of(
+                new StartTransaction(location(1, 1), ImmutableList.of(
                         new Isolation(Isolation.Level.READ_COMMITTED))));
         assertStatement("START TRANSACTION ISOLATION LEVEL REPEATABLE READ",
-                new StartTransaction(ImmutableList.of(
+                new StartTransaction(location(1, 1), ImmutableList.of(
                         new Isolation(Isolation.Level.REPEATABLE_READ))));
         assertStatement("START TRANSACTION ISOLATION LEVEL SERIALIZABLE",
-                new StartTransaction(ImmutableList.of(
+                new StartTransaction(location(1, 1), ImmutableList.of(
                         new Isolation(Isolation.Level.SERIALIZABLE))));
         assertStatement("START TRANSACTION READ ONLY",
-                new StartTransaction(ImmutableList.of(
+                new StartTransaction(location(1, 1), ImmutableList.of(
                         new TransactionAccessMode(true))));
         assertStatement("START TRANSACTION READ WRITE",
-                new StartTransaction(ImmutableList.of(
+                new StartTransaction(location(1, 1), ImmutableList.of(
                         new TransactionAccessMode(false))));
         assertStatement("START TRANSACTION ISOLATION LEVEL READ COMMITTED, READ ONLY",
-                new StartTransaction(ImmutableList.of(
+                new StartTransaction(location(1, 1), ImmutableList.of(
                         new Isolation(Isolation.Level.READ_COMMITTED),
                         new TransactionAccessMode(true))));
         assertStatement("START TRANSACTION READ ONLY, ISOLATION LEVEL READ COMMITTED",
-                new StartTransaction(ImmutableList.of(
+                new StartTransaction(location(1, 1), ImmutableList.of(
                         new TransactionAccessMode(true),
                         new Isolation(Isolation.Level.READ_COMMITTED))));
         assertStatement("START TRANSACTION READ WRITE, ISOLATION LEVEL SERIALIZABLE",
-                new StartTransaction(ImmutableList.of(
+                new StartTransaction(location(1, 1), ImmutableList.of(
                         new TransactionAccessMode(false),
                         new Isolation(Isolation.Level.SERIALIZABLE))));
     }

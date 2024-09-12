@@ -109,10 +109,10 @@ class StatementClientV1
     private final AtomicReference<State> state = new AtomicReference<>(State.RUNNING);
 
     // Encoded data
-    private final SegmentLoader segmentDownloader;
+    private final SegmentLoader segmentLoader;
     private final AtomicReference<QueryDataDecoder> decoder = new AtomicReference<>();
 
-    public StatementClientV1(Call.Factory httpCallFactory, ClientSession session, String query, Optional<Set<String>> clientCapabilities)
+    public StatementClientV1(Call.Factory httpCallFactory, Call.Factory segmentHttpCallFactory, ClientSession session, String query, Optional<Set<String>> clientCapabilities)
     {
         requireNonNull(httpCallFactory, "httpCallFactory is null");
         requireNonNull(session, "session is null");
@@ -134,9 +134,9 @@ class StatementClientV1
                 .map(Enum::name)
                 .collect(toImmutableSet())));
         this.compressionDisabled = session.isCompressionDisabled();
-        this.segmentDownloader = new SegmentLoader();
+        this.segmentLoader = new SegmentLoader(requireNonNull(segmentHttpCallFactory, "segmentHttpCallFactory is null"));
 
-        Request request = buildQueryRequest(session, query, session.getEncodingId());
+        Request request = buildQueryRequest(session, query, session.getEncoding());
         // Pass empty as materializedJsonSizeLimit to always materialize the first response
         // to avoid losing the response body if the initial response parsing fails
         executeRequest(request, "starting query", OptionalLong.empty(), this::isTransient);
@@ -274,7 +274,7 @@ class StatementClientV1
         }
 
         EncodedQueryData queryData = (EncodedQueryData) queryResults.getData();
-        return queryData.toRawData(decoder.get(), segmentDownloader);
+        return queryData.toRawData(decoder.get(), segmentLoader);
     }
 
     @Override
@@ -514,14 +514,14 @@ class StatementClientV1
             EncodedQueryData encodedData = (EncodedQueryData) results.getData();
             DataAttributes queryAttributed = encodedData.getMetadata();
             if (decoder.get() == null) {
-                verify(QueryDataDecoders.exists(encodedData.getEncodingId()), "Received encoded data format but there is no decoder matching %s", encodedData.getEncodingId());
+                verify(QueryDataDecoders.exists(encodedData.getEncoding()), "Received encoded data format but there is no decoder matching %s", encodedData.getEncoding());
                 QueryDataDecoder queryDataDecoder = QueryDataDecoders
-                        .get(encodedData.getEncodingId())
+                        .get(encodedData.getEncoding())
                         .create(results.getColumns(), queryAttributed);
                 decoder.set(queryDataDecoder);
             }
 
-            verify(decoder.get().encodingId().equals(encodedData.getEncodingId()), "Decoder has wrong encoding id, expected %s, got %s", encodedData.getEncodingId(), decoder.get().encodingId());
+            verify(decoder.get().encoding().equals(encodedData.getEncoding()), "Decoder has wrong encoding id, expected %s, got %s", encodedData.getEncoding(), decoder.get().encoding());
         }
 
         currentResults.set(results);
@@ -571,7 +571,6 @@ class StatementClientV1
             if (uri != null) {
                 httpDelete(uri);
             }
-            segmentDownloader.close();
         }
     }
 

@@ -64,7 +64,7 @@ public class SpooledQueryDataProducer
 
         UriBuilder uriBuilder = spooledSegmentUriBuilder(uriInfo);
         QueryDataEncoder encoder = encoderFactory.create(session, rows.getOutputColumns().orElseThrow());
-        EncodedQueryData.Builder builder = EncodedQueryData.builder(encoder.encodingId());
+        EncodedQueryData.Builder builder = EncodedQueryData.builder(encoder.encoding());
         List<OutputColumn> outputColumns = rows.getOutputColumns().orElseThrow();
 
         if (metadataWritten.compareAndSet(false, true)) {
@@ -82,9 +82,9 @@ public class SpooledQueryDataProducer
 
                     builder.withSegment(switch (metadata.location()) {
                         case CoordinatorLocation coordinatorLocation ->
-                                spooled(buildSegmentURI(uriBuilder, coordinatorLocation.identifier()), attributes, metadata.location().headers());
+                                spooled(buildSegmentURI(uriBuilder, coordinatorLocation.identifier()), attributes, coordinatorLocation.headers());
                         case DirectLocation directLocation ->
-                                spooled(directLocation.uri(), attributes, metadata.location().headers());
+                                spooled(directLocation.uri(), attributes, directLocation.headers());
                     });
                     currentOffset += attributes.get(ROWS_COUNT, Long.class);
                 }
