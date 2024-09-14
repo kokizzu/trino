@@ -27,6 +27,7 @@ import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.http.SdkHttpClient;
 import software.amazon.awssdk.http.apache.ApacheHttpClient;
 import software.amazon.awssdk.http.apache.ProxyConfiguration;
+import software.amazon.awssdk.metrics.MetricPublisher;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
@@ -59,24 +60,27 @@ final class S3FileSystemLoader
     private final ExecutorService uploadExecutor = newCachedThreadPool(daemonThreadsNamed("s3-upload-%s"));
 
     @Inject
-    public S3FileSystemLoader(S3SecurityMappingProvider mappingProvider, OpenTelemetry openTelemetry, S3FileSystemConfig config)
+    public S3FileSystemLoader(S3SecurityMappingProvider mappingProvider, OpenTelemetry openTelemetry, S3FileSystemConfig config, S3FileSystemStats stats)
     {
-        this(Optional.of(mappingProvider), openTelemetry, config);
+        this(Optional.of(mappingProvider), openTelemetry, config, stats);
     }
 
-    S3FileSystemLoader(OpenTelemetry openTelemetry, S3FileSystemConfig config)
+    S3FileSystemLoader(OpenTelemetry openTelemetry, S3FileSystemConfig config, S3FileSystemStats stats)
     {
-        this(Optional.empty(), openTelemetry, config);
+        this(Optional.empty(), openTelemetry, config, stats);
     }
 
-    private S3FileSystemLoader(Optional<S3SecurityMappingProvider> mappingProvider, OpenTelemetry openTelemetry, S3FileSystemConfig config)
+    private S3FileSystemLoader(Optional<S3SecurityMappingProvider> mappingProvider, OpenTelemetry openTelemetry, S3FileSystemConfig config, S3FileSystemStats stats)
     {
         this.mappingProvider = requireNonNull(mappingProvider, "mappingProvider is null");
         this.httpClient = createHttpClient(config);
 
-        this.clientFactory = s3ClientFactory(httpClient, openTelemetry, config);
+        requireNonNull(stats, "stats is null");
 
-        this.preSigner = s3PreSigner(httpClient, openTelemetry, config);
+        MetricPublisher metricPublisher = stats.newMetricPublisher();
+        this.clientFactory = s3ClientFactory(httpClient, openTelemetry, config, metricPublisher);
+
+        this.preSigner = s3PreSigner(httpClient, openTelemetry, config, metricPublisher);
 
         this.context = new S3Context(
                 toIntExact(config.getStreamingPartSize().toBytes()),
@@ -122,9 +126,9 @@ final class S3FileSystemLoader
         return uploadExecutor;
     }
 
-    private static S3ClientFactory s3ClientFactory(SdkHttpClient httpClient, OpenTelemetry openTelemetry, S3FileSystemConfig config)
+    private static S3ClientFactory s3ClientFactory(SdkHttpClient httpClient, OpenTelemetry openTelemetry, S3FileSystemConfig config, MetricPublisher metricPublisher)
     {
-        ClientOverrideConfiguration overrideConfiguration = createOverrideConfiguration(openTelemetry, config);
+        ClientOverrideConfiguration overrideConfiguration = createOverrideConfiguration(openTelemetry, config, metricPublisher);
 
         Optional<AwsCredentialsProvider> staticCredentialsProvider = createStaticCredentialsProvider(config);
         Optional<String> staticRegion = Optional.ofNullable(config.getRegion());
@@ -177,7 +181,7 @@ final class S3FileSystemLoader
         };
     }
 
-    private static S3Presigner s3PreSigner(SdkHttpClient httpClient, OpenTelemetry openTelemetry, S3FileSystemConfig config)
+    private static S3Presigner s3PreSigner(SdkHttpClient httpClient, OpenTelemetry openTelemetry, S3FileSystemConfig config, MetricPublisher metricPublisher)
     {
         Optional<AwsCredentialsProvider> staticCredentialsProvider = createStaticCredentialsProvider(config);
         Optional<String> staticRegion = Optional.ofNullable(config.getRegion());
@@ -189,7 +193,7 @@ final class S3FileSystemLoader
         String externalId = config.getExternalId();
 
         S3Presigner.Builder s3 = S3Presigner.builder();
-        s3.s3Client(s3ClientFactory(httpClient, openTelemetry, config)
+        s3.s3Client(s3ClientFactory(httpClient, openTelemetry, config, metricPublisher)
                 .create(Optional.empty()));
 
         staticRegion.map(Region::of).ifPresent(s3::region);
@@ -240,7 +244,7 @@ final class S3FileSystemLoader
         return sts.build();
     }
 
-    private static ClientOverrideConfiguration createOverrideConfiguration(OpenTelemetry openTelemetry, S3FileSystemConfig config)
+    private static ClientOverrideConfiguration createOverrideConfiguration(OpenTelemetry openTelemetry, S3FileSystemConfig config, MetricPublisher metricPublisher)
     {
         return ClientOverrideConfiguration.builder()
                 .addExecutionInterceptor(AwsSdkTelemetry.builder(openTelemetry)
@@ -250,6 +254,7 @@ final class S3FileSystemLoader
                 .retryStrategy(getRetryStrategy(config.getRetryMode()).toBuilder()
                         .maxAttempts(config.getMaxErrorRetries())
                         .build())
+                .addMetricPublisher(metricPublisher)
                 .build();
     }
 

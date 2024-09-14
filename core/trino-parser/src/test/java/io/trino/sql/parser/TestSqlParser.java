@@ -241,7 +241,6 @@ import static io.trino.sql.QueryUtil.identifier;
 import static io.trino.sql.QueryUtil.nameReference;
 import static io.trino.sql.QueryUtil.ordering;
 import static io.trino.sql.QueryUtil.query;
-import static io.trino.sql.QueryUtil.quotedIdentifier;
 import static io.trino.sql.QueryUtil.row;
 import static io.trino.sql.QueryUtil.selectList;
 import static io.trino.sql.QueryUtil.simpleQuery;
@@ -1341,34 +1340,59 @@ public class TestSqlParser
     @Test
     public void testSetSession()
     {
-        assertStatement("SET SESSION foo = 'bar'", new SetSession(QualifiedName.of("foo"), new StringLiteral("bar")));
-        assertStatement("SET SESSION foo.bar = 'baz'", new SetSession(QualifiedName.of("foo", "bar"), new StringLiteral("baz")));
-        assertStatement("SET SESSION foo.bar.boo = 'baz'", new SetSession(QualifiedName.of("foo", "bar", "boo"), new StringLiteral("baz")));
+        assertThat(statement("SET SESSION foo = 'bar'"))
+                .isEqualTo(new SetSession(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 13), "foo", false))),
+                        new StringLiteral(location(1, 19), "bar")));
+        assertThat(statement("SET SESSION foo.bar = 'baz'"))
+                .isEqualTo(new SetSession(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 13), "foo", false), new Identifier(location(1, 17), "bar", false))),
+                        new StringLiteral(location(1, 23), "baz")));
+        assertThat(statement("SET SESSION foo.bar.boo = 'baz'"))
+                .isEqualTo(new SetSession(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 13), "foo", false), new Identifier(location(1, 17), "bar", false), new Identifier(location(1, 21), "boo", false))),
+                        new StringLiteral(location(1, 27), "baz")));
 
-        assertStatement("SET SESSION foo.bar = 'ban' || 'ana'", new SetSession(
-                QualifiedName.of("foo", "bar"),
-                new FunctionCall(QualifiedName.of("concat"), ImmutableList.of(
-                        new StringLiteral("ban"),
-                        new StringLiteral("ana")))));
+        assertThat(statement("SET SESSION foo.bar = 'ban' || 'ana'"))
+                .isEqualTo(new SetSession(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 13), "foo", false), new Identifier(location(1, 17), "bar", false))),
+                        new FunctionCall(location(1, 29), QualifiedName.of("concat"), ImmutableList.of(
+                                new StringLiteral(location(1, 23), "ban"),
+                                new StringLiteral(location(1, 32), "ana")))));
     }
 
     @Test
     public void testResetSession()
     {
-        assertStatement("RESET SESSION foo.bar", new ResetSession(QualifiedName.of("foo", "bar")));
-        assertStatement("RESET SESSION foo", new ResetSession(QualifiedName.of("foo")));
+        assertThat(statement("RESET SESSION foo.bar"))
+                .isEqualTo(new ResetSession(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 15), "foo", false), new Identifier(location(1, 19), "bar", false)))));
+        assertThat(statement("RESET SESSION foo"))
+                .isEqualTo(new ResetSession(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 15), "foo", false)))));
     }
 
     @Test
     public void testSessionIdentifiers()
     {
-        assertStatement("SET SESSION \"foo-bar\".baz = 'x'",
-                new SetSession(QualifiedName.of("foo-bar", "baz"), new StringLiteral("x")));
+        assertThat(statement("SET SESSION \"foo-bar\".baz = 'x'")).isEqualTo(
+                new SetSession(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 13), "foo-bar", true), new Identifier(location(1, 23), "baz", false))),
+                        new StringLiteral(location(1, 29), "x")));
         assertStatementIsInvalid("SET SESSION foo-bar.name = 'value'")
                 .withMessage("line 1:16: mismatched input '-'. Expecting: '.', '='");
 
-        assertStatement("RESET SESSION \"foo-bar\".baz",
-                new ResetSession(QualifiedName.of("foo-bar", "baz")));
+        assertThat(statement("RESET SESSION \"foo-bar\".baz"))
+                .isEqualTo(new ResetSession(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 15), "foo-bar", true), new Identifier(location(1, 25), "baz", false)))));
         assertStatementIsInvalid("RESET SESSION foo-bar.name")
                 .withMessage("line 1:18: mismatched input '-'. Expecting: '.', <EOF>");
     }
@@ -1918,13 +1942,22 @@ public class TestSqlParser
     public void testRenameSchema()
     {
         assertStatement("ALTER SCHEMA foo RENAME TO bar",
-                new RenameSchema(QualifiedName.of("foo"), identifier("bar")));
+                new RenameSchema(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 14), "foo", false))),
+                        new Identifier(location(1, 28), "bar", false)));
 
         assertStatement("ALTER SCHEMA foo.bar RENAME TO baz",
-                new RenameSchema(QualifiedName.of("foo", "bar"), identifier("baz")));
+                new RenameSchema(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 14), "foo", false), new Identifier(location(1, 18), "bar", false))),
+                        identifier("baz")));
 
         assertStatement("ALTER SCHEMA \"awesome schema\".\"awesome table\" RENAME TO \"even more awesome table\"",
-                new RenameSchema(QualifiedName.of("awesome schema", "awesome table"), quotedIdentifier("even more awesome table")));
+                new RenameSchema(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 14), "awesome schema", true), new Identifier(location(1, 33), "awesome table", true))),
+                        new Identifier(location(1, 1), "even more awesome table", true)));
     }
 
     @Test
@@ -3004,19 +3037,59 @@ public class TestSqlParser
     @Test
     public void testRenameTable()
     {
-        assertStatement("ALTER TABLE a RENAME TO b", new RenameTable(QualifiedName.of("a"), QualifiedName.of("b"), false));
-        assertStatement("ALTER TABLE IF EXISTS a RENAME TO b", new RenameTable(QualifiedName.of("a"), QualifiedName.of("b"), true));
+        assertThat(statement("ALTER TABLE a RENAME TO b"))
+                .isEqualTo(new RenameTable(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 13), "a", false))),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 25), "b", false))),
+                        false));
+        assertThat(statement("ALTER TABLE IF EXISTS a RENAME TO b"))
+                .isEqualTo(new RenameTable(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 23), "a", false))),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 35), "b", false))),
+                        true));
     }
 
     @Test
     public void testSetTableProperties()
     {
-        assertStatement("ALTER TABLE a SET PROPERTIES foo='bar'", new SetProperties(SetProperties.Type.TABLE, QualifiedName.of("a"), ImmutableList.of(new Property(new Identifier("foo"), new StringLiteral("bar")))));
-        assertStatement("ALTER TABLE a SET PROPERTIES foo=true", new SetProperties(SetProperties.Type.TABLE, QualifiedName.of("a"), ImmutableList.of(new Property(new Identifier("foo"), new BooleanLiteral("true")))));
-        assertStatement("ALTER TABLE a SET PROPERTIES foo=123", new SetProperties(SetProperties.Type.TABLE, QualifiedName.of("a"), ImmutableList.of(new Property(new Identifier("foo"), new LongLiteral("123")))));
-        assertStatement("ALTER TABLE a SET PROPERTIES foo=123, bar=456", new SetProperties(SetProperties.Type.TABLE, QualifiedName.of("a"), ImmutableList.of(new Property(new Identifier("foo"), new LongLiteral("123")), new Property(new Identifier("bar"), new LongLiteral("456")))));
-        assertStatement("ALTER TABLE a SET PROPERTIES \" s p a c e \"='bar'", new SetProperties(SetProperties.Type.TABLE, QualifiedName.of("a"), ImmutableList.of(new Property(new Identifier(" s p a c e "), new StringLiteral("bar")))));
-        assertStatement("ALTER TABLE a SET PROPERTIES foo=123, bar=DEFAULT", new SetProperties(SetProperties.Type.TABLE, QualifiedName.of("a"), ImmutableList.of(new Property(new Identifier("foo"), new LongLiteral("123")), new Property(new Identifier("bar")))));
+        assertThat(statement("ALTER TABLE a SET PROPERTIES foo='bar'"))
+                .isEqualTo(new SetProperties(
+                        location(1, 1),
+                        SetProperties.Type.TABLE,
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 13), "a", false))),
+                        ImmutableList.of(new Property(location(1, 30), new Identifier(location(1, 30), "foo", false), new StringLiteral(location(1, 34), "bar")))));
+        assertThat(statement("ALTER TABLE a SET PROPERTIES foo=true"))
+                .isEqualTo(new SetProperties(
+                        location(1, 1),
+                        SetProperties.Type.TABLE,
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 13), "a", false))),
+                        ImmutableList.of(new Property(location(1, 30), new Identifier(location(1, 30), "foo", false), new BooleanLiteral(location(1, 34), "true")))));
+        assertThat(statement("ALTER TABLE a SET PROPERTIES foo=123"))
+                .isEqualTo(new SetProperties(
+                        location(1, 1),
+                        SetProperties.Type.TABLE,
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 13), "a", false))),
+                        ImmutableList.of(new Property(location(1, 30), new Identifier(location(1, 30), "foo", false), new LongLiteral(location(1, 34), "123")))));
+        assertThat(statement("ALTER TABLE a SET PROPERTIES foo=123, bar=456"))
+                .isEqualTo(new SetProperties(
+                        location(1, 1),
+                        SetProperties.Type.TABLE,
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 13), "a", false))),
+                        ImmutableList.of(new Property(location(1, 30), new Identifier(location(1, 30), "foo", false), new LongLiteral(location(1, 34), "123")), new Property(location(1, 39), new Identifier(location(1, 39), "bar", false), new LongLiteral(location(1, 43), "456")))));
+        assertThat(statement("ALTER TABLE a SET PROPERTIES \" s p a c e \"='bar'"))
+                .isEqualTo(new SetProperties(
+                        location(1, 1),
+                        SetProperties.Type.TABLE,
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 13), "a", false))),
+                        ImmutableList.of(new Property(location(1, 30), new Identifier(location(1, 30), " s p a c e ", true), new StringLiteral(location(1, 44), "bar")))));
+        assertThat(statement("ALTER TABLE a SET PROPERTIES foo=123, bar=DEFAULT"))
+                .isEqualTo(new SetProperties(
+                        location(1, 1),
+                        SetProperties.Type.TABLE,
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 13), "a", false))),
+                        ImmutableList.of(new Property(location(1, 30), new Identifier(location(1, 30), "foo", false), new LongLiteral(location(1, 34), "123")), new Property(location(1, 39), new Identifier(location(1, 39), "bar", false)))));
 
         assertStatementIsInvalid("ALTER TABLE a SET PROPERTIES")
                 .withMessage("line 1:29: mismatched input '<EOF>'. Expecting: <identifier>");
@@ -3159,21 +3232,31 @@ public class TestSqlParser
     @Test
     public void testRenameView()
     {
-        assertStatement("ALTER VIEW a RENAME TO b", new RenameView(QualifiedName.of("a"), QualifiedName.of("b")));
+        assertThat(statement("ALTER VIEW a RENAME TO b"))
+                .isEqualTo(new RenameView(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 12), "a", false))),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 24), "b", false)))));
     }
 
     @Test
     public void testAlterViewSetAuthorization()
     {
-        assertStatement(
-                "ALTER VIEW foo.bar.baz SET AUTHORIZATION qux",
-                new SetViewAuthorization(QualifiedName.of("foo", "bar", "baz"), new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier("qux"))));
-        assertStatement(
-                "ALTER VIEW foo.bar.baz SET AUTHORIZATION USER qux",
-                new SetViewAuthorization(QualifiedName.of("foo", "bar", "baz"), new PrincipalSpecification(PrincipalSpecification.Type.USER, new Identifier("qux"))));
-        assertStatement(
-                "ALTER VIEW foo.bar.baz SET AUTHORIZATION ROLE qux",
-                new SetViewAuthorization(QualifiedName.of("foo", "bar", "baz"), new PrincipalSpecification(PrincipalSpecification.Type.ROLE, new Identifier("qux"))));
+        assertThat(statement("ALTER VIEW foo.bar.baz SET AUTHORIZATION qux")).isEqualTo(
+                new SetViewAuthorization(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 12), "foo", false), new Identifier(location(1, 16), "bar", false), new Identifier(location(1, 20), "baz", false))),
+                        new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier(location(1, 42), "qux", false))));
+        assertThat(statement("ALTER VIEW foo.bar.baz SET AUTHORIZATION USER qux")).isEqualTo(
+                new SetViewAuthorization(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 12), "foo", false), new Identifier(location(1, 16), "bar", false), new Identifier(location(1, 20), "baz", false))),
+                        new PrincipalSpecification(PrincipalSpecification.Type.USER, new Identifier(location(1, 47), "qux", false))));
+        assertThat(statement("ALTER VIEW foo.bar.baz SET AUTHORIZATION ROLE qux")).isEqualTo(
+                new SetViewAuthorization(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 12), "foo", false), new Identifier(location(1, 16), "bar", false), new Identifier(location(1, 20), "baz", false))),
+                        new PrincipalSpecification(PrincipalSpecification.Type.ROLE, new Identifier(location(1, 47), "qux", false))));
     }
 
     @Test
@@ -3419,15 +3502,21 @@ public class TestSqlParser
     @Test
     public void testAlterTableSetAuthorization()
     {
-        assertStatement(
-                "ALTER TABLE foo.bar.baz SET AUTHORIZATION qux",
-                new SetTableAuthorization(QualifiedName.of("foo", "bar", "baz"), new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier("qux"))));
-        assertStatement(
-                "ALTER TABLE foo.bar.baz SET AUTHORIZATION USER qux",
-                new SetTableAuthorization(QualifiedName.of("foo", "bar", "baz"), new PrincipalSpecification(PrincipalSpecification.Type.USER, new Identifier("qux"))));
-        assertStatement(
-                "ALTER TABLE foo.bar.baz SET AUTHORIZATION ROLE qux",
-                new SetTableAuthorization(QualifiedName.of("foo", "bar", "baz"), new PrincipalSpecification(PrincipalSpecification.Type.ROLE, new Identifier("qux"))));
+        assertThat(statement("ALTER TABLE foo.bar.baz SET AUTHORIZATION qux")).isEqualTo(
+                new SetTableAuthorization(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 13), "foo", false), new Identifier(location(1, 17), "bar", false), new Identifier(location(1, 21), "baz", false))),
+                        new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier(location(1, 43), "qux", false))));
+        assertThat(statement("ALTER TABLE foo.bar.baz SET AUTHORIZATION USER qux")).isEqualTo(
+                new SetTableAuthorization(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 13), "foo", false), new Identifier(location(1, 17), "bar", false), new Identifier(location(1, 21), "baz", false))),
+                        new PrincipalSpecification(PrincipalSpecification.Type.USER, new Identifier(location(1, 48), "qux", false))));
+        assertThat(statement("ALTER TABLE foo.bar.baz SET AUTHORIZATION ROLE qux")).isEqualTo(
+                new SetTableAuthorization(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 13), "foo", false), new Identifier(location(1, 17), "bar", false), new Identifier(location(1, 21), "baz", false))),
+                        new PrincipalSpecification(PrincipalSpecification.Type.ROLE, new Identifier(location(1, 48), "qux", false))));
     }
 
     @Test
@@ -3544,48 +3633,55 @@ public class TestSqlParser
     @Test
     public void testRevoke()
     {
-        assertStatement("REVOKE INSERT, DELETE ON t FROM u",
+        assertThat(statement("REVOKE INSERT, DELETE ON t FROM u")).isEqualTo(
                 new Revoke(
+                        location(1, 1),
                         false,
                         Optional.of(ImmutableList.of("INSERT", "DELETE")),
-                        new GrantObject(location(1, 1), Optional.empty(), QualifiedName.of("t")),
-                        new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier("u"))));
-        assertStatement("REVOKE UPDATE ON t FROM u",
+                        new GrantObject(location(1, 1), Optional.empty(), QualifiedName.of(ImmutableList.of(new Identifier(location(1, 26), "t", false)))),
+                        new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier(location(1, 33), "u", false))));
+        assertThat(statement("REVOKE UPDATE ON t FROM u")).isEqualTo(
                 new Revoke(
+                        location(1, 1),
                         false,
                         Optional.of(ImmutableList.of("UPDATE")),
-                        new GrantObject(location(1, 1), Optional.empty(), QualifiedName.of("t")),
-                        new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier("u"))));
-        assertStatement("REVOKE EXECUTE ON t FROM u",
+                        new GrantObject(location(1, 1), Optional.empty(), QualifiedName.of(ImmutableList.of(new Identifier(location(1, 18), "t", false)))),
+                        new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier(location(1, 25), "u", false))));
+        assertThat(statement("REVOKE EXECUTE ON t FROM u")).isEqualTo(
                 new Revoke(
+                        location(1, 1),
                         false,
                         Optional.of(ImmutableList.of("EXECUTE")),
-                        new GrantObject(location(1, 1), Optional.empty(), QualifiedName.of("t")),
-                        new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier("u"))));
-        assertStatement("REVOKE GRANT OPTION FOR SELECT ON t FROM ROLE PUBLIC",
+                        new GrantObject(location(1, 1), Optional.empty(), QualifiedName.of(ImmutableList.of(new Identifier(location(1, 19), "t", false)))),
+                        new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier(location(1, 26), "u", false))));
+        assertThat(statement("REVOKE GRANT OPTION FOR SELECT ON t FROM ROLE PUBLIC")).isEqualTo(
                 new Revoke(
+                        location(1, 1),
                         true,
                         Optional.of(ImmutableList.of("SELECT")),
-                        new GrantObject(location(1, 1), Optional.empty(), QualifiedName.of("t")),
-                        new PrincipalSpecification(PrincipalSpecification.Type.ROLE, new Identifier("PUBLIC"))));
-        assertStatement("REVOKE ALL PRIVILEGES ON TABLE t FROM USER u",
+                        new GrantObject(location(1, 1), Optional.empty(), QualifiedName.of(ImmutableList.of(new Identifier(location(1, 35), "t", false)))),
+                        new PrincipalSpecification(PrincipalSpecification.Type.ROLE, new Identifier(location(1, 47), "PUBLIC", false))));
+        assertThat(statement("REVOKE ALL PRIVILEGES ON TABLE t FROM USER u")).isEqualTo(
                 new Revoke(
+                        location(1, 1),
                         false,
                         Optional.empty(),
-                        new GrantObject(location(1, 1), Optional.of("TABLE"), QualifiedName.of("t")),
-                        new PrincipalSpecification(PrincipalSpecification.Type.USER, new Identifier("u"))));
-        assertStatement("REVOKE DELETE ON TABLE \"t\" FROM \"u\"",
+                        new GrantObject(location(1, 1), Optional.of("TABLE"), QualifiedName.of(ImmutableList.of(new Identifier(location(1, 32), "t", false)))),
+                        new PrincipalSpecification(PrincipalSpecification.Type.USER, new Identifier(location(1, 44), "u", false))));
+        assertThat(statement("REVOKE DELETE ON TABLE \"t\" FROM \"u\"")).isEqualTo(
                 new Revoke(
+                        location(1, 1),
                         false,
                         Optional.of(ImmutableList.of("DELETE")),
-                        new GrantObject(location(1, 1), Optional.of("TABLE"), QualifiedName.of("t")),
-                        new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier("u"))));
-        assertStatement("REVOKE SELECT ON SCHEMA s FROM USER u",
+                        new GrantObject(location(1, 1), Optional.of("TABLE"), QualifiedName.of(ImmutableList.of(new Identifier(location(1, 24), "t", true)))),
+                        new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier(location(1, 33), "u", true))));
+        assertThat(statement("REVOKE SELECT ON SCHEMA s FROM USER u")).isEqualTo(
                 new Revoke(
+                        location(1, 1),
                         false,
                         Optional.of(ImmutableList.of("SELECT")),
-                        new GrantObject(location(1, 1), Optional.of("SCHEMA"), QualifiedName.of("s")),
-                        new PrincipalSpecification(PrincipalSpecification.Type.USER, new Identifier("u"))));
+                        new GrantObject(location(1, 1), Optional.of("SCHEMA"), QualifiedName.of(ImmutableList.of(new Identifier(location(1, 25), "s", false)))),
+                        new PrincipalSpecification(PrincipalSpecification.Type.USER, new Identifier(location(1, 37), "u", false))));
     }
 
     @Test
@@ -3717,19 +3813,19 @@ public class TestSqlParser
     @Test
     public void testSetPath()
     {
-        assertStatement("SET PATH iLikeToEat.apples, andBananas",
-                new SetPath(new PathSpecification(Optional.empty(), ImmutableList.of(
-                        new PathElement(Optional.of(new Identifier("iLikeToEat")), new Identifier("apples")),
-                        new PathElement(Optional.empty(), new Identifier("andBananas"))))));
+        assertThat(statement("SET PATH iLikeToEat.apples, andBananas")).isEqualTo(
+                new SetPath(location(1, 1), new PathSpecification(location(1, 10), ImmutableList.of(
+                        new PathElement(location(1, 10), Optional.of(new Identifier(location(1, 10), "iLikeToEat", false)), new Identifier(location(1, 21), "apples", false)),
+                        new PathElement(location(1, 29), Optional.empty(), new Identifier(location(1, 29), "andBananas", false))))));
 
-        assertStatement("SET PATH \"schemas,with\".\"grammar.in\", \"their!names\"",
-                new SetPath(new PathSpecification(Optional.empty(), ImmutableList.of(
-                        new PathElement(Optional.of(new Identifier("schemas,with")), new Identifier("grammar.in")),
-                        new PathElement(Optional.empty(), new Identifier("their!names"))))));
+        assertThat(statement("SET PATH \"schemas,with\".\"grammar.in\", \"their!names\"")).isEqualTo(
+                new SetPath(location(1, 1), new PathSpecification(location(1, 10), ImmutableList.of(
+                        new PathElement(location(1, 10), Optional.of(new Identifier(location(1, 10), "schemas,with", true)), new Identifier(location(1, 25), "grammar.in", true)),
+                        new PathElement(location(1, 39), Optional.empty(), new Identifier(location(1, 39), "their!names", true))))));
 
         assertThatThrownBy(() -> assertStatement("SET PATH one.too.many, qualifiers",
-                new SetPath(new PathSpecification(Optional.empty(), ImmutableList.of(
-                        new PathElement(Optional.empty(), new Identifier("dummyValue")))))))
+                new SetPath(location(1, 1), new PathSpecification(new NodeLocation(1, 10), ImmutableList.of(
+                        new PathElement(location(1, 1), Optional.empty(), new Identifier("dummyValue")))))))
                 .isInstanceOf(ParsingException.class)
                 .hasMessage("line 1:17: mismatched input '.'. Expecting: ',', <EOF>");
 
@@ -3990,16 +4086,16 @@ public class TestSqlParser
                 new StartTransaction(location(1, 1), ImmutableList.of()));
         assertStatement("START TRANSACTION ISOLATION LEVEL READ UNCOMMITTED",
                 new StartTransaction(location(1, 1), ImmutableList.of(
-                        new Isolation(Isolation.Level.READ_UNCOMMITTED))));
+                        new Isolation(location(1, 19), Isolation.Level.READ_UNCOMMITTED))));
         assertStatement("START TRANSACTION ISOLATION LEVEL READ COMMITTED",
                 new StartTransaction(location(1, 1), ImmutableList.of(
-                        new Isolation(Isolation.Level.READ_COMMITTED))));
+                        new Isolation(location(1, 19), Isolation.Level.READ_COMMITTED))));
         assertStatement("START TRANSACTION ISOLATION LEVEL REPEATABLE READ",
                 new StartTransaction(location(1, 1), ImmutableList.of(
-                        new Isolation(Isolation.Level.REPEATABLE_READ))));
+                        new Isolation(location(1, 19), Isolation.Level.REPEATABLE_READ))));
         assertStatement("START TRANSACTION ISOLATION LEVEL SERIALIZABLE",
                 new StartTransaction(location(1, 1), ImmutableList.of(
-                        new Isolation(Isolation.Level.SERIALIZABLE))));
+                        new Isolation(location(1, 19), Isolation.Level.SERIALIZABLE))));
         assertStatement("START TRANSACTION READ ONLY",
                 new StartTransaction(location(1, 1), ImmutableList.of(
                         new TransactionAccessMode(true))));
@@ -4008,16 +4104,16 @@ public class TestSqlParser
                         new TransactionAccessMode(false))));
         assertStatement("START TRANSACTION ISOLATION LEVEL READ COMMITTED, READ ONLY",
                 new StartTransaction(location(1, 1), ImmutableList.of(
-                        new Isolation(Isolation.Level.READ_COMMITTED),
+                        new Isolation(location(1, 19), Isolation.Level.READ_COMMITTED),
                         new TransactionAccessMode(true))));
         assertStatement("START TRANSACTION READ ONLY, ISOLATION LEVEL READ COMMITTED",
                 new StartTransaction(location(1, 1), ImmutableList.of(
                         new TransactionAccessMode(true),
-                        new Isolation(Isolation.Level.READ_COMMITTED))));
+                        new Isolation(location(1, 30), Isolation.Level.READ_COMMITTED))));
         assertStatement("START TRANSACTION READ WRITE, ISOLATION LEVEL SERIALIZABLE",
                 new StartTransaction(location(1, 1), ImmutableList.of(
                         new TransactionAccessMode(false),
-                        new Isolation(Isolation.Level.SERIALIZABLE))));
+                        new Isolation(location(1, 31), Isolation.Level.SERIALIZABLE))));
     }
 
     @Test
@@ -4030,8 +4126,8 @@ public class TestSqlParser
     @Test
     public void testRollback()
     {
-        assertStatement("ROLLBACK", new Rollback());
-        assertStatement("ROLLBACK WORK", new Rollback());
+        assertThat(statement("ROLLBACK")).isEqualTo(new Rollback(location(1, 1)));
+        assertThat(statement("ROLLBACK WORK")).isEqualTo(new Rollback(location(1, 1)));
     }
 
     @Test
@@ -4743,76 +4839,83 @@ public class TestSqlParser
     @Test
     public void testRevokeRoles()
     {
-        assertStatement("REVOKE role1 FROM user1",
+        assertThat(statement("REVOKE role1 FROM user1")).isEqualTo(
                 new RevokeRoles(
-                        ImmutableSet.of(new Identifier("role1")),
-                        ImmutableSet.of(new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier("user1"))),
+                        location(1, 1),
+                        ImmutableSet.of(new Identifier(location(1, 8), "role1", false)),
+                        ImmutableSet.of(new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier(location(1, 19), "user1", false))),
                         false,
                         Optional.empty(),
                         Optional.empty()));
-        assertStatement("REVOKE ADMIN OPTION FOR role1, role2, role3 FROM user1, USER user2, ROLE role4",
+        assertThat(statement("REVOKE ADMIN OPTION FOR role1, role2, role3 FROM user1, USER user2, ROLE role4")).isEqualTo(
                 new RevokeRoles(
-                        ImmutableSet.of(new Identifier("role1"), new Identifier("role2"), new Identifier("role3")),
+                        location(1, 1),
+                        ImmutableSet.of(new Identifier(location(1, 25), "role1", false), new Identifier(location(1, 32), "role2", false), new Identifier(location(1, 39), "role3", false)),
                         ImmutableSet.of(
-                                new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier("user1")),
-                                new PrincipalSpecification(PrincipalSpecification.Type.USER, new Identifier("user2")),
-                                new PrincipalSpecification(PrincipalSpecification.Type.ROLE, new Identifier("role4"))),
+                                new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier(location(1, 50), "user1", false)),
+                                new PrincipalSpecification(PrincipalSpecification.Type.USER, new Identifier(location(1, 62), "user2", false)),
+                                new PrincipalSpecification(PrincipalSpecification.Type.ROLE, new Identifier(location(1, 74), "role4", false))),
                         true,
                         Optional.empty(),
                         Optional.empty()));
-        assertStatement("REVOKE ADMIN OPTION FOR role1 FROM user1 GRANTED BY admin",
+        assertThat(statement("REVOKE ADMIN OPTION FOR role1 FROM user1 GRANTED BY admin")).isEqualTo(
                 new RevokeRoles(
-                        ImmutableSet.of(new Identifier("role1")),
-                        ImmutableSet.of(new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier("user1"))),
+                        location(1, 1),
+                        ImmutableSet.of(new Identifier(location(1, 25), "role1", false)),
+                        ImmutableSet.of(new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier(location(1, 36), "user1", false))),
                         true,
                         Optional.of(new GrantorSpecification(
                                 GrantorSpecification.Type.PRINCIPAL,
-                                Optional.of(new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier("admin"))))),
+                                Optional.of(new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier(location(1, 53), "admin", false))))),
                         Optional.empty()));
-        assertStatement("REVOKE ADMIN OPTION FOR role1 FROM USER user1 GRANTED BY USER admin",
+        assertThat(statement("REVOKE ADMIN OPTION FOR role1 FROM USER user1 GRANTED BY USER admin")).isEqualTo(
                 new RevokeRoles(
-                        ImmutableSet.of(new Identifier("role1")),
-                        ImmutableSet.of(new PrincipalSpecification(PrincipalSpecification.Type.USER, new Identifier("user1"))),
+                        location(1, 1),
+                        ImmutableSet.of(new Identifier(location(1, 25), "role1", false)),
+                        ImmutableSet.of(new PrincipalSpecification(PrincipalSpecification.Type.USER, new Identifier(location(1, 41), "user1", false))),
                         true,
                         Optional.of(new GrantorSpecification(
                                 GrantorSpecification.Type.PRINCIPAL,
-                                Optional.of(new PrincipalSpecification(PrincipalSpecification.Type.USER, new Identifier("admin"))))),
+                                Optional.of(new PrincipalSpecification(PrincipalSpecification.Type.USER, new Identifier(location(1, 63), "admin", false))))),
                         Optional.empty()));
-        assertStatement("REVOKE role1 FROM ROLE role2 GRANTED BY ROLE admin",
+        assertThat(statement("REVOKE role1 FROM ROLE role2 GRANTED BY ROLE admin")).isEqualTo(
                 new RevokeRoles(
-                        ImmutableSet.of(new Identifier("role1")),
-                        ImmutableSet.of(new PrincipalSpecification(PrincipalSpecification.Type.ROLE, new Identifier("role2"))),
+                        location(1, 1),
+                        ImmutableSet.of(new Identifier(location(1, 8), "role1", false)),
+                        ImmutableSet.of(new PrincipalSpecification(PrincipalSpecification.Type.ROLE, new Identifier(location(1, 24), "role2", false))),
                         false,
                         Optional.of(new GrantorSpecification(
                                 GrantorSpecification.Type.PRINCIPAL,
-                                Optional.of(new PrincipalSpecification(PrincipalSpecification.Type.ROLE, new Identifier("admin"))))),
+                                Optional.of(new PrincipalSpecification(PrincipalSpecification.Type.ROLE, new Identifier(location(1, 46), "admin", false))))),
                         Optional.empty()));
-        assertStatement("REVOKE \"role1\" FROM ROLE \"role2\" GRANTED BY ROLE \"admin\"",
+        assertThat(statement("REVOKE \"role1\" FROM ROLE \"role2\" GRANTED BY ROLE \"admin\"")).isEqualTo(
                 new RevokeRoles(
-                        ImmutableSet.of(new Identifier("role1")),
-                        ImmutableSet.of(new PrincipalSpecification(PrincipalSpecification.Type.ROLE, new Identifier("role2"))),
+                        location(1, 1),
+                        ImmutableSet.of(new Identifier(location(1, 8), "role1", true)),
+                        ImmutableSet.of(new PrincipalSpecification(PrincipalSpecification.Type.ROLE, new Identifier(location(1, 26), "role2", true))),
                         false,
                         Optional.of(new GrantorSpecification(
                                 GrantorSpecification.Type.PRINCIPAL,
-                                Optional.of(new PrincipalSpecification(PrincipalSpecification.Type.ROLE, new Identifier("admin"))))),
+                                Optional.of(new PrincipalSpecification(PrincipalSpecification.Type.ROLE, new Identifier(location(1, 50), "admin", true))))),
                         Optional.empty()));
-        assertStatement("REVOKE role1 FROM user1 IN my_catalog",
+        assertThat(statement("REVOKE role1 FROM user1 IN my_catalog")).isEqualTo(
                 new RevokeRoles(
-                        ImmutableSet.of(new Identifier("role1")),
-                        ImmutableSet.of(new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier("user1"))),
+                        location(1, 1),
+                        ImmutableSet.of(new Identifier(location(1, 8), "role1", false)),
+                        ImmutableSet.of(new PrincipalSpecification(PrincipalSpecification.Type.UNSPECIFIED, new Identifier(location(1, 19), "user1", false))),
                         false,
                         Optional.empty(),
-                        Optional.of(new Identifier("my_catalog"))));
+                        Optional.of(new Identifier(location(1, 28), "my_catalog", false))));
     }
 
     @Test
     public void testSetRole()
     {
-        assertStatement("SET ROLE ALL", new SetRole(SetRole.Type.ALL, Optional.empty(), Optional.empty()));
-        assertStatement("SET ROLE NONE", new SetRole(SetRole.Type.NONE, Optional.empty(), Optional.empty()));
-        assertStatement("SET ROLE role", new SetRole(SetRole.Type.ROLE, Optional.of(new Identifier("role")), Optional.empty()));
-        assertStatement("SET ROLE \"role\"", new SetRole(SetRole.Type.ROLE, Optional.of(new Identifier("role")), Optional.empty()));
-        assertStatement("SET ROLE role IN my_catalog", new SetRole(SetRole.Type.ROLE, Optional.of(new Identifier("role")), Optional.of(new Identifier("my_catalog"))));
+        assertThat(statement("SET ROLE ALL")).isEqualTo(new SetRole(location(1, 1), SetRole.Type.ALL, Optional.empty(), Optional.empty()));
+        assertThat(statement("SET ROLE NONE")).isEqualTo(new SetRole(location(1, 1), SetRole.Type.NONE, Optional.empty(), Optional.empty()));
+        assertThat(statement("SET ROLE role")).isEqualTo(new SetRole(location(1, 1), SetRole.Type.ROLE, Optional.of(new Identifier(location(1, 10), "role", false)), Optional.empty()));
+        assertThat(statement("SET ROLE \"role\"")).isEqualTo(new SetRole(location(1, 1), SetRole.Type.ROLE, Optional.of(new Identifier(location(1, 10), "role", true)), Optional.empty()));
+        assertThat(statement("SET ROLE role IN my_catalog")).isEqualTo(new SetRole(location(1, 1), SetRole.Type.ROLE, Optional.of(new Identifier(location(1, 10), "role", false)), Optional.of(new Identifier(location(1, 18), "my_catalog", false))));
     }
 
     @Test
@@ -5094,53 +5197,63 @@ public class TestSqlParser
     @Test
     public void testRenameMaterializedView()
     {
-        assertStatement("ALTER MATERIALIZED VIEW a RENAME TO b", new RenameMaterializedView(QualifiedName.of("a"), QualifiedName.of("b"), false));
-        assertStatement("ALTER MATERIALIZED VIEW IF EXISTS a RENAME TO b", new RenameMaterializedView(QualifiedName.of("a"), QualifiedName.of("b"), true));
+        assertThat(statement("ALTER MATERIALIZED VIEW a RENAME TO b"))
+                .isEqualTo(new RenameMaterializedView(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 25), "a", false))),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 37), "b", false))),
+                        false));
+        assertThat(statement("ALTER MATERIALIZED VIEW IF EXISTS a RENAME TO b"))
+                .isEqualTo(new RenameMaterializedView(
+                        location(1, 1),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 35), "a", false))),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 47), "b", false))),
+                        true));
     }
 
     @Test
     public void testSetMaterializedViewProperties()
     {
-        assertStatement(
-                "ALTER MATERIALIZED VIEW a SET PROPERTIES foo='bar'",
+        assertThat(statement("ALTER MATERIALIZED VIEW a SET PROPERTIES foo='bar'")).isEqualTo(
                 new SetProperties(
+                        location(1, 1),
                         MATERIALIZED_VIEW,
-                        QualifiedName.of("a"),
-                        ImmutableList.of(new Property(new Identifier("foo"), new StringLiteral("bar")))));
-        assertStatement(
-                "ALTER MATERIALIZED VIEW a SET PROPERTIES foo=true",
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 25), "a", false))),
+                        ImmutableList.of(new Property(location(1, 42), new Identifier(location(1, 42), "foo", false), new StringLiteral(location(1, 46), "bar")))));
+        assertThat(statement("ALTER MATERIALIZED VIEW a SET PROPERTIES foo=true")).isEqualTo(
                 new SetProperties(
+                        location(1, 1),
                         MATERIALIZED_VIEW,
-                        QualifiedName.of("a"),
-                        ImmutableList.of(new Property(new Identifier("foo"), new BooleanLiteral("true")))));
-        assertStatement(
-                "ALTER MATERIALIZED VIEW a SET PROPERTIES foo=123",
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 25), "a", false))),
+                        ImmutableList.of(new Property(location(1, 42), new Identifier(location(1, 42), "foo", false), new BooleanLiteral(location(1, 46), "true")))));
+        assertThat(statement("ALTER MATERIALIZED VIEW a SET PROPERTIES foo=123")).isEqualTo(
                 new SetProperties(
+                        location(1, 1),
                         MATERIALIZED_VIEW,
-                        QualifiedName.of("a"),
-                        ImmutableList.of(new Property(new Identifier("foo"), new LongLiteral("123")))));
-        assertStatement(
-                "ALTER MATERIALIZED VIEW a SET PROPERTIES foo=123, bar=456",
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 25), "a", false))),
+                        ImmutableList.of(new Property(location(1, 42), new Identifier(location(1, 42), "foo", false), new LongLiteral(location(1, 46), "123")))));
+        assertThat(statement("ALTER MATERIALIZED VIEW a SET PROPERTIES foo=123, bar=456")).isEqualTo(
                 new SetProperties(
+                        location(1, 1),
                         MATERIALIZED_VIEW,
-                        QualifiedName.of("a"),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 25), "a", false))),
                         ImmutableList.of(
-                                new Property(new Identifier("foo"), new LongLiteral("123")),
-                                new Property(new Identifier("bar"), new LongLiteral("456")))));
-        assertStatement(
-                "ALTER MATERIALIZED VIEW a SET PROPERTIES \" s p a c e \"='bar'",
+                                new Property(location(1, 42), new Identifier(location(1, 42), "foo", false), new LongLiteral(location(1, 46), "123")),
+                                new Property(location(1, 51), new Identifier(location(1, 51), "bar", false), new LongLiteral(location(1, 55), "456")))));
+        assertThat(statement("ALTER MATERIALIZED VIEW a SET PROPERTIES \" s p a c e \"='bar'")).isEqualTo(
                 new SetProperties(
+                        location(1, 1),
                         MATERIALIZED_VIEW,
-                        QualifiedName.of("a"),
-                        ImmutableList.of(new Property(new Identifier(" s p a c e "), new StringLiteral("bar")))));
-        assertStatement(
-                "ALTER MATERIALIZED VIEW a SET PROPERTIES foo=123, bar=DEFAULT",
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 25), "a", false))),
+                        ImmutableList.of(new Property(location(1, 42), new Identifier(location(1, 42), " s p a c e ", true), new StringLiteral(location(1, 56), "bar")))));
+        assertThat(statement("ALTER MATERIALIZED VIEW a SET PROPERTIES foo=123, bar=DEFAULT")).isEqualTo(
                 new SetProperties(
+                        location(1, 1),
                         MATERIALIZED_VIEW,
-                        QualifiedName.of("a"),
+                        QualifiedName.of(ImmutableList.of(new Identifier(location(1, 25), "a", false))),
                         ImmutableList.of(
-                                new Property(new Identifier("foo"), new LongLiteral("123")),
-                                new Property(new Identifier("bar")))));
+                                new Property(location(1, 42), new Identifier(location(1, 42), "foo", false), new LongLiteral(location(1, 46), "123")),
+                                new Property(location(1, 51), new Identifier(location(1, 51), "bar", false)))));
 
         assertStatementIsInvalid("ALTER MATERIALIZED VIEW a SET PROPERTIES")
                 .withMessage("line 1:41: mismatched input '<EOF>'. Expecting: <identifier>");
@@ -6266,17 +6379,24 @@ public class TestSqlParser
     @Test
     public void testSetSessionAuthorization()
     {
-        assertStatement("SET SESSION AUTHORIZATION user", new SetSessionAuthorization(identifier("user")));
-        assertStatement("SET SESSION AUTHORIZATION \"user\"", new SetSessionAuthorization(identifier("user")));
-        assertStatement("SET SESSION AUTHORIZATION 'user'", new SetSessionAuthorization(new StringLiteral("user")));
+        assertThat(statement("SET SESSION AUTHORIZATION user"))
+                .isEqualTo(new SetSessionAuthorization(location(1, 1), new Identifier(location(1, 27), "user", false)));
+        assertThat(statement("SET SESSION AUTHORIZATION \"user\""))
+                .isEqualTo(new SetSessionAuthorization(location(1, 1), new Identifier(location(1, 27), "user", true)));
+        assertThat(statement("SET SESSION AUTHORIZATION 'user'"))
+                .isEqualTo(new SetSessionAuthorization(location(1, 1), new StringLiteral(location(1, 27), "user")));
 
         assertStatementIsInvalid("SET SESSION AUTHORIZATION user-a").withMessage("line 1:31: mismatched input '-'. Expecting: <EOF>");
-        assertStatement("SET SESSION AUTHORIZATION \"user-a\"", new SetSessionAuthorization(identifier("user-a")));
-        assertStatement("SET SESSION AUTHORIZATION 'user-a'", new SetSessionAuthorization(new StringLiteral("user-a")));
+        assertThat(statement("SET SESSION AUTHORIZATION \"user-a\""))
+                .isEqualTo(new SetSessionAuthorization(location(1, 1), new Identifier(location(1, 27), "user-a", true)));
+        assertThat(statement("SET SESSION AUTHORIZATION 'user-a'"))
+                .isEqualTo(new SetSessionAuthorization(location(1, 1), new StringLiteral(location(1, 27), "user-a")));
 
         assertStatementIsInvalid("SET SESSION AUTHORIZATION null").withMessage("line 1:27: mismatched input 'null'. Expecting: '.', '=', <identifier>, <string>");
-        assertStatement("SET SESSION AUTHORIZATION \"null\"", new SetSessionAuthorization(identifier("null")));
-        assertStatement("SET SESSION AUTHORIZATION 'null'", new SetSessionAuthorization(new StringLiteral("null")));
+        assertThat(statement("SET SESSION AUTHORIZATION \"null\""))
+                .isEqualTo(new SetSessionAuthorization(location(1, 1), new Identifier(location(1, 27), "null", true)));
+        assertThat(statement("SET SESSION AUTHORIZATION 'null'"))
+                .isEqualTo(new SetSessionAuthorization(location(1, 1), new StringLiteral(location(1, 27), "null")));
     }
 
     @Test
