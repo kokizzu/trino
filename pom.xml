@@ -193,7 +193,7 @@
         <dep.confluent.version>7.5.1</dep.confluent.version>
         <dep.docker.images.version>100</dep.docker.images.version>
         <dep.drift.version>1.22</dep.drift.version>
-        <dep.flyway.version>10.17.3</dep.flyway.version>
+        <dep.flyway.version>10.18.0</dep.flyway.version>
         <dep.frontend-maven-plugin.version>1.15.0</dep.frontend-maven-plugin.version>
         <dep.frontend-node.version>v20.15.1</dep.frontend-node.version>
         <dep.frontend-npm.version>10.8.2</dep.frontend-npm.version>
@@ -204,7 +204,7 @@
         <dep.jsonwebtoken.version>0.12.6</dep.jsonwebtoken.version>
         <dep.jts.version>1.20.0</dep.jts.version>
         <dep.kafka-clients.version>3.8.0</dep.kafka-clients.version>
-        <dep.okio.version>3.9.0</dep.okio.version>
+        <dep.okio.version>3.9.1</dep.okio.version>
         <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
         <dep.parquet.version>1.14.2</dep.parquet.version>
         <dep.plugin.failsafe.version>${dep.plugin.surefire.version}</dep.plugin.failsafe.version>
@@ -319,7 +319,7 @@
             <dependency>
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
-                <version>2.27.23</version>
+                <version>2.28.0</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -617,7 +617,7 @@
             <dependency>
                 <groupId>com.nimbusds</groupId>
                 <artifactId>nimbus-jose-jwt</artifactId>
-                <version>9.41</version>
+                <version>9.41.1</version>
             </dependency>
 
             <dependency>

@@ -4096,24 +4096,24 @@ public class TestSqlParser
         assertStatement("START TRANSACTION ISOLATION LEVEL SERIALIZABLE",
                 new StartTransaction(location(1, 1), ImmutableList.of(
                         new Isolation(location(1, 19), Isolation.Level.SERIALIZABLE))));
-        assertStatement("START TRANSACTION READ ONLY",
+        assertThat(statement("START TRANSACTION READ ONLY")).isEqualTo(
                 new StartTransaction(location(1, 1), ImmutableList.of(
-                        new TransactionAccessMode(true))));
-        assertStatement("START TRANSACTION READ WRITE",
+                        new TransactionAccessMode(location(1, 19), true))));
+        assertThat(statement("START TRANSACTION READ WRITE")).isEqualTo(
                 new StartTransaction(location(1, 1), ImmutableList.of(
-                        new TransactionAccessMode(false))));
-        assertStatement("START TRANSACTION ISOLATION LEVEL READ COMMITTED, READ ONLY",
+                        new TransactionAccessMode(location(1, 19), false))));
+        assertThat(statement("START TRANSACTION ISOLATION LEVEL READ COMMITTED, READ ONLY")).isEqualTo(
                 new StartTransaction(location(1, 1), ImmutableList.of(
-                        new Isolation(location(1, 19), Isolation.Level.READ_COMMITTED),
-                        new TransactionAccessMode(true))));
-        assertStatement("START TRANSACTION READ ONLY, ISOLATION LEVEL READ COMMITTED",
+                        new Isolation(location(1, 35), Isolation.Level.READ_COMMITTED),
+                        new TransactionAccessMode(location(1, 51), true))));
+        assertThat(statement("START TRANSACTION READ ONLY, ISOLATION LEVEL READ COMMITTED")).isEqualTo(
                 new StartTransaction(location(1, 1), ImmutableList.of(
-                        new TransactionAccessMode(true),
-                        new Isolation(location(1, 30), Isolation.Level.READ_COMMITTED))));
-        assertStatement("START TRANSACTION READ WRITE, ISOLATION LEVEL SERIALIZABLE",
+                        new TransactionAccessMode(location(1, 19), true),
+                        new Isolation(location(1, 46), Isolation.Level.READ_COMMITTED))));
+        assertThat(statement("START TRANSACTION READ WRITE, ISOLATION LEVEL SERIALIZABLE")).isEqualTo(
                 new StartTransaction(location(1, 1), ImmutableList.of(
-                        new TransactionAccessMode(false),
-                        new Isolation(location(1, 31), Isolation.Level.SERIALIZABLE))));
+                        new TransactionAccessMode(location(1, 19), false),
+                        new Isolation(location(1, 47), Isolation.Level.SERIALIZABLE))));
     }
 
     @Test
@@ -4754,12 +4754,18 @@ public class TestSqlParser
     @Test
     public void testDropRole()
     {
-        assertStatement("DROP ROLE role", new DropRole(location(1, 1), new Identifier("role"), Optional.empty(), false));
-        assertStatement("DROP ROLE IF EXISTS role", new DropRole(location(1, 1), new Identifier("role"), Optional.empty(), false));
-        assertStatement("DROP ROLE \"role\"", new DropRole(location(1, 1), new Identifier("role"), Optional.empty(), false));
-        assertStatement("DROP ROLE \"ro le\"", new DropRole(location(1, 1), new Identifier("ro le"), Optional.empty(), false));
-        assertStatement("DROP ROLE \"!@#$%^&*'ад\"\"мін\"", new DropRole(location(1, 1), new Identifier("!@#$%^&*'ад\"мін"), Optional.empty(), false));
-        assertStatement("DROP ROLE role IN my_catalog", new DropRole(location(1, 1), new Identifier("role"), Optional.of(new Identifier("my_catalog")), false));
+        assertThat(statement("DROP ROLE role")).isEqualTo(
+                new DropRole(location(1, 1), new Identifier(location(1, 11), "role", false), Optional.empty(), false));
+        assertThat(statement("DROP ROLE IF EXISTS role")).isEqualTo(
+                new DropRole(location(1, 1), new Identifier(location(1, 21), "role", false), Optional.empty(), true));
+        assertThat(statement("DROP ROLE \"role\"")).isEqualTo(
+                new DropRole(location(1, 1), new Identifier(location(1, 11), "role", true), Optional.empty(), false));
+        assertThat(statement("DROP ROLE \"ro le\"")).isEqualTo(
+                new DropRole(location(1, 1), new Identifier(location(1, 11), "ro le", true), Optional.empty(), false));
+        assertThat(statement("DROP ROLE \"!@#$%^&*'ад\"\"мін\"")).isEqualTo(
+                new DropRole(location(1, 1), new Identifier(location(1, 11), "!@#$%^&*'ад\"мін", true), Optional.empty(), false));
+        assertThat(statement("DROP ROLE role IN my_catalog")).isEqualTo(
+                new DropRole(location(1, 1), new Identifier(location(1, 11), "role", false), Optional.of(new Identifier(location(1, 19), "my_catalog", false)), false));
     }
 
     @Test
@@ -5175,11 +5181,15 @@ public class TestSqlParser
     @Test
     public void testRefreshMaterializedView()
     {
-        assertStatement("REFRESH MATERIALIZED VIEW test",
-                new RefreshMaterializedView(Optional.empty(), new Table(QualifiedName.of("test"))));
+        assertThat(statement("REFRESH MATERIALIZED VIEW test")).isEqualTo(
+                new RefreshMaterializedView(
+                        new NodeLocation(1, 1),
+                        new Table(QualifiedName.of(ImmutableList.of(new Identifier(location(1, 27), "test", false))))));
 
-        assertStatement("REFRESH MATERIALIZED VIEW \"some name that contains space\"",
-                new RefreshMaterializedView(Optional.empty(), new Table(QualifiedName.of("some name that contains space"))));
+        assertThat(statement("REFRESH MATERIALIZED VIEW \"some name that contains space\"")).isEqualTo(
+                new RefreshMaterializedView(
+                        new NodeLocation(1, 1),
+                        new Table(QualifiedName.of(ImmutableList.of(new Identifier(location(1, 27), "some name that contains space", true))))));
     }
 
     @Test

@@ -459,7 +459,7 @@ public final class ExpressionTreeRewriter<C>
             Expression expression = rewrite(node.getInnerExpression(), context.get());
 
             if (node.getInnerExpression() != expression) {
-                return new TryExpression(expression);
+                return new TryExpression(node.getLocation().orElseThrow(), expression);
             }
 
             return node;
@@ -635,7 +635,7 @@ public final class ExpressionTreeRewriter<C>
             Window window = rewriteWindow(node.getWindow(), context);
 
             if (name != node.getName() || window != node.getWindow()) {
-                return new WindowOperation(name, window);
+                return new WindowOperation(node.getLocation().orElseThrow(), name, window);
             }
 
             return node;
@@ -1148,7 +1148,7 @@ public final class ExpressionTreeRewriter<C>
             Optional<Expression> trimChar = node.getTrimCharacter().isPresent() ? Optional.of(rewrite(node.getTrimCharacter().get(), context.get())) : Optional.empty();
 
             if (trimSource != node.getTrimSource() || !sameElements(trimChar, node.getTrimCharacter())) {
-                return new Trim(node.getSpecification(), trimSource, trimChar);
+                return new Trim(node.getLocation().orElseThrow(), node.getSpecification(), trimSource, trimChar);
             }
 
             return node;
