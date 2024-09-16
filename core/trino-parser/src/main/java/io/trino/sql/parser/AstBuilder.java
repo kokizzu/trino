@@ -603,7 +603,7 @@ class AstBuilder
         }
 
         return new CreateMaterializedView(
-                Optional.of(getLocation(context)),
+                getLocation(context),
                 getQualifiedName(context.qualifiedName()),
                 (Query) visit(context.rootQuery()),
                 context.REPLACE() != null,
@@ -2363,8 +2363,8 @@ class AstBuilder
     public Node visitCurrentTime(SqlBaseParser.CurrentTimeContext context)
     {
         return parsePrecision(context.precision)
-                .map(precision -> new CurrentTime(getLocation(context), precision))
-                .orElseGet(() -> new CurrentTime(getLocation(context)));
+                .map(precision -> new CurrentTime(getLocation(context), Optional.of(precision)))
+                .orElseGet(() -> new CurrentTime(getLocation(context), Optional.empty()));
     }
 
     @Override
@@ -2379,8 +2379,8 @@ class AstBuilder
     public Node visitCurrentTimestamp(SqlBaseParser.CurrentTimestampContext context)
     {
         return parsePrecision(context.precision)
-                .map(precision -> new CurrentTimestamp(getLocation(context), precision))
-                .orElseGet(() -> new CurrentTimestamp(getLocation(context)));
+                .map(precision -> new CurrentTimestamp(getLocation(context), Optional.of(precision)))
+                .orElseGet(() -> new CurrentTimestamp(getLocation(context), Optional.empty()));
     }
 
     private static Optional<Integer> parsePrecision(Token precision)
@@ -3328,13 +3328,13 @@ class AstBuilder
     @Override
     public Node visitPositionalArgument(SqlBaseParser.PositionalArgumentContext context)
     {
-        return new CallArgument(getLocation(context), (Expression) visit(context.expression()));
+        return new CallArgument(getLocation(context), Optional.empty(), (Expression) visit(context.expression()));
     }
 
     @Override
     public Node visitNamedArgument(SqlBaseParser.NamedArgumentContext context)
     {
-        return new CallArgument(getLocation(context), (Identifier) visit(context.identifier()), (Expression) visit(context.expression()));
+        return new CallArgument(getLocation(context), Optional.of((Identifier) visit(context.identifier())), (Expression) visit(context.expression()));
     }
 
     @Override
