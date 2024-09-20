@@ -33,6 +33,7 @@ import com.google.cloud.bigquery.TableId;
 import com.google.cloud.bigquery.TableInfo;
 import com.google.cloud.bigquery.TableResult;
 import com.google.cloud.http.BaseHttpServiceException;
+import com.google.common.base.Joiner;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -246,7 +247,7 @@ public class BigQueryClient
         }
     }
 
-    public TableInfo getCachedTable(Duration viewExpiration, TableInfo remoteTableId, List<String> requiredColumns, Optional<String> filter)
+    public TableInfo getCachedTable(Duration viewExpiration, TableInfo remoteTableId, List<BigQueryColumnHandle> requiredColumns, Optional<String> filter)
     {
         String query = selectSql(remoteTableId.getTableId(), requiredColumns, filter);
         log.debug("query is %s", query);
@@ -466,10 +467,19 @@ public class BigQueryClient
         return requireNonNull(((QueryJobConfiguration) jobConfiguration).getDestinationTable(), "Cannot determine destination table for query");
     }
 
-    public static String selectSql(TableId table, List<String> requiredColumns, Optional<String> filter)
+    public static String selectSql(TableId table, List<BigQueryColumnHandle> requiredColumns, Optional<String> filter)
     {
-        String columns = requiredColumns.stream().map(column -> format("`%s`", column)).collect(joining(","));
-        return selectSql(table, columns, filter);
+        return selectSql(table,
+                requiredColumns.stream()
+                        .map(column -> Joiner.on('.')
+                                .join(ImmutableList.<String>builder()
+                                        .add(format("`%s`", column.name()))
+                                        .addAll(column.dereferenceNames().stream()
+                                                .map(dereferenceName -> format("`%s`", dereferenceName))
+                                                .collect(toImmutableList()))
+                                        .build()))
+                        .collect(joining(",")),
+                filter);
     }
 
     public static String selectSql(TableId table, String formattedColumns, Optional<String> filter)
