@@ -33,7 +33,6 @@ import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.plan.OutputNode;
 import io.trino.sql.planner.plan.PlanNodeId;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
@@ -56,7 +55,6 @@ import static io.trino.operator.OutputSpoolingOperatorFactory.OutputSpoolingOper
 import static io.trino.server.protocol.spooling.SpooledBlock.SPOOLING_METADATA_SYMBOL;
 import static io.trino.server.protocol.spooling.SpooledBlock.SPOOLING_METADATA_TYPE;
 import static io.trino.server.protocol.spooling.SpooledBlock.createNonSpooledPage;
-import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
@@ -69,6 +67,7 @@ public class OutputSpoolingOperatorFactory
     private final Map<Symbol, Integer> operatorLayout;
     private final SpoolingManager spoolingManager;
     private final QueryDataEncoder queryDataEncoder;
+
     private boolean closed;
 
     public OutputSpoolingOperatorFactory(int operatorId, PlanNodeId planNodeId, Map<Symbol, Integer> operatorLayout, QueryDataEncoder queryDataEncoder, SpoolingManager spoolingManager)
@@ -148,11 +147,10 @@ public class OutputSpoolingOperatorFactory
         private final QueryDataEncoder queryDataEncoder;
         private final SpoolingManager spoolingManager;
         private final Map<Symbol, Integer> layout;
-        private final PageBuffer buffer = PageBuffer.create();
+        private final PageBuffer buffer;
         private final Block[] emptyBlocks;
-
-        private final OperationTiming encodingTiming = new OperationTiming();
         private final OperationTiming spoolingTiming = new OperationTiming();
+
         private Page outputPage;
 
         public OutputSpoolingOperator(OperatorContext operatorContext, QueryDataEncoder queryDataEncoder, SpoolingManager spoolingManager, Map<Symbol, Integer> layout)
@@ -169,8 +167,9 @@ public class OutputSpoolingOperatorFactory
             this.spoolingManager = requireNonNull(spoolingManager, "spoolingManager is null");
             this.layout = requireNonNull(layout, "layout is null");
             this.emptyBlocks = emptyBlocks(layout);
+            this.buffer = PageBuffer.create(userMemoryContext);
 
-            operatorContext.setInfoSupplier(new OutputSpoolingInfoSupplier(encodingTiming, spoolingTiming, controller));
+            operatorContext.setInfoSupplier(new OutputSpoolingInfoSupplier(spoolingTiming, controller));
         }
 
         @Override
@@ -255,39 +254,34 @@ public class OutputSpoolingOperatorFactory
         private Page spool(List<Page> pages, boolean finished)
         {
             long rows = reduce(pages, Page::getPositionCount);
+            long size = reduce(pages, Page::getSizeInBytes);
             if (finished) {
-                long size = reduce(pages, Page::getSizeInBytes);
                 controller.recordSpooled(rows, size); // final buffer
             }
 
-            userMemoryContext.setBytes(controller.getCurrentSpooledSegmentTarget()); // Track allocated memory
-            try (ByteArrayOutputStream bufferedOutput = new ByteArrayOutputStream(toIntExact(controller.getCurrentSpooledSegmentTarget()))) {
-                OperationTimer encodingTimer = new OperationTimer(true);
-                DataAttributes attributes = queryDataEncoder.encodeTo(bufferedOutput, pages)
-                        .toBuilder()
+            SpooledSegmentHandle segmentHandle = spoolingManager.create(new SpoolingContext(
+                    queryDataEncoder.encoding(),
+                    operatorContext.getDriverContext().getSession().getQueryId(),
+                    rows,
+                    size));
+
+            OperationTimer overallTimer = new OperationTimer(false);
+            try (OutputStream output = spoolingManager.createOutputStream(segmentHandle)) {
+                DataAttributes attributes = queryDataEncoder.encodeTo(output, pages);
+                DataAttributes finalAttributes = attributes.toBuilder()
                         .set(ROWS_COUNT, rows)
                         .build();
-                encodingTimer.end(encodingTiming);
 
-                userMemoryContext.setBytes(bufferedOutput.size()); // Update memory to actual segment size
-                SpooledSegmentHandle segmentHandle = spoolingManager.create(new SpoolingContext(
-                        queryDataEncoder.encoding(),
-                        operatorContext.getDriverContext().getSession().getQueryId(),
-                        rows,
-                        bufferedOutput.size()));
-                try (OutputStream output = spoolingManager.createOutputStream(segmentHandle)) {
-                    OperationTimer spoolingTimer = new OperationTimer(true);
-                    output.write(bufferedOutput.toByteArray());
-                    spoolingTimer.end(spoolingTiming);
-                    controller.recordEncoded(attributes.get(SEGMENT_SIZE, Integer.class));
-                    return emptySingleRowPage(layout, new SpooledBlock(spoolingManager.location(segmentHandle), attributes).serialize());
-                }
+                controller.recordEncoded(attributes.get(SEGMENT_SIZE, Integer.class));
+
+                // This page is small (hundreds of bytes) so there is no point in tracking its memory usage
+                return emptySingleRowPage(layout, new SpooledBlock(spoolingManager.location(segmentHandle), finalAttributes).serialize());
             }
             catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
             finally {
-                userMemoryContext.setBytes(0);
+                overallTimer.end(spoolingTiming);
             }
         }
 
@@ -316,25 +310,34 @@ public class OutputSpoolingOperatorFactory
 
             return blocks;
         }
+
+        @Override
+        public void close()
+                throws Exception
+        {
+            userMemoryContext.close();
+        }
     }
 
     private static class PageBuffer
     {
-        private final List<Page> buffer;
+        private final List<Page> buffer = new ArrayList<>();
+        private final LocalMemoryContext memoryContext;
 
-        private PageBuffer(List<Page> buffer)
+        private PageBuffer(LocalMemoryContext memoryContext)
         {
-            this.buffer = requireNonNull(buffer, "buffer is null");
+            this.memoryContext = requireNonNull(memoryContext, "memoryContext is null");
         }
 
-        public static PageBuffer create()
+        public static PageBuffer create(LocalMemoryContext memoryContext)
         {
-            return new PageBuffer(new ArrayList<>());
+            return new PageBuffer(memoryContext);
         }
 
         public void add(Page page)
         {
             buffer.add(page);
+            memoryContext.setBytes(memoryContext.getBytes() + page.getRetainedSizeInBytes());
         }
 
         public boolean isEmpty()
@@ -348,20 +351,19 @@ public class OutputSpoolingOperatorFactory
             synchronized (buffer) {
                 pages = ImmutableList.copyOf(buffer);
                 buffer.clear();
+                memoryContext.setBytes(0);
             }
             return pages;
         }
     }
 
     private record OutputSpoolingInfoSupplier(
-            OperationTiming encodingTiming,
             OperationTiming spoolingTiming,
             OutputSpoolingController controller)
             implements Supplier<OutputSpoolingInfo>
     {
         private OutputSpoolingInfoSupplier
         {
-            requireNonNull(encodingTiming, "encodingTiming is null");
             requireNonNull(spoolingTiming, "spoolingTiming is null");
             requireNonNull(controller, "controller is null");
         }
@@ -370,8 +372,6 @@ public class OutputSpoolingOperatorFactory
         public OutputSpoolingInfo get()
         {
             return new OutputSpoolingInfo(
-                    succinctDuration(encodingTiming.getWallNanos(), NANOSECONDS),
-                    succinctDuration(encodingTiming.getCpuNanos(), NANOSECONDS),
                     succinctDuration(spoolingTiming.getWallNanos(), NANOSECONDS),
                     succinctDuration(spoolingTiming.getCpuNanos(), NANOSECONDS),
                     controller.getInlinedPages(),
@@ -385,8 +385,6 @@ public class OutputSpoolingOperatorFactory
     }
 
     public record OutputSpoolingInfo(
-            Duration encodingWallTime,
-            Duration encodingCpuTime,
             Duration spoolingWallTime,
             Duration spoolingCpuTime,
             long inlinedPages,
@@ -400,16 +398,14 @@ public class OutputSpoolingOperatorFactory
     {
         public OutputSpoolingInfo
         {
-            requireNonNull(encodingWallTime, "encodingWallTime is null");
-            requireNonNull(encodingCpuTime, "encodingCpuTime is null");
+            requireNonNull(spoolingWallTime, "spoolingWallTime is null");
+            requireNonNull(spoolingWallTime, "spoolingWallTime is null");
         }
 
         @Override
         public OutputSpoolingInfo mergeWith(OutputSpoolingInfo other)
         {
             return new OutputSpoolingInfo(
-                    succinctDuration(encodingWallTime.toMillis() + other.encodingWallTime().toMillis(), MILLISECONDS),
-                    succinctDuration(encodingCpuTime.toMillis() + other.encodingCpuTime().toMillis(), MILLISECONDS),
                     succinctDuration(spoolingWallTime.toMillis() + other.spoolingWallTime().toMillis(), MILLISECONDS),
                     succinctDuration(spoolingCpuTime.toMillis() + other.spoolingCpuTime().toMillis(), MILLISECONDS),
                     inlinedPages + other.inlinedPages(),
@@ -437,8 +433,6 @@ public class OutputSpoolingOperatorFactory
         public String toString()
         {
             return toStringHelper(this)
-                    .add("encodingWallTime", encodingWallTime)
-                    .add("encodingCpuTime", encodingCpuTime)
                     .add("spoolingWallTime", spoolingWallTime)
                     .add("spoolingCpuTime", spoolingCpuTime)
                     .add("inlinedPages", inlinedPages)
