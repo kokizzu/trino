@@ -72,6 +72,7 @@ import io.trino.spi.connector.BeginTableExecuteResult;
 import io.trino.spi.connector.CatalogSchemaTableName;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
+import io.trino.spi.connector.ConnectorAccessControl;
 import io.trino.spi.connector.ConnectorAnalyzeMetadata;
 import io.trino.spi.connector.ConnectorInsertTableHandle;
 import io.trino.spi.connector.ConnectorMergeTableHandle;
@@ -2464,7 +2465,13 @@ public class HiveMetadata
     }
 
     @Override
-    public Optional<ConnectorTableExecuteHandle> getTableHandleForExecute(ConnectorSession session, ConnectorTableHandle tableHandle, String procedureName, Map<String, Object> executeProperties, RetryMode retryMode)
+    public Optional<ConnectorTableExecuteHandle> getTableHandleForExecute(
+            ConnectorSession session,
+            ConnectorAccessControl accessControl,
+            ConnectorTableHandle tableHandle,
+            String procedureName,
+            Map<String, Object> executeProperties,
+            RetryMode retryMode)
     {
         if (procedureName.equals(OptimizeTableProcedure.NAME)) {
             return getTableHandleForOptimize(session, tableHandle, executeProperties, retryMode);
@@ -3983,12 +3990,7 @@ public class HiveMetadata
     @Override
     public boolean allowSplittingReadIntoMultipleSubQueries(ConnectorSession session, ConnectorTableHandle tableHandle)
     {
-        // dont split to subqueries if tableHandle is systemTableHandle
-        if (!(tableHandle instanceof HiveTableHandle hiveTableHandle)) {
-            return false;
-        }
-
-        SchemaTableName tableName = hiveTableHandle.getSchemaTableName();
+        SchemaTableName tableName = ((HiveTableHandle) tableHandle).getSchemaTableName();
 
         Table table = metastore.getTable(tableName.getSchemaName(), tableName.getTableName())
                 .orElseThrow(() -> new TableNotFoundException(tableName));
