@@ -197,9 +197,9 @@ public final class Standard
                 .withCopyFileToContainer(forHostPath(dockerFiles.getDockerFilesHostPath("conf/trino/etc/secrets.toml")), CONTAINER_TRINO_SECRETS_CONFIG)
                 .withCopyFileToContainer(forHostPath(dockerFiles.getDockerFilesHostPath("health-checks/trino-health-check.sh")), CONTAINER_HEALTH_D + "trino-health-check.sh")
                 // the server package is hundreds MB and file system bind is much more efficient
-                .withFileSystemBind(serverPackage.getPath(), "/docker/presto-server.tar.gz", READ_ONLY)
+                .withFileSystemBind(serverPackage.getPath(), "/docker/trino-server.tar.gz", READ_ONLY)
                 .withEnv("JAVA_HOME", jdkProvider.getJavaHome())
-                .withCommand("/docker/trino-product-tests/run-presto.sh")
+                .withCommand("/docker/trino-product-tests/run-trino.sh")
                 .withStartupCheckStrategy(new IsRunningStartupCheckStrategy())
                 .waitingForAll(forLogMessage(".*======== SERVER STARTED ========.*", 1), forHealthcheck())
                 .withStartupTimeout(Duration.ofMinutes(5));
