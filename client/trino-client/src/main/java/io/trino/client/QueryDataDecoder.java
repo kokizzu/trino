@@ -14,6 +14,7 @@
 package io.trino.client;
 
 import io.trino.client.spooling.DataAttributes;
+import io.trino.client.spooling.encoding.QueryDataAccess;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -28,7 +29,18 @@ public interface QueryDataDecoder
         String encoding();
     }
 
-    Iterable<List<Object>> decode(InputStream input, DataAttributes segmentAttributes)
+    /**
+     * Decodes the input stream into a QueryDataAccess object.
+     * <p>
+     * Decoder is responsible for closing input stream when
+     * all values are decoded or exception was thrown.
+     *
+     * @param input Input stream to decode (in memory or over the network)
+     * @param segmentAttributes Attributes of the segment
+     *
+     * @throws IOException if an I/O error occurs
+     */
+    QueryDataAccess decode(InputStream input, DataAttributes segmentAttributes)
             throws IOException;
 
     String encoding();
