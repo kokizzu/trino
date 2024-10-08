@@ -76,7 +76,7 @@ execution on a Trino cluster:
     the failure recovery capabilities to be fully functional" error message unless an 
     [exchange manager](fte-exchange-manager) is configured.
   - `32MB`
-* - `fault-tolerant-execution.exchange-encryption-enabled`
+* - `fault-tolerant-execution-exchange-encryption-enabled`
   - Enable encryption of spooling data, see [Encryption](fte-encryption) for details. 
     Setting this property to false is not recommended if Trino processes sensitive data.
   - ``true``
@@ -366,7 +366,7 @@ fault-tolerant execution:
 * - `max-tasks-waiting-for-node-per-query`
   - Allow for up to configured number of tasks to wait for node allocation
     per query, before pausing scheduling for other tasks from this query.
-  - 5
+  - `50`
   - Only `TASK`
 :::
 
