@@ -16,7 +16,7 @@ package io.trino.plugin.bigquery;
 import com.google.common.collect.ImmutableMap;
 import io.trino.testing.QueryRunner;
 
-final class TestBigQueryCaseInsensitiveMapping
+final class TestBigQueryCaseInsensitiveMappingWithCache
         extends BaseBigQueryCaseInsensitiveMapping
 {
     @Override
@@ -26,7 +26,7 @@ final class TestBigQueryCaseInsensitiveMapping
         return BigQueryQueryRunner.builder()
                 .setConnectorProperties(ImmutableMap.<String, String>builder()
                         .put("bigquery.case-insensitive-name-matching", "true")
-                        .put("bigquery.case-insensitive-name-matching.cache-ttl", "0m")
+                        .put("bigquery.case-insensitive-name-matching.cache-ttl", "1m")
                         .buildOrThrow())
                 .build();
     }
