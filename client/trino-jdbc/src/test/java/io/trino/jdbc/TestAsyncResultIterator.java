@@ -19,6 +19,7 @@ import io.trino.client.Column;
 import io.trino.client.QueryData;
 import io.trino.client.QueryError;
 import io.trino.client.QueryStatusInfo;
+import io.trino.client.ResultRows;
 import io.trino.client.StageStats;
 import io.trino.client.StatementClient;
 import io.trino.client.StatementStats;
@@ -40,6 +41,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
+import static io.trino.client.ResultRows.fromIterableRows;
 import static java.util.Objects.requireNonNull;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -54,7 +56,7 @@ class TestAsyncResultIterator
         CountDownLatch interruptedButSwallowedLatch = new CountDownLatch(1);
 
         AsyncResultIterator iterator = new AsyncResultIterator(
-                new MockStatementClient(() -> () -> {
+                new MockStatementClient(() -> {
                     thread.compareAndSet(null, Thread.currentThread());
                     try {
                         TimeUnit.MILLISECONDS.sleep(1000);
@@ -62,7 +64,7 @@ class TestAsyncResultIterator
                     catch (InterruptedException e) {
                         interruptedButSwallowedLatch.countDown();
                     }
-                    return ImmutableList.of(ImmutableList.of(new Object()));
+                    return fromIterableRows(ImmutableList.of(ImmutableList.of(new Object())));
                 }), ignored -> {},
                 new WarningsManager(),
                 Optional.of(new ArrayBlockingQueue<>(100)));
@@ -89,9 +91,9 @@ class TestAsyncResultIterator
         AtomicReference<Thread> thread = new AtomicReference<>();
 
         AsyncResultIterator iterator = new AsyncResultIterator(
-                new MockStatementClient(() -> () -> {
+                new MockStatementClient(() -> {
                     thread.compareAndSet(null, Thread.currentThread());
-                    return ImmutableList.of(ImmutableList.of(new Object()));
+                    return fromIterableRows(ImmutableList.of(ImmutableList.of(new Object())));
                 }), ignored -> {},
                 new WarningsManager(),
                 Optional.of(queue));
@@ -109,9 +111,9 @@ class TestAsyncResultIterator
     private static class MockStatementClient
             implements StatementClient
     {
-        private final Supplier<QueryData> queryData;
+        private final Supplier<ResultRows> queryData;
 
-        public MockStatementClient(Supplier<QueryData> queryData)
+        public MockStatementClient(Supplier<ResultRows> queryData)
         {
             this.queryData = requireNonNull(queryData, "queryData is null");
         }
@@ -166,6 +168,12 @@ class TestAsyncResultIterator
 
         @Override
         public QueryData currentData()
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public ResultRows currentRows()
         {
             return queryData.get();
         }

@@ -11,14 +11,31 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.client.spooling.encoding;
+package io.trino.client;
 
-import java.io.IOException;
-import java.util.List;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.JsonNode;
 
-public interface QueryDataAccess
+import static java.util.Objects.requireNonNull;
+
+public class JsonQueryData
+        implements QueryData
 {
-    // Kept for backward compatibility with the way clients are using this interface
-    Iterable<List<Object>> toIterable()
-            throws IOException;
+    private final JsonNode node;
+
+    public JsonQueryData(JsonNode node)
+    {
+        this.node = requireNonNull(node, "node is null");
+    }
+
+    public JsonParser getJsonParser()
+    {
+        return node.traverse();
+    }
+
+    @Override
+    public boolean isNull()
+    {
+        return node.isNull();
+    }
 }

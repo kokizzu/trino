@@ -10,7 +10,7 @@
 
     <groupId>io.trino</groupId>
     <artifactId>trino-root</artifactId>
-    <version>461-SNAPSHOT</version>
+    <version>462-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>${project.artifactId}</name>
@@ -146,7 +146,7 @@
     <properties>
         <project.build.targetJdk>22</project.build.targetJdk>
         <!-- for reproducible build support, updated by release plugin -->
-        <project.build.outputTimestamp>2024-10-03T18:16:23Z</project.build.outputTimestamp>
+        <project.build.outputTimestamp>2024-10-10T18:17:48Z</project.build.outputTimestamp>
         <!-- TODO remove this property when no module overrides it -->
         <trino.error-prone.guarded-by>ERROR</trino.error-prone.guarded-by>
 
@@ -2533,6 +2533,20 @@
                                     <bannedImport>org.testng.AssertJUnit.*</bannedImport>
                                     <bannedImport>org.testng.asserts.**</bannedImport>
                                 </bannedImports>
+                            </RestrictImports>
+                            <RestrictImports>
+                                <reason>Trino assumes non-nullness by default, otherwise it's marked as @Nullable</reason>
+                                <bannedImports>
+                                    <bannedImport>jakarta.annotation.Nonnull</bannedImport>
+                                    <bannedImport>org.jetbrains.annotations.NotNull</bannedImport>
+                                </bannedImports>
+                                <notFixable>
+                                    <in>io.trino.cache.ElementTypesAreNonnullByDefault</in>
+                                    <allowedImports>
+                                        <allowedImport>jakarta.annotation.Nonnull</allowedImport>
+                                    </allowedImports>
+                                    <because>Extending Guava's API</because>
+                                </notFixable>
                             </RestrictImports>
                             <RestrictImports>
                                 <bannedImports>
