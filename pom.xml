@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.airlift</groupId>
         <artifactId>airbase</artifactId>
-        <version>189</version>
+        <version>190</version>
     </parent>
 
     <groupId>io.trino</groupId>
@@ -188,7 +188,7 @@
         <dep.alluxio.version>2.9.6</dep.alluxio.version>
         <dep.antlr.version>4.13.2</dep.antlr.version>
         <dep.avro.version>1.12.0</dep.avro.version>
-        <dep.aws-sdk.version>1.12.776</dep.aws-sdk.version>
+        <dep.aws-sdk.version>1.12.777</dep.aws-sdk.version>
         <dep.cassandra.version>4.17.0</dep.cassandra.version>
         <dep.confluent.version>7.7.1</dep.confluent.version>
         <dep.docker.images.version>102</dep.docker.images.version>
@@ -269,14 +269,6 @@
             </dependency>
 
             <dependency>
-                <groupId>io.grpc</groupId>
-                <artifactId>grpc-bom</artifactId>
-                <version>1.68.0</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-
-            <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-bom</artifactId>
                 <version>4.1.114.Final</version>
@@ -319,7 +311,7 @@
             <dependency>
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
-                <version>2.28.26</version>
+                <version>2.28.27</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -2880,6 +2872,7 @@
                                     -Xep:OptionalNotPresent:ERROR \
                                     -Xep:OrphanedFormatString:ERROR \
                                     -Xep:Overrides:ERROR \
+                                    -Xep:PatternMatchingInstanceof:ERROR \
                                     <!-- flags List fields even if initialized with ImmutableList -->
                                     -Xep:PreferredInterfaceType:OFF \
                                     -Xep:PrimitiveArrayPassedToVarargsMethod:ERROR \
