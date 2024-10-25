@@ -11,8 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.eventlistener.mysql;
+package io.trino.plugin.faker;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
@@ -20,41 +21,29 @@ import java.util.Map;
 import static io.airlift.configuration.testing.ConfigAssertions.assertFullMapping;
 import static io.airlift.configuration.testing.ConfigAssertions.assertRecordedDefaults;
 import static io.airlift.configuration.testing.ConfigAssertions.recordDefaults;
-import static org.assertj.core.api.Assertions.assertThat;
 
-final class TestMysqlEventListenerConfig
+final class TestFakerConfig
 {
     @Test
     void testDefaults()
     {
-        assertRecordedDefaults(recordDefaults(MysqlEventListenerConfig.class)
-                .setUrl(null));
+        assertRecordedDefaults(recordDefaults(FakerConfig.class)
+                .setNullProbability(0.5)
+                .setDefaultLimit(1000L));
     }
 
     @Test
     void testExplicitPropertyMappings()
     {
-        Map<String, String> properties = Map.of(
-                "mysql-event-listener.db.url", "jdbc:mysql://example.net:3306");
+        Map<String, String> properties = ImmutableMap.<String, String>builder()
+                .put("faker.null-probability", "1.0")
+                .put("faker.default-limit", "10")
+                .buildOrThrow();
 
-        MysqlEventListenerConfig expected = new MysqlEventListenerConfig()
-                .setUrl("jdbc:mysql://example.net:3306");
+        FakerConfig expected = new FakerConfig()
+                .setNullProbability(1.0)
+                .setDefaultLimit(10L);
 
         assertFullMapping(properties, expected);
-    }
-
-    @Test
-    void testIsValidUrl()
-    {
-        assertThat(isValidUrl("jdbc:mysql://example.net:3306")).isTrue();
-        assertThat(isValidUrl("jdbc:mysql://example.net:3306/")).isTrue();
-        assertThat(isValidUrl("jdbc:postgresql://example.net:3306/somedatabase")).isFalse();
-    }
-
-    private static boolean isValidUrl(String url)
-    {
-        return new MysqlEventListenerConfig()
-                .setUrl(url)
-                .isValidUrl();
     }
 }
