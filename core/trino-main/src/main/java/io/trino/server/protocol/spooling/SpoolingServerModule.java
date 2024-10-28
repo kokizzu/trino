@@ -23,11 +23,13 @@ import com.google.inject.multibindings.OptionalBinder;
 import com.google.inject.multibindings.ProvidesIntoSet;
 import io.airlift.configuration.AbstractConfigurationAwareModule;
 import io.trino.server.ServerConfig;
-import io.trino.server.protocol.spooling.encoding.QueryDataEncodingModule;
+import io.trino.server.protocol.spooling.SpoolingConfig.SegmentRetrievalMode;
 import io.trino.spi.protocol.SpoolingManager;
 
 import static com.google.inject.multibindings.OptionalBinder.newOptionalBinder;
 import static io.airlift.jaxrs.JaxrsBinder.jaxrsBinder;
+import static io.trino.server.protocol.spooling.QueryDataEncoder.EncoderSelector.noEncoder;
+import static io.trino.server.protocol.spooling.SpoolingConfig.SegmentRetrievalMode.WORKER_PROXY;
 import static java.util.Objects.requireNonNull;
 
 public class SpoolingServerModule
@@ -42,15 +44,20 @@ public class SpoolingServerModule
         OptionalBinder<SpoolingManager> spoolingManagerBinder = newOptionalBinder(binder, new TypeLiteral<>() {});
         SpoolingEnabledConfig spoolingEnabledConfig = buildConfigObject(SpoolingEnabledConfig.class);
         if (!spoolingEnabledConfig.isEnabled()) {
-            binder.bind(QueryDataEncoder.EncoderSelector.class).toInstance(QueryDataEncoder.EncoderSelector.noEncoder());
+            binder.bind(QueryDataEncoder.EncoderSelector.class).toInstance(noEncoder());
             return;
         }
 
         boolean isCoordinator = buildConfigObject(ServerConfig.class).isCoordinator();
         SpoolingConfig spoolingConfig = buildConfigObject(SpoolingConfig.class);
         binder.bind(QueryDataEncoder.EncoderSelector.class).to(PreferredQueryDataEncoderSelector.class).in(Scopes.SINGLETON);
-        if (spoolingConfig.isUseWorkers() || isCoordinator) {
-            jaxrsBinder(binder).bind(SegmentResource.class);
+
+        SegmentRetrievalMode mode = spoolingConfig.getRetrievalMode();
+        if (isCoordinator) {
+            jaxrsBinder(binder).bind(CoordinatorSegmentResource.class);
+        }
+        else if (mode == WORKER_PROXY) {
+            jaxrsBinder(binder).bind(WorkerSegmentResource.class);
         }
 
         spoolingManagerBinder.setBinding().toProvider(SpoolingManagerProvider.class).in(Scopes.SINGLETON);

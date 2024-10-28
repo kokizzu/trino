@@ -13,21 +13,20 @@
  */
 package io.trino.server.protocol.spooling;
 
-import com.google.common.collect.ImmutableList;
 import com.google.inject.Inject;
 import io.trino.metadata.InternalNode;
 import io.trino.metadata.InternalNodeManager;
 import io.trino.server.ExternalUriInfo;
+import io.trino.server.protocol.spooling.SpoolingConfig.SegmentRetrievalMode;
 import io.trino.server.security.ResourceSecurity;
 import io.trino.spi.HostAddress;
-import io.trino.spi.protocol.SpooledLocation.DirectLocation;
 import io.trino.spi.protocol.SpooledSegmentHandle;
 import io.trino.spi.protocol.SpoolingManager;
-import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.ServiceUnavailableException;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
@@ -37,64 +36,63 @@ import jakarta.ws.rs.core.UriInfo;
 
 import java.io.IOException;
 import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.OptionalInt;
+import java.util.concurrent.ThreadLocalRandom;
 
 import static com.google.common.base.Verify.verify;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.airlift.slice.Slices.wrappedBuffer;
 import static io.trino.server.security.ResourceSecurity.AccessType.PUBLIC;
-import static io.trino.spi.protocol.SpooledLocation.coordinatorLocation;
-import static java.lang.Math.floorDiv;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
-@Path("/v1/spooled/segments/{identifier}")
+@Path("/v1/spooled")
 @ResourceSecurity(PUBLIC)
-public class SegmentResource
+public class CoordinatorSegmentResource
 {
     private final SpoolingManager spoolingManager;
-    private final boolean useWorkers;
+    private final SegmentRetrievalMode retrievalMode;
     private final InternalNodeManager nodeManager;
-    private final AtomicInteger nextWorkerIndex = new AtomicInteger();
 
     @Inject
-    public SegmentResource(SpoolingManager spoolingManager, SpoolingConfig config, InternalNodeManager nodeManager)
+    public CoordinatorSegmentResource(SpoolingManager spoolingManager, SpoolingConfig config, InternalNodeManager nodeManager)
     {
         this.spoolingManager = requireNonNull(spoolingManager, "spoolingManager is null");
+        this.retrievalMode = requireNonNull(config, "config is null").getRetrievalMode();
         this.nodeManager = requireNonNull(nodeManager, "nodeManager is null");
-        this.useWorkers = config.isUseWorkers() && nodeManager.getCurrentNode().isCoordinator();
     }
 
     @GET
+    @Path("/download/{identifier}")
     @Produces(MediaType.APPLICATION_OCTET_STREAM)
     @ResourceSecurity(PUBLIC)
     public Response download(@Context UriInfo uriInfo, @PathParam("identifier") String identifier, @Context HttpHeaders headers)
             throws IOException
     {
         SpooledSegmentHandle handle = handle(identifier, headers);
-        Optional<DirectLocation> directLocation = spoolingManager.directLocation(handle);
 
-        // Direct access is enabled & supported - redirect user to the spooled location using pre-signed URIs
-        if (directLocation.isPresent()) {
-            return Response
-                    .seeOther(directLocation.get().uri())
+        return switch (retrievalMode) {
+            case STORAGE -> throw new ServiceUnavailableException("Retrieval mode is STORAGE but segment resource was called");
+            case COORDINATOR_PROXY -> Response.ok(spoolingManager.openInputStream(handle)).build();
+            case WORKER_PROXY -> {
+                HostAddress hostAddress = randomActiveWorkerNode();
+                yield Response.seeOther(uriInfo
+                                .getRequestUriBuilder()
+                                .host(hostAddress.getHostText())
+                                .port(hostAddress.getPort())
+                                .build())
+                        .build();
+            }
+            case COORDINATOR_STORAGE_REDIRECT -> Response
+                    .seeOther(spoolingManager
+                            .directLocation(handle, OptionalInt.empty()).orElseThrow(() -> new ServiceUnavailableException("Could not generate pre-signed URI"))
+                            .directUri())
                     .build();
-        }
-
-        if (useWorkers) {
-            HostAddress hostAddress = nextActiveNode();
-            return Response.seeOther(uriInfo
-                    .getRequestUriBuilder()
-                        .host(hostAddress.getHostText())
-                        .port(hostAddress.getPort())
-                        .build())
-                    .build();
-        }
-        // Either direct access is not enabled or the fallback to the coordinator access happened
-        return Response.ok(spoolingManager.openInputStream(handle)).build();
+        };
     }
 
-    @DELETE
+    @GET
+    @Path("/ack/{identifier}")
     @ResourceSecurity(PUBLIC)
     public Response acknowledge(@PathParam("identifier") String identifier, @Context HttpHeaders headers)
             throws IOException
@@ -113,19 +111,23 @@ public class SegmentResource
     public static UriBuilder spooledSegmentUriBuilder(ExternalUriInfo info)
     {
         return UriBuilder.fromUri(info.baseUriBuilder().build())
-                .path(SegmentResource.class);
+                .path(CoordinatorSegmentResource.class);
     }
 
-    public HostAddress nextActiveNode()
+    public HostAddress randomActiveWorkerNode()
     {
-        List<InternalNode> internalNodes = ImmutableList.copyOf(nodeManager.getActiveNodesSnapshot().getAllNodes());
-        verify(!internalNodes.isEmpty(), "No active nodes available");
-        return internalNodes.get(floorDiv(nextWorkerIndex.incrementAndGet(), internalNodes.size()))
+        List<InternalNode> internalNodes = nodeManager.getActiveNodesSnapshot().getAllNodes()
+                .stream()
+                .filter(node -> !node.isCoordinator())
+                .collect(toImmutableList());
+
+        verify(!internalNodes.isEmpty(), "No active worker nodes available");
+        return internalNodes.get(ThreadLocalRandom.current().nextInt(internalNodes.size()))
                 .getHostAndPort();
     }
 
     private SpooledSegmentHandle handle(String identifier, HttpHeaders headers)
     {
-        return spoolingManager.handle(coordinatorLocation(wrappedBuffer(identifier.getBytes(UTF_8)), headers.getRequestHeaders()));
+        return spoolingManager.handle(wrappedBuffer(identifier.getBytes(UTF_8)), headers.getRequestHeaders());
     }
 }

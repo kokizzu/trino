@@ -11,14 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.server.protocol.spooling.encoding;
+package io.trino.server.protocol.spooling;
 
 import com.google.inject.Binder;
 import com.google.inject.Scopes;
 import com.google.inject.multibindings.Multibinder;
 import io.airlift.configuration.AbstractConfigurationAwareModule;
-import io.trino.server.protocol.spooling.QueryDataEncoder;
-import io.trino.server.protocol.spooling.QueryDataEncoders;
+import io.trino.server.protocol.spooling.encoding.JsonQueryDataEncoder;
 
 import static com.google.inject.multibindings.Multibinder.newSetBinder;
 
@@ -29,12 +28,18 @@ public class QueryDataEncodingModule
     protected void setup(Binder binder)
     {
         Multibinder<QueryDataEncoder.Factory> encoderFactories = newSetBinder(binder, QueryDataEncoder.Factory.class);
+        QueryDataEncodingConfig config = buildConfigObject(QueryDataEncodingConfig.class);
 
         // json + compressed variants
-        encoderFactories.addBinding().to(JsonQueryDataEncoder.Factory.class).in(Scopes.SINGLETON);
-        encoderFactories.addBinding().to(JsonQueryDataEncoder.ZstdFactory.class).in(Scopes.SINGLETON);
-        encoderFactories.addBinding().to(JsonQueryDataEncoder.Lz4Factory.class).in(Scopes.SINGLETON);
-
+        if (config.isJsonEnabled()) {
+            encoderFactories.addBinding().to(JsonQueryDataEncoder.Factory.class).in(Scopes.SINGLETON);
+        }
+        if (config.isJsonZstdEnabled()) {
+            encoderFactories.addBinding().to(JsonQueryDataEncoder.ZstdFactory.class).in(Scopes.SINGLETON);
+        }
+        if (config.isJsonLz4Enabled()) {
+            encoderFactories.addBinding().to(JsonQueryDataEncoder.Lz4Factory.class).in(Scopes.SINGLETON);
+        }
         binder.bind(QueryDataEncoders.class).in(Scopes.SINGLETON);
     }
 }
