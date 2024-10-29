@@ -8,7 +8,6 @@ different [data sources](trino-concept-data-source) by configuring
 ```{toctree}
 :maxdepth: 1
 
-Accumulo        <connector/accumulo>
 BigQuery        <connector/bigquery>
 Black Hole      <connector/blackhole>
 Cassandra       <connector/cassandra>
@@ -45,4 +44,10 @@ System          <connector/system>
 Thrift          <connector/thrift>
 TPCDS           <connector/tpcds>
 TPCH            <connector/tpch>
+```
+
+```{toctree}
+:hidden:
+
+connector/removed
 ```
