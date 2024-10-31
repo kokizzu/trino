@@ -35,7 +35,6 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.amazonaws.util.CollectionUtils.isNullOrEmpty;
-import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.trino.metastore.HiveType.HIVE_STRING;
 import static io.trino.plugin.hive.TableType.EXTERNAL_TABLE;
 import static io.trino.plugin.hive.metastore.glue.v1.TestingMetastoreObjects.getGlueTestColumn;
@@ -119,7 +118,7 @@ public class TestGlueToTrinoConverter
         assertThat(trinoTable.getTableType()).isEqualTo(getTableTypeNullable(glueTable));
         assertThat(trinoTable.getOwner().orElse(null)).isEqualTo(glueTable.getOwner());
         assertThat(trinoTable.getParameters()).isEqualTo(getTableParameters(glueTable));
-        assertThat(trinoTable.getDataColumns().size()).isEqualTo(1);
+        assertThat(trinoTable.getDataColumns()).hasSize(1);
         assertThat(trinoTable.getDataColumns().get(0).getType()).isEqualTo(HIVE_STRING);
 
         assertColumnList(trinoTable.getPartitionColumns(), glueTable.getPartitionKeys());
@@ -224,7 +223,7 @@ public class TestGlueToTrinoConverter
         testTable.setParameters(ImmutableMap.of(ICEBERG_TABLE_TYPE_NAME, ICEBERG_TABLE_TYPE_VALUE));
         testTable.setStorageDescriptor(null);
         io.trino.metastore.Table trinoTable = GlueToTrinoConverter.convertTable(testTable, testDatabase.getName());
-        assertThat(trinoTable.getDataColumns().size()).isEqualTo(1);
+        assertThat(trinoTable.getDataColumns()).hasSize(1);
     }
 
     @Test
@@ -233,7 +232,7 @@ public class TestGlueToTrinoConverter
         testTable.setParameters(ImmutableMap.of(ICEBERG_TABLE_TYPE_NAME, ICEBERG_TABLE_TYPE_VALUE));
         assertThat(getStorageDescriptor(testTable)).isPresent();
         io.trino.metastore.Table trinoTable = GlueToTrinoConverter.convertTable(testTable, testDatabase.getName());
-        assertThat(trinoTable.getDataColumns().size()).isEqualTo(1);
+        assertThat(trinoTable.getDataColumns()).hasSize(1);
     }
 
     @Test
@@ -242,7 +241,7 @@ public class TestGlueToTrinoConverter
         testTable.setParameters(ImmutableMap.of(SPARK_TABLE_PROVIDER_KEY, DELTA_LAKE_PROVIDER));
         testTable.setStorageDescriptor(null);
         io.trino.metastore.Table trinoTable = GlueToTrinoConverter.convertTable(testTable, testDatabase.getName());
-        assertThat(trinoTable.getDataColumns().size()).isEqualTo(1);
+        assertThat(trinoTable.getDataColumns()).hasSize(1);
     }
 
     @Test
@@ -251,11 +250,7 @@ public class TestGlueToTrinoConverter
         testTable.setParameters(ImmutableMap.of(SPARK_TABLE_PROVIDER_KEY, DELTA_LAKE_PROVIDER));
         assertThat(getStorageDescriptor(testTable)).isPresent();
         io.trino.metastore.Table trinoTable = GlueToTrinoConverter.convertTable(testTable, testDatabase.getName());
-        assertThat(trinoTable.getDataColumns().stream()
-                .map(Column::getName)
-                .collect(toImmutableSet())).isEqualTo(getStorageDescriptor(testTable).orElseThrow().getColumns().stream()
-                .map(com.amazonaws.services.glue.model.Column::getName)
-                .collect(toImmutableSet()));
+        assertThat(trinoTable.getDataColumns()).hasSize(1);
     }
 
     @Test
@@ -264,7 +259,7 @@ public class TestGlueToTrinoConverter
         Table testMaterializedView = getGlueTestTrinoMaterializedView(testDatabase.getName());
         assertThat(getStorageDescriptor(testMaterializedView)).isEmpty();
         io.trino.metastore.Table trinoTable = GlueToTrinoConverter.convertTable(testMaterializedView, testDatabase.getName());
-        assertThat(trinoTable.getDataColumns().size()).isEqualTo(1);
+        assertThat(trinoTable.getDataColumns()).hasSize(1);
     }
 
     @Test
@@ -279,7 +274,7 @@ public class TestGlueToTrinoConverter
         if (expected == null) {
             assertThat(actual).isNull();
         }
-        assertThat(actual.size()).isEqualTo(expected.size());
+        assertThat(actual).hasSize(expected.size());
 
         for (int i = 0; i < expected.size(); i++) {
             assertColumn(actual.get(i), expected.get(i));

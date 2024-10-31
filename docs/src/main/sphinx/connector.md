@@ -16,6 +16,7 @@ Delta Lake      <connector/delta-lake>
 Druid           <connector/druid>
 Elasticsearch   <connector/elasticsearch>
 Exasol          <connector/exasol>
+Faker           <connector/faker>
 Google Sheets   <connector/googlesheets>
 Hive            <connector/hive>
 Hudi            <connector/hudi>
@@ -44,6 +45,7 @@ System          <connector/system>
 Thrift          <connector/thrift>
 TPCDS           <connector/tpcds>
 TPCH            <connector/tpch>
+Vertica         <connector/vertica>
 ```
 
 ```{toctree}
