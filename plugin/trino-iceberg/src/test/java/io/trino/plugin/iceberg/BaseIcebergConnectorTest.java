@@ -191,6 +191,8 @@ public abstract class BaseIcebergConnectorTest
         return IcebergQueryRunner.builder()
                 .setIcebergProperties(ImmutableMap.<String, String>builder()
                         .put("iceberg.file-format", format.name())
+                        // Only allow some extra properties. Add "sorted_by" so that we can test that the property is disallowed by the connector explicitly.
+                        .put("iceberg.allowed-extra-properties", "extra.property.one,extra.property.two,extra.property.three,sorted_by")
                         // Allows testing the sorting writer flushing to the file system with smaller tables
                         .put("iceberg.writer-sort-buffer-size", "1MB")
                         .buildOrThrow())
@@ -1442,7 +1444,8 @@ public abstract class BaseIcebergConnectorTest
                 .matches("VALUES " + values + ", " + highValues + ", " + lowValues);
 
         // Insert "large" number of rows, supposedly topping over iceberg.writer-sort-buffer-size so that temporary files are utilized by the sorting writer.
-        assertUpdate("""
+        assertUpdate(
+                """
                 INSERT INTO %s
                 SELECT v.*
                 FROM (VALUES %s, %s, %s) v
@@ -1923,12 +1926,12 @@ public abstract class BaseIcebergConnectorTest
         assertUpdate(format("CREATE TABLE test_create_table_like_original (col1 INTEGER, aDate DATE) WITH(format = '%s', location = '%s', partitioning = ARRAY['aDate'])", format, tempDirPath));
         assertThat(getTablePropertiesString("test_create_table_like_original")).isEqualTo(format(
                 """
-                WITH (
-                   format = '%s',
-                   format_version = 2,
-                   location = '%s',
-                   partitioning = ARRAY['adate']
-                )""",
+                        WITH (
+                           format = '%s',
+                           format_version = 2,
+                           location = '%s',
+                           partitioning = ARRAY['adate']
+                        )""",
                 format,
                 tempDirPath));
 
@@ -1939,22 +1942,22 @@ public abstract class BaseIcebergConnectorTest
         assertUpdate("CREATE TABLE test_create_table_like_copy1 (LIKE test_create_table_like_original)");
         assertThat(getTablePropertiesString("test_create_table_like_copy1")).isEqualTo(format(
                 """
-                WITH (
-                   format = '%s',
-                   format_version = 2,
-                   location = '%s'
-                )""",
+                        WITH (
+                           format = '%s',
+                           format_version = 2,
+                           location = '%s'
+                        )""",
                 format,
                 getTableLocation("test_create_table_like_copy1")));
 
         assertUpdate("CREATE TABLE test_create_table_like_copy2 (LIKE test_create_table_like_original EXCLUDING PROPERTIES)");
         assertThat(getTablePropertiesString("test_create_table_like_copy2")).isEqualTo(format(
                 """
-                WITH (
-                   format = '%s',
-                   format_version = 2,
-                   location = '%s'
-                )""",
+                        WITH (
+                           format = '%s',
+                           format_version = 2,
+                           location = '%s'
+                        )""",
                 format,
                 getTableLocation("test_create_table_like_copy2")));
         assertUpdate("DROP TABLE test_create_table_like_copy2");
@@ -7472,6 +7475,8 @@ public abstract class BaseIcebergConnectorTest
                 "The following properties cannot be updated: location, orc_bloom_filter_fpp");
         assertQueryFails("ALTER TABLE " + tableName + " SET PROPERTIES format = 'ORC', orc_bloom_filter_columns = ARRAY['a']",
                 "The following properties cannot be updated: orc_bloom_filter_columns");
+        assertQueryFails("ALTER TABLE " + tableName + " SET PROPERTIES extra_properties = MAP(ARRAY['extra.property.one'], ARRAY['foo'])",
+                "The following properties cannot be updated: extra_properties");
 
         assertUpdate("DROP TABLE " + tableName);
     }
@@ -8097,13 +8102,15 @@ public abstract class BaseIcebergConnectorTest
         String catalog = getSession().getCatalog().orElseThrow();
         try (TestTable salesTable = new TestTable(getQueryRunner()::execute, "sales_table", "(date date, receipt_id varchar, amount decimal(10,2)) with (partitioning=array['date'])");
                 TestTable dimensionTable = new TestTable(getQueryRunner()::execute, "dimension_table", "(date date, following_holiday boolean, year int)")) {
-            assertUpdate("""
+            assertUpdate(
+                    """
                     INSERT INTO %s
                     VALUES
                         (DATE '2023-01-01' , false, 2023),
                         (DATE '2023-01-02' , true, 2023),
                         (DATE '2023-01-03' , false, 2023)""".formatted(dimensionTable.getName()), 3);
-            assertUpdate("""
+            assertUpdate(
+                    """
                     INSERT INTO %s
                     VALUES
                         (DATE '2023-01-02' , '#2023#1', DECIMAL '122.12'),
@@ -8117,7 +8124,8 @@ public abstract class BaseIcebergConnectorTest
                         (DATE '2023-01-05' , '#2023#9', DECIMAL '70.75'),
                         (DATE '2023-01-05' , '#2023#10', DECIMAL '80.12')""".formatted(salesTable.getName()), 10);
 
-            String selectQuery = """
+            String selectQuery =
+                    """
                     SELECT receipt_id
                     FROM %s s
                     JOIN %s d
@@ -8419,6 +8427,94 @@ public abstract class BaseIcebergConnectorTest
         assertQuerySucceeds("TABLE nation");
         // verify that <base>$<invalid-suffix> results in table not found
         assertQueryFails("TABLE \"nation$foo\"", "\\Qline 1:1: Table '%s.%s.\"nation$foo\"' does not exist".formatted(catalog, schema));
+    }
+
+    @Test
+    public void testExtraProperties()
+    {
+        String tableName = "test_create_table_with_multiple_extra_properties_" + randomNameSuffix();
+        assertUpdate("CREATE TABLE " + tableName + " (c1 integer) WITH (extra_properties = MAP(ARRAY['extra.property.one', 'extra.property.TWO'], ARRAY['one', 'two']))");
+
+        assertThat(query("SELECT key, value FROM \"" + tableName + "$properties\" WHERE key IN ('extra.property.one', 'extra.property.two')"))
+                .skippingTypesCheck()
+                .matches("VALUES ('extra.property.one', 'one'), ('extra.property.two', 'two')");
+
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    @Test
+    public void testReplaceTableExtraProperties()
+    {
+        String tableName = "test_replace_table_with_multiple_extra_properties_" + randomNameSuffix();
+        assertUpdate("CREATE TABLE " + tableName + " (c1 integer) WITH (extra_properties = MAP(ARRAY['extra.property.one', 'extra.property.two'], ARRAY['one', 'two']))");
+        assertUpdate("CREATE OR REPLACE TABLE " + tableName + " (c1 integer) WITH (extra_properties = MAP(ARRAY['extra.property.three'], ARRAY['three']))");
+
+        assertThat(query("SELECT key, value FROM \"" + tableName + "$properties\" WHERE key IN ('extra.property.one', 'extra.property.two', 'extra.property.three')"))
+                .skippingTypesCheck()
+                .matches("VALUES ('extra.property.three', 'three')");
+
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    @Test
+    public void testCreateTableAsSelectWithExtraProperties()
+    {
+        String tableName = "test_ctas_with_extra_properties_" + randomNameSuffix();
+        assertUpdate("CREATE TABLE " + tableName + " WITH (extra_properties = MAP(ARRAY['extra.property.one', 'extra.property.two'], ARRAY['one', 'two'])) " +
+                "AS SELECT 1 as c1", 1);
+
+        assertThat(query("SELECT key, value FROM \"" + tableName + "$properties\" WHERE key IN ('extra.property.one', 'extra.property.two')"))
+                .skippingTypesCheck()
+                .matches("VALUES ('extra.property.one', 'one'), ('extra.property.two', 'two')");
+
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    @Test
+    public void testShowCreateNotContainExtraProperties()
+    {
+        String tableName = "test_show_create_table_with_extra_properties_" + randomNameSuffix();
+        assertUpdate("CREATE TABLE " + tableName + " (c1 integer) WITH (extra_properties = MAP(ARRAY['extra.property.one', 'extra.property.two'], ARRAY['one', 'two']))");
+
+        assertThat((String) computeScalar("SHOW CREATE TABLE " + tableName)).doesNotContain("extra_properties =", "extra.property.one", "extra.property.two");
+
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    @Test
+    public void testNullExtraProperty()
+    {
+        assertQueryFails(
+                "CREATE TABLE test_create_table_with_null_extra_properties (c1 integer) WITH (extra_properties = MAP(ARRAY['null.property'], ARRAY[null]))",
+                ".*\\QUnable to set catalog 'iceberg' table property 'extra_properties' to [MAP(ARRAY['null.property'], ARRAY[null])]: Extra table property value cannot be null '{null.property=null}'\\E");
+
+        assertQueryFails(
+                "CREATE TABLE test_create_table_with_as_null_extra_properties WITH (extra_properties = MAP(ARRAY['null.property'], ARRAY[null])) AS SELECT 1 as c1",
+                ".*\\QUnable to set catalog 'iceberg' table property 'extra_properties' to [MAP(ARRAY['null.property'], ARRAY[null])]: Extra table property value cannot be null '{null.property=null}'\\E");
+    }
+
+    @Test
+    public void testIllegalExtraPropertyKey()
+    {
+        assertQueryFails(
+                "CREATE TABLE test_create_table_with_illegal_extra_properties (c1 integer) WITH (extra_properties = MAP(ARRAY['sorted_by'], ARRAY['id']))",
+                "\\QIllegal keys in extra_properties: [sorted_by]");
+
+        assertQueryFails(
+                "CREATE TABLE test_create_table_as_with_illegal_extra_properties WITH (extra_properties = MAP(ARRAY['extra_properties'], ARRAY['some_value'])) AS SELECT 1 as c1",
+                "\\QIllegal keys in extra_properties: [extra_properties]");
+
+        assertQueryFails(
+                "CREATE TABLE test_create_table_with_as_illegal_extra_properties WITH (extra_properties = MAP(ARRAY['write.format.default'], ARRAY['ORC'])) AS SELECT 1 as c1",
+                "\\QIllegal keys in extra_properties: [write.format.default]");
+
+        assertQueryFails(
+                "CREATE TABLE test_create_table_with_as_illegal_extra_properties WITH (extra_properties = MAP(ARRAY['comment'], ARRAY['some comment'])) AS SELECT 1 as c1",
+                "\\QIllegal keys in extra_properties: [comment]");
+
+        assertQueryFails(
+                "CREATE TABLE test_create_table_with_as_illegal_extra_properties WITH (extra_properties = MAP(ARRAY['not_allowed_property'], ARRAY['foo'])) AS SELECT 1 as c1",
+                "\\QIllegal keys in extra_properties: [not_allowed_property]");
     }
 
     @Override

@@ -216,6 +216,10 @@ implementation is used:
   -  Enable [sorted writing](iceberg-sorted-files) to tables with a specified sort order. Equivalent
      session property is `sorted_writing_enabled`.
   -  `true` 
+* - `iceberg.allowed-extra-properties`
+  -  List of extra properties that are allowed to be set on Iceberg tables.
+     Use `*` to allow all properties.
+  - `[]`
 * - `iceberg.split-manager-threads`
   -  Number of threads to use for generating splits.
   -  Double the number of processors on the coordinator node.
@@ -855,6 +859,10 @@ connector using a {doc}`WITH </sql/create-table-as>` clause.
   - Comma-separated list of columns to use for Parquet bloom filter. It improves
     the performance of queries using Equality and IN predicates when reading
     Parquet files. Requires Parquet format. Defaults to `[]`.
+* - `extra_properties`
+  - Additional properties added to a Iceberg table. The properties are not used by Trino,
+    and are available in the `$properties` metadata table.
+    The properties are not included in the output of `SHOW CREATE TABLE` statements.
 :::
 
 The table definition below specifies to use Parquet files, partitioning by columns

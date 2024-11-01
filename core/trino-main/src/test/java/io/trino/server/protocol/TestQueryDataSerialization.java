@@ -23,9 +23,9 @@ import io.trino.client.Column;
 import io.trino.client.JsonCodec;
 import io.trino.client.QueryData;
 import io.trino.client.QueryResults;
-import io.trino.client.RawQueryData;
 import io.trino.client.ResultRowsDecoder;
 import io.trino.client.StatementStats;
+import io.trino.client.TypedQueryData;
 import io.trino.client.spooling.DataAttributes;
 import io.trino.client.spooling.EncodedQueryData;
 import io.trino.server.protocol.spooling.QueryDataJacksonModule;
@@ -63,15 +63,15 @@ public class TestQueryDataSerialization
     public void testNullDataSerialization()
     {
         assertThat(serialize(null)).doesNotContain("data");
-        assertThat(serialize(RawQueryData.of(null))).doesNotContain("data");
+        assertThat(serialize(TypedQueryData.of(null))).doesNotContain("data");
     }
 
     @Test
     public void testEmptyArraySerialization()
     {
-        testRoundTrip(RawQueryData.of(ImmutableList.of()), "[]");
+        testRoundTrip(TypedQueryData.of(ImmutableList.of()), "[]");
 
-        assertThatThrownBy(() -> testRoundTrip(RawQueryData.of(ImmutableList.of(ImmutableList.of())), "[[]]"))
+        assertThatThrownBy(() -> testRoundTrip(TypedQueryData.of(ImmutableList.of(ImmutableList.of())), "[[]]"))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("Unexpected token END_ARRAY");
     }
@@ -80,14 +80,15 @@ public class TestQueryDataSerialization
     public void testQueryDataSerialization()
     {
         Iterable<List<Object>> values = ImmutableList.of(ImmutableList.of(1L), ImmutableList.of(5L));
-        testRoundTrip(RawQueryData.of(values), "[[1],[5]]");
+        testRoundTrip(TypedQueryData.of(values), "[[1],[5]]");
     }
 
     @Test
     public void testEncodedQueryDataSerialization()
     {
         EncodedQueryData queryData = new EncodedQueryData("json", ImmutableMap.of(), ImmutableList.of(inlined("[[10], [20]]".getBytes(UTF_8), dataAttributes(10, 2, 12))));
-        testRoundTrip(queryData, """
+        testRoundTrip(queryData,
+                """
                 {
                   "encoding": "json",
                   "segments": [
@@ -108,7 +109,8 @@ public class TestQueryDataSerialization
     public void testEncodedQueryDataSerializationWithExtraMetadata()
     {
         EncodedQueryData queryData = new EncodedQueryData("json", ImmutableMap.of("decryptionKey", "secret"), ImmutableList.of(inlined("[[10], [20]]".getBytes(UTF_8), dataAttributes(10, 2, 12))));
-        testRoundTrip(queryData, """
+        testRoundTrip(queryData,
+                """
                 {
                   "encoding": "json",
                   "metadata": {
@@ -146,7 +148,8 @@ public class TestQueryDataSerialization
                         .set(SCHEMA, "serializedSchema")
                         .build())
                 .build();
-        testSerializationRoundTrip(queryData, """
+        testSerializationRoundTrip(queryData,
+                """
                 {
                   "encoding": "json",
                   "metadata": {
@@ -215,7 +218,8 @@ public class TestQueryDataSerialization
 
     private String queryResultsJson(String expectedDataField)
     {
-        return format("""
+        return format(
+                """
                 {
                   "id": "20160128_214710_00012_rk68b",
                   "infoUri": "http://coordinator/query.html?20160128_214710_00012_rk68b",
