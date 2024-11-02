@@ -295,7 +295,7 @@ public class TestDirectExchangeClient
         processor.setComplete(location2);
         buffer.whenTaskFinished(task2).get(10, SECONDS);
         assertThat(buffer.getFinishedTasks()).containsExactlyInAnyOrder(task1, task2);
-        assertThat(buffer.getPages().get(task2)).hasSize(0);
+        assertThat(buffer.getPages().get(task2)).isEmpty();
 
         exchangeClient.addLocation(task3, location3);
         assertThat(buffer.getAllTasks()).containsExactlyInAnyOrder(task1, task2, task3);
@@ -681,7 +681,7 @@ public class TestDirectExchangeClient
 
         assertThat(buffer.getFinishedTasks()).containsExactly(task1);
         assertThat(buffer.getFailedTasks().keySet()).containsExactly(task2);
-        assertThat(buffer.getPages().get(task2)).hasSize(0);
+        assertThat(buffer.getPages().get(task2)).isEmpty();
 
         exchangeClient.addLocation(task3, location3);
         assertThat(buffer.getAllTasks()).containsExactlyInAnyOrder(task1, task2, task3);
@@ -694,8 +694,8 @@ public class TestDirectExchangeClient
 
         assertThat(buffer.getFinishedTasks()).containsExactly(task1);
         assertThat(buffer.getFailedTasks().keySet()).containsExactlyInAnyOrder(task2, task3);
-        assertThat(buffer.getPages().get(task2)).hasSize(0);
-        assertThat(buffer.getPages().get(task3)).hasSize(0);
+        assertThat(buffer.getPages().get(task2)).isEmpty();
+        assertThat(buffer.getPages().get(task3)).isEmpty();
 
         assertThat(latch.await(10, SECONDS)).isTrue();
         assertThat(failedTasks).isEqualTo(ImmutableSet.of(task2, task3));
@@ -1015,7 +1015,7 @@ public class TestDirectExchangeClient
         int clientCount = exchangeClient.scheduleRequestIfNecessary();
         // The first client filled the buffer. There is no place for the another one
         assertThat(clientCount).isEqualTo(1);
-        assertThat(exchangeClient.getRunningClients().size()).isEqualTo(1);
+        assertThat(exchangeClient.getRunningClients()).hasSize(1);
     }
 
     @Test
@@ -1049,7 +1049,7 @@ public class TestDirectExchangeClient
 
         int clientCount = exchangeClient.scheduleRequestIfNecessary();
         assertThat(clientCount).isEqualTo(2);
-        assertThat(exchangeClient.getRunningClients().size()).isEqualTo(2);
+        assertThat(exchangeClient.getRunningClients()).hasSize(2);
     }
 
     @Test
@@ -1088,7 +1088,7 @@ public class TestDirectExchangeClient
         int clientCount = exchangeClient.scheduleRequestIfNecessary();
         // The first client is pending and it reserved the space in the buffer. There is no place for the another one
         assertThat(clientCount).isEqualTo(0);
-        assertThat(exchangeClient.getRunningClients().size()).isEqualTo(1);
+        assertThat(exchangeClient.getRunningClients()).hasSize(1);
     }
 
     private HttpPageBufferClient createHttpPageBufferClient(TestingHttpClient.Processor processor, DataSize expectedMaxSize, URI location, HttpPageBufferClient.ClientCallback callback)

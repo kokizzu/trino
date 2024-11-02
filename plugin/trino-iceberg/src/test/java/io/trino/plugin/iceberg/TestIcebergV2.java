@@ -770,7 +770,7 @@ public class TestIcebergV2
         assertThat(partitionFields.get(0).transform().isIdentity()).isTrue();
         assertThat(table.sortOrder().isSorted()).isTrue();
         List<SortField> sortFields = table.sortOrder().fields();
-        assertThat(sortFields.size()).isEqualTo(1);
+        assertThat(sortFields).hasSize(1);
         assertThat(getOnlyElement(sortFields).sourceId()).isEqualTo(table.schema().findField("comment").fieldId());
         assertQuery("SELECT * FROM " + tableName, "SELECT * FROM nation");
     }
@@ -887,10 +887,10 @@ public class TestIcebergV2
 
         assertThat(this.loadTable(tableName).newScan().planFiles()).hasSize(5);
         assertUpdate("DELETE FROM " + tableName + " WHERE regionkey < 10", "SELECT count(*) FROM nation WHERE regionkey < 10");
-        assertThat(this.loadTable(tableName).newScan().planFiles()).hasSize(0);
+        assertThat(this.loadTable(tableName).newScan().planFiles()).isEmpty();
         assertUpdate("DELETE FROM " + tableName + " WHERE regionkey < 10");
         assertThat(query("SELECT * FROM " + tableName)).returnsEmptyResult();
-        assertThat(this.loadTable(tableName).newScan().planFiles()).hasSize(0);
+        assertThat(this.loadTable(tableName).newScan().planFiles()).isEmpty();
     }
 
     @Test

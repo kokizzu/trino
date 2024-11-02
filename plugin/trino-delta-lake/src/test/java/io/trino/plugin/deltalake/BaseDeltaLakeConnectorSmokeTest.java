@@ -761,7 +761,7 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
         List<MaterializedRow> materializedRows = getQueryRunner()
                 .execute("SELECT DISTINCT regexp_replace(\"$path\", '(.*[/][^/]*)[/][^/]*$', '$1') FROM " + schemaName + "." + tableName)
                 .getMaterializedRows();
-        assertThat(materializedRows.size()).isEqualTo(1);
+        assertThat(materializedRows).hasSize(1);
         assertThat((String) materializedRows.get(0).getField(0)).matches(format("%s/%s.*", schemaLocation, tableName));
     }
 
@@ -886,7 +886,7 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
                 "SELECT count(*) FROM nation");
         int fileCount = getTableFiles(tableName).size();
         assertUpdate(format("DROP TABLE %s.%s", schemaName, tableName));
-        assertThat(getTableFiles(tableName).size()).isEqualTo(fileCount);
+        assertThat(getTableFiles(tableName)).hasSize(fileCount);
     }
 
     @Test
@@ -1357,7 +1357,7 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
         assertUpdate(format("DELETE FROM %s WHERE a_string = 'kreta'", tableName), 1);
 
         // sanity check
-        assertThat(listCheckpointFiles(transactionLogDirectory)).hasSize(0);
+        assertThat(listCheckpointFiles(transactionLogDirectory)).isEmpty();
         assertQuery("SELECT * FROM " + tableName, "VALUES (1,'ala'),  (3,'psa'), (2, 'bobra')");
 
         // fill to first checkpoint which reads JSON files
@@ -1458,7 +1458,7 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
         String transactionLogDirectory = format("%s/_delta_log", tableName);
 
         assertUpdate(format("INSERT INTO %s VALUES (2, 'kota'), (3, 'psa')", tableName), 2);
-        assertThat(listCheckpointFiles(transactionLogDirectory)).hasSize(0);
+        assertThat(listCheckpointFiles(transactionLogDirectory)).isEmpty();
         assertQuery("SELECT * FROM " + tableName, "VALUES (1,'ala'),  (2,'kota'), (3, 'psa')");
 
         // replace table
@@ -1656,7 +1656,7 @@ public abstract class BaseDeltaLakeConnectorSmokeTest
         assertUpdate(format("INSERT INTO %s VALUES (10, 'kota')", tableName), 1);
 
         // there should not be a checkpoint yet
-        assertThat(listCheckpointFiles(transactionLogDirectory)).hasSize(0);
+        assertThat(listCheckpointFiles(transactionLogDirectory)).isEmpty();
         testCountQuery(format("SELECT count(*) FROM %s WHERE a_number <= 3", tableName), 3, 3);
 
         // perform one more insert to ensure checkpoint
