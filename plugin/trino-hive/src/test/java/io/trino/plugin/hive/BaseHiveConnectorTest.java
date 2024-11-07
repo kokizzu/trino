@@ -363,6 +363,14 @@ public abstract class BaseHiveConnectorTest
 
     @Test
     @Override
+    public void testUpdateCaseSensitivity()
+    {
+        assertThatThrownBy(super::testUpdateCaseSensitivity)
+                .hasMessage(MODIFYING_NON_TRANSACTIONAL_TABLE_MESSAGE);
+    }
+
+    @Test
+    @Override
     public void testUpdateRowConcurrently()
             throws Exception
     {
@@ -9083,6 +9091,29 @@ public abstract class BaseHiveConnectorTest
                 "EXPLAIN ANALYZE VERBOSE SELECT * FROM (SELECT nationkey, count(*) cnt FROM nation GROUP BY 1) where cnt > 0",
                 "'Filter CPU time' = \\{duration=.*}",
                 "'Projection CPU time' = \\{duration=.*}");
+    }
+
+    @Test
+    public void testExplainAnalyzeAccumulatorUpdateWallTime()
+    {
+        assertExplainAnalyze(
+                "EXPLAIN ANALYZE VERBOSE SELECT count(*) FROM nation",
+                "'Accumulator update CPU time' = \\{duration=.*}");
+        assertExplainAnalyze(
+                "EXPLAIN ANALYZE VERBOSE SELECT name, (SELECT max(name) FROM region WHERE regionkey > nation.regionkey) FROM nation",
+                "'Accumulator update CPU time' = \\{duration=.*}");
+    }
+
+    @Test
+    public void testExplainAnalyzeGroupByHashUpdateWallTime()
+    {
+        assertExplainAnalyze(
+                "EXPLAIN ANALYZE VERBOSE SELECT nationkey FROM nation GROUP BY nationkey",
+                "'Group by hash update CPU time' = \\{duration=.*}");
+        assertExplainAnalyze(
+                "EXPLAIN ANALYZE VERBOSE SELECT count(*), nationkey FROM nation GROUP BY nationkey",
+                "'Accumulator update CPU time' = \\{duration=.*}",
+                "'Group by hash update CPU time' = \\{duration=.*}");
     }
 
     @Test

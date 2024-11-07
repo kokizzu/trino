@@ -11,26 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.faker;
+package io.trino.verifier;
 
-import io.trino.spi.HostAddress;
-import io.trino.spi.connector.ConnectorSplit;
+import java.io.Closeable;
 
-import java.util.List;
-
-import static java.util.Objects.requireNonNull;
-
-public record FakerSplit(List<HostAddress> addresses, long splitNumber, long limit)
-        implements ConnectorSplit
+public interface EventConsumer
+        extends Closeable
 {
-    public FakerSplit
-    {
-        requireNonNull(addresses, "addresses is null");
-    }
-
-    @Override
-    public List<HostAddress> getAddresses()
-    {
-        return addresses;
-    }
+    void postEvent(VerifierQueryEvent event);
 }
