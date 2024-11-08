@@ -13,24 +13,17 @@
  */
 package io.trino.plugin.faker;
 
-import io.trino.spi.HostAddress;
 import io.trino.spi.connector.ConnectorSplit;
 
-import java.util.List;
+import static com.google.common.base.Preconditions.checkArgument;
 
-import static java.util.Objects.requireNonNull;
-
-public record FakerSplit(List<HostAddress> addresses, long splitNumber, long limit)
+public record FakerSplit(long splitNumber, long rowsOffset, long rowsCount)
         implements ConnectorSplit
 {
     public FakerSplit
     {
-        requireNonNull(addresses, "addresses is null");
-    }
-
-    @Override
-    public List<HostAddress> getAddresses()
-    {
-        return addresses;
+        checkArgument(splitNumber >= 0, "splitNumber is negative");
+        checkArgument(rowsOffset >= 0, "rowsOffset is negative");
+        checkArgument(rowsCount >= 0, "rowsCount is negative");
     }
 }

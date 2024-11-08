@@ -46,6 +46,7 @@ import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.security.TrinoPrincipal;
 import io.trino.spi.statistics.ComputedStatistics;
+import io.trino.spi.type.BigintType;
 import io.trino.spi.type.CharType;
 import io.trino.spi.type.VarbinaryType;
 import io.trino.spi.type.VarcharType;
@@ -77,7 +78,7 @@ public class FakerMetadata
         implements ConnectorMetadata
 {
     public static final String SCHEMA_NAME = "default";
-    public static final String RANDOM_STRING_FUNCTION = "random_string";
+    public static final String ROW_ID_COLUMN_NAME = "$row_id";
 
     @GuardedBy("this")
     private final List<SchemaInfo> schemas = new ArrayList<>();
@@ -260,6 +261,9 @@ public class FakerMetadata
         TableInfo oldInfo = tables.get(tableName);
         List<ColumnInfo> columns = oldInfo.columns().stream()
                 .map(columnInfo -> {
+                    if (ROW_ID_COLUMN_NAME.equals(columnInfo.handle().name())) {
+                        throw new IllegalArgumentException(String.format("Cannot set comment for %s column", ROW_ID_COLUMN_NAME));
+                    }
                     if (columnInfo.handle().equals(column)) {
                         return columnInfo.withComment(comment);
                     }
@@ -293,8 +297,9 @@ public class FakerMetadata
         double tableNullProbability = (double) tableMetadata.getProperties().getOrDefault(TableInfo.NULL_PROBABILITY_PROPERTY, schemaNullProbability);
 
         ImmutableList.Builder<ColumnInfo> columns = ImmutableList.builder();
-        for (int i = 0; i < tableMetadata.getColumns().size(); i++) {
-            ColumnMetadata column = tableMetadata.getColumns().get(i);
+        int columnId = 0;
+        for (; columnId < tableMetadata.getColumns().size(); columnId++) {
+            ColumnMetadata column = tableMetadata.getColumns().get(columnId);
             double nullProbability = 0;
             if (column.isNullable()) {
                 nullProbability = (double) column.getProperties().getOrDefault(ColumnInfo.NULL_PROBABILITY_PROPERTY, tableNullProbability);
@@ -305,13 +310,27 @@ public class FakerMetadata
             }
             columns.add(new ColumnInfo(
                     new FakerColumnHandle(
-                            i,
+                            columnId,
                             column.getName(),
                             column.getType(),
                             nullProbability,
                             generator),
                     column));
         }
+
+        columns.add(new ColumnInfo(
+                new FakerColumnHandle(
+                        columnId,
+                        ROW_ID_COLUMN_NAME,
+                        BigintType.BIGINT,
+                        0,
+                        ""),
+                ColumnMetadata.builder()
+                        .setName(ROW_ID_COLUMN_NAME)
+                        .setType(BigintType.BIGINT)
+                        .setHidden(true)
+                        .setNullable(false)
+                        .build()));
 
         tables.put(tableName, new TableInfo(
                 columns.build(),
