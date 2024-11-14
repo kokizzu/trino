@@ -269,7 +269,7 @@
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-bom</artifactId>
-                <version>4.1.114.Final</version>
+                <version>4.1.115.Final</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -309,7 +309,7 @@
             <dependency>
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
-                <version>2.29.10</version>
+                <version>2.29.11</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -940,7 +940,7 @@
             <dependency>
                 <groupId>io.projectreactor</groupId>
                 <artifactId>reactor-core</artifactId>
-                <version>3.6.11</version>
+                <version>3.7.0</version>
             </dependency>
 
             <!-- io.confluent:kafka-avro-serializer uses multiple versions of this transitive dependency -->
