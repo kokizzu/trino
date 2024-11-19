@@ -384,6 +384,7 @@ public class TestDeltaLakeConnectorTest
     @Test
     public void testCreateTableWithUnsupportedPartitionType()
     {
+        // Update TestDeltaLakeBasic.testPartitionValuesParsedCheckpoint() when the connector supports these types as partition columns
         String tableName = "test_create_table_unsupported_partition_types_" + randomNameSuffix();
         assertQueryFails(
                 "CREATE TABLE " + tableName + "(a INT, part ARRAY(INT)) WITH (partitioned_by = ARRAY['part'])",
@@ -394,6 +395,19 @@ public class TestDeltaLakeConnectorTest
         assertQueryFails(
                 "CREATE TABLE " + tableName + "(a INT, part ROW(field INT)) WITH (partitioned_by = ARRAY['part'])",
                 "Using array, map or row type on partitioned columns is unsupported");
+    }
+
+    @Test
+    public void testInsertIntoUnsupportedVarbinaryPartitionType()
+    {
+        // TODO https://github.com/trinodb/trino/issues/24155 Cannot insert varbinary values into partitioned columns
+        // Update TestDeltaLakeBasic.testPartitionValuesParsedCheckpoint() when fixing this issue
+        try (TestTable table = new TestTable(
+                getQueryRunner()::execute,
+                "test_varbinary_partition",
+                "(x int, part varbinary) WITH (partitioned_by = ARRAY['part'])")) {
+            assertQueryFails("INSERT INTO " + table.getName() + " VALUES (1, X'01')", "Unsupported type for partition: varbinary");
+        }
     }
 
     @Test
@@ -1514,6 +1528,35 @@ public class TestDeltaLakeConnectorTest
                 .matches("VALUES (1, CAST(row(11) AS row(x integer)))");
 
         assertUpdate("DROP TABLE " + tableName);
+    }
+
+    @Test
+    void testCreateTableWithColumnMappingModeAndTimestampNtz()
+    {
+        try (TestTable table = new TestTable(getQueryRunner()::execute, "test_column_mapping", "(x int) WITH (column_mapping_mode = 'NAME')")) {
+            assertThat(query("SELECT * FROM \"" + table.getName() + "$properties\""))
+                    .skippingTypesCheck()
+                    .matches("VALUES " +
+                            "('delta.enableDeletionVectors', 'false')," +
+                            "('delta.columnMapping.mode', 'name')," +
+                            "('delta.columnMapping.maxColumnId', '1')," +
+                            "('delta.minReaderVersion', '2')," +
+                            "('delta.minWriterVersion', '5')");
+        }
+
+        // timestamp type requires reader version 3 and writer version 7
+        try (TestTable table = new TestTable(getQueryRunner()::execute, "test_column_mapping", "(x timestamp) WITH (column_mapping_mode = 'NAME')")) {
+            assertThat(query("SELECT * FROM \"" + table.getName() + "$properties\""))
+                    .skippingTypesCheck()
+                    .matches("VALUES " +
+                            "('delta.enableDeletionVectors', 'false')," +
+                            "('delta.columnMapping.mode', 'name')," +
+                            "('delta.columnMapping.maxColumnId', '1')," +
+                            "('delta.minReaderVersion', '3')," +
+                            "('delta.minWriterVersion', '7')," +
+                            "('delta.feature.columnMapping', 'supported')," +
+                            "('delta.feature.timestampNtz', 'supported')");
+        }
     }
 
     @Test
