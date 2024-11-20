@@ -101,8 +101,8 @@ public class TaskDescriptorStorage
     private long reservedCompressedBytes;
     @GuardedBy("this")
     private long originalCompressedBytes;
-    @GuardedBy("this")
 
+    @GuardedBy("this")
     private boolean compressing;
     private final ScheduledExecutorService executor = newSingleThreadScheduledExecutor(daemonThreadsNamed("task-descriptor-storage"));
     private volatile boolean running;
@@ -392,23 +392,25 @@ public class TaskDescriptorStorage
                 reservedUncompressedBytes,
                 TaskDescriptors::getReservedUncompressedBytes,
                 TaskDescriptors::getStagesReservedUncompressedBytes);
-        StorageStatsValue originalCompressedStats = getStorageStatsValue(
-                queriesCount,
-                stagesCount,
-                originalCompressedBytes,
-                TaskDescriptors::getOriginalCompressedBytes,
-                TaskDescriptors::getStagesOriginalCompressedBytes);
         StorageStatsValue compressedReservedStats = getStorageStatsValue(
                 queriesCount,
                 stagesCount,
                 reservedCompressedBytes,
                 TaskDescriptors::getReservedCompressedBytes,
                 TaskDescriptors::getStagesReservedCompressedBytes);
+        StorageStatsValue originalCompressedStats = getStorageStatsValue(
+                queriesCount,
+                stagesCount,
+                originalCompressedBytes,
+                TaskDescriptors::getOriginalCompressedBytes,
+                TaskDescriptors::getStagesOriginalCompressedBytes);
         return new StorageStatsValues(
                 queriesCount,
                 stagesCount,
+                compressing,
                 uncompressedReservedStats,
-                compressedReservedStats, originalCompressedStats);
+                compressedReservedStats,
+                originalCompressedStats);
     }
 
     @GuardedBy("this")
@@ -685,6 +687,7 @@ public class TaskDescriptorStorage
     private record StorageStatsValues(
             long queriesCount,
             long stagesCount,
+            boolean compressionActive,
             StorageStatsValue uncompressedReservedStats,
             StorageStatsValue compressedReservedStats,
             StorageStatsValue originalCompressedStats)
@@ -727,6 +730,12 @@ public class TaskDescriptorStorage
         public long getStagesCount()
         {
             return statsSupplier.get().stagesCount();
+        }
+
+        @Managed
+        public long getCompressionActive()
+        {
+            return statsSupplier.get().compressionActive() ? 1 : 0;
         }
 
         @Managed
