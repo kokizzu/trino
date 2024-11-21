@@ -10,7 +10,7 @@
 
     <groupId>io.trino</groupId>
     <artifactId>trino-root</artifactId>
-    <version>465-SNAPSHOT</version>
+    <version>466-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>${project.artifactId}</name>
@@ -146,7 +146,7 @@
     <properties>
         <project.build.targetJdk>23</project.build.targetJdk>
         <!-- for reproducible build support, updated by release plugin -->
-        <project.build.outputTimestamp>2024-10-30T23:43:31Z</project.build.outputTimestamp>
+        <project.build.outputTimestamp>2024-11-21T00:14:31Z</project.build.outputTimestamp>
         <!-- TODO remove this property when no module overrides it -->
         <trino.error-prone.guarded-by>ERROR</trino.error-prone.guarded-by>
 
@@ -191,7 +191,7 @@
         <dep.confluent.version>7.7.1</dep.confluent.version>
         <dep.docker.images.version>102</dep.docker.images.version>
         <dep.drift.version>1.22</dep.drift.version>
-        <dep.flyway.version>10.21.0</dep.flyway.version>
+        <dep.flyway.version>10.22.0</dep.flyway.version>
         <dep.frontend-maven-plugin.version>1.15.1</dep.frontend-maven-plugin.version>
         <dep.frontend-node.version>v22.11.0</dep.frontend-node.version>
         <dep.frontend-npm.version>10.9.0</dep.frontend-npm.version>
@@ -302,7 +302,7 @@
             <dependency>
                 <groupId>org.testcontainers</groupId>
                 <artifactId>testcontainers-bom</artifactId>
-                <version>1.20.3</version>
+                <version>1.20.4</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -310,7 +310,7 @@
             <dependency>
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
-                <version>2.29.16</version>
+                <version>2.29.18</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -1581,7 +1581,7 @@
             <dependency>
                 <groupId>io.trino.benchto</groupId>
                 <artifactId>benchto-driver</artifactId>
-                <version>0.32</version>
+                <version>0.33</version>
                 <exclusions>
                     <exclusion>
                         <groupId>ch.qos.logback</groupId>
