@@ -8539,6 +8539,45 @@ public abstract class BaseIcebergConnectorTest
         }
     }
 
+    @Test // regression test for https://github.com/trinodb/trino/issues/22922
+    void testArrayElementChange()
+    {
+        try (TestTable table = new TestTable(
+                getQueryRunner()::execute,
+                "test_array_schema_change",
+                "(col array(row(a varchar, b varchar)))",
+                List.of("CAST(array[row('a', 'b')] AS array(row(a varchar, b varchar)))"))) {
+            assertUpdate("ALTER TABLE " + table.getName() + " DROP COLUMN col.element.a");
+            assertUpdate("ALTER TABLE " + table.getName() + " ADD COLUMN col.element.c varchar");
+            assertUpdate("ALTER TABLE " + table.getName() + " DROP COLUMN col.element.b");
+
+            String expected = format == ORC ? "CAST(array[row(NULL)] AS array(row(c varchar)))" : "CAST(NULL AS array(row(c varchar)))";
+            assertThat(query("SELECT * FROM " + table.getName()))
+                    .matches("VALUES " + expected);
+        }
+    }
+
+    // MAP type is tested in TestIcebergV2.testMapValueSchemaChange
+
+    @Test
+    void testRowFieldChange()
+    {
+        try (TestTable table = new TestTable(
+                getQueryRunner()::execute,
+                "test_row_schema_change",
+                "(col row(a varchar, b varchar))")) {
+            assertUpdate("INSERT INTO " + table.getName() + " SELECT CAST(row('a', 'b') AS row(a varchar, b varchar))", 1);
+
+            assertUpdate("ALTER TABLE " + table.getName() + " DROP COLUMN col.a");
+            assertUpdate("ALTER TABLE " + table.getName() + " ADD COLUMN col.c varchar");
+            assertUpdate("ALTER TABLE " + table.getName() + " DROP COLUMN col.b");
+
+            String expected = format == ORC || format == AVRO ? "CAST(row(NULL) AS row(c varchar))" : "CAST(NULL AS row(c varchar))";
+            assertThat(query("SELECT * FROM " + table.getName()))
+                    .matches("SELECT " + expected);
+        }
+    }
+
     @Test
     public void testObjectStoreLayoutEnabledAndDataLocation()
             throws Exception
@@ -8565,6 +8604,24 @@ public abstract class BaseIcebergConnectorTest
         assertQueryFails(
                 "CREATE TABLE test_data_location WITH (data_location = 'local:///data-location/xyz') AS SELECT 1 AS val",
                 "Data location can only be set when object store layout is enabled");
+    }
+
+    @Test
+    @Override
+    public void testSetFieldMapKeyType()
+    {
+        // Iceberg doesn't support change a map 'key' column. Only map values can be changed.
+        assertThatThrownBy(super::testSetFieldMapKeyType)
+                .hasMessageContaining("Failed to set field type: Cannot alter map keys");
+    }
+
+    @Test
+    @Override
+    public void testSetNestedFieldMapKeyType()
+    {
+        // Iceberg doesn't support change a map 'key' column. Only map values can be changed.
+        assertThatThrownBy(super::testSetNestedFieldMapKeyType)
+                .hasMessageContaining("Failed to set field type: Cannot alter map keys");
     }
 
     @Override
