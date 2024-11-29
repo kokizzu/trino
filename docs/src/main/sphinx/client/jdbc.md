@@ -5,13 +5,20 @@ users to access Trino using Java-based applications, and other non-Java
 applications running in a JVM. Both desktop and server-side applications, such
 as those used for reporting and database development, use the JDBC driver.
 
+The JDBC driver uses the [](/client/client-protocol) over HTTP/HTTPS to
+communicate with the coordinator on the cluster.
+
 ## Requirements
 
 The Trino JDBC driver has the following requirements:
 
-- Java version 8 or higher.
+- Java version 8 or higher. Java 22 or higher is recommended for improved
+  decompression performance.
 - All users that connect to Trino with the JDBC driver must be granted access to
   query tables in the `system.jdbc` schema.
+- Network access over HTTP/HTTPS to the coordinator of the Trino cluster.
+- Network access to the configured object storage, if the
+  [](jdbc-spooling-protocol) is enabled.
 
 The JDBC driver version should be identical to the version of the Trino cluster,
 or newer. Older versions typically work, but only a subset is regularly tested.
@@ -44,10 +51,6 @@ After you have downloaded the JDBC driver and added it to your
 classpath, you'll typically need to restart your application in order to
 recognize the new driver. Then, depending on your application, you
 may need to manually register and configure the driver.
-
-The CLI uses the HTTP protocol and the
-{doc}`Trino client REST API </develop/client-protocol>` to communicate
-with Trino.
 
 ## Registering and configuring the driver
 
@@ -261,4 +264,23 @@ may not be specified using both methods.
     `PREPARE <statement>` followed by `EXECUTE <statement>`. This reduces
     network overhead and uses smaller HTTP headers and requires Trino 431 or
     greater.
+* - `encoding`
+  - Set the encoding when using the [spooling protocol](jdbc-spooling-protocol).
+    Valid values are JSON with Zstandard compression, `json+zstd` (recommended),
+    JSON with LZ4 compression `json+lz4`, and uncompressed JSON `json`. By
+    default, the default encoding configured on the cluster is used.
+
 :::
+
+(jdbc-spooling-protocol)=
+## Spooling protocol
+
+The Trino JDBC driver automatically uses of the spooling protocol to improve
+throughput for client interactions with higher data transfer demands, if the
+[](protocol-spooling) is configured on the cluster.
+
+Optionally use the `encoding` parameter to configure a different desired
+encoding, compared to the default on the cluster.
+
+The JVM process using the JDBC driver must have network access to the spooling
+object storage.
