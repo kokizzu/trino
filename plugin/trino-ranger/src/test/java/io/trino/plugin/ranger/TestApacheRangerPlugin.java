@@ -13,8 +13,7 @@
  */
 package io.trino.plugin.ranger;
 
-import io.opentelemetry.api.OpenTelemetry;
-import io.opentelemetry.api.trace.Tracer;
+import io.trino.plugin.base.security.TestingSystemAccessControlContext;
 import io.trino.spi.Plugin;
 import io.trino.spi.security.SystemAccessControlFactory;
 import org.junit.jupiter.api.Test;
@@ -30,28 +29,6 @@ final class TestApacheRangerPlugin
     {
         Plugin plugin = new ApacheRangerPlugin();
         SystemAccessControlFactory factory = getOnlyElement(plugin.getSystemAccessControlFactories());
-        factory.create(Map.of("apache-ranger.service.name", "trino"), new TestingSystemAccessControlContext()).shutdown();
-    }
-
-    private static final class TestingSystemAccessControlContext
-            implements SystemAccessControlFactory.SystemAccessControlContext
-    {
-        @Override
-        public String getVersion()
-        {
-            return "test-version";
-        }
-
-        @Override
-        public OpenTelemetry getOpenTelemetry()
-        {
-            return OpenTelemetry.noop();
-        }
-
-        @Override
-        public Tracer getTracer()
-        {
-            return OpenTelemetry.noop().getTracer("TEST_TRACER");
-        }
+        factory.create(Map.of("ranger.service.name", "trino"), new TestingSystemAccessControlContext()).shutdown();
     }
 }

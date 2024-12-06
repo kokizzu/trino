@@ -11,25 +11,31 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.spi.security;
+package io.trino.testing;
 
+import io.airlift.tracing.Tracing;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.trace.Tracer;
+import io.trino.spi.eventlistener.EventListenerFactory;
 
-import java.util.Map;
-
-public interface SystemAccessControlFactory
+public class TestingEventListenerContext
+        implements EventListenerFactory.EventListenerContext
 {
-    String getName();
-
-    SystemAccessControl create(Map<String, String> config, SystemAccessControlContext context);
-
-    interface SystemAccessControlContext
+    @Override
+    public String getVersion()
     {
-        String getVersion();
+        return "test-version";
+    }
 
-        OpenTelemetry getOpenTelemetry();
+    @Override
+    public OpenTelemetry getOpenTelemetry()
+    {
+        return OpenTelemetry.noop();
+    }
 
-        Tracer getTracer();
+    @Override
+    public Tracer getTracer()
+    {
+        return Tracing.noopTracer();
     }
 }

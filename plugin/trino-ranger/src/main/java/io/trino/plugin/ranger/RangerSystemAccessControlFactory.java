@@ -27,19 +27,12 @@ import static java.util.Objects.requireNonNull;
 public class RangerSystemAccessControlFactory
         implements SystemAccessControlFactory
 {
-    private static final String NAME = "apache-ranger";
+    private static final String NAME = "ranger";
 
     @Override
     public String getName()
     {
         return NAME;
-    }
-
-    @Deprecated
-    @Override
-    public SystemAccessControl create(Map<String, String> config)
-    {
-        return null;
     }
 
     @Override
