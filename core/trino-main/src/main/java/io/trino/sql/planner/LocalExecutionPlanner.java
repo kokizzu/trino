@@ -102,6 +102,7 @@ import io.trino.operator.WindowOperator.WindowOperatorFactory;
 import io.trino.operator.aggregation.AccumulatorFactory;
 import io.trino.operator.aggregation.AggregatorFactory;
 import io.trino.operator.aggregation.DistinctAccumulatorFactory;
+import io.trino.operator.aggregation.DistinctWindowAccumulator;
 import io.trino.operator.aggregation.OrderedAccumulatorFactory;
 import io.trino.operator.aggregation.OrderedWindowAccumulator;
 import io.trino.operator.aggregation.partial.PartialAggregationController;
@@ -174,6 +175,7 @@ import io.trino.spi.function.BoundSignature;
 import io.trino.spi.function.CatalogSchemaFunctionName;
 import io.trino.spi.function.FunctionId;
 import io.trino.spi.function.FunctionKind;
+import io.trino.spi.function.WindowAccumulator;
 import io.trino.spi.function.WindowFunction;
 import io.trino.spi.function.WindowFunctionSupplier;
 import io.trino.spi.function.table.TableFunctionProcessorProvider;
@@ -1180,32 +1182,59 @@ public class LocalExecutionPlanner
                         .collect(toImmutableList());
 
                 WindowFunctionSupplier windowFunctionSupplier;
-                if (function.getOrderingScheme().isPresent()) {
-                    OrderingScheme orderingScheme = function.getOrderingScheme().orElseThrow();
-                    List<Symbol> sortKeys = orderingScheme.orderBy();
-                    List<SortOrder> sortOrders = sortKeys.stream()
-                            .map(orderingScheme::ordering)
-                            .collect(toImmutableList());
+                if (resolvedFunction.functionKind() == FunctionKind.AGGREGATE) {
+                    AggregationWindowFunctionSupplier targetFunction = getAggregationWindowFunctionSupplier(resolvedFunction);
+                    List<Class<?>> lambdaInterfaces = targetFunction.getLambdaInterfaces();
+                    Function<List<Supplier<Object>>, WindowAccumulator> accumulatorSupplier = targetFunction::createWindowAccumulator;
 
-                    ImmutableList.Builder<Integer> sortKeysArguments = ImmutableList.builder();
-                    sortKeys.forEach(orderingArgumentSymbol -> {
-                        argumentChannels.add(source.getLayout().get(orderingArgumentSymbol));
-                        sortKeysArguments.add(argumentChannels.size() - 1); // last added argument
-                    });
+                    if (function.getOrderingScheme().isPresent()) {
+                        OrderingScheme orderingScheme = function.getOrderingScheme().orElseThrow();
+                        List<Symbol> sortKeys = orderingScheme.orderBy();
+                        List<SortOrder> sortOrders = sortKeys.stream()
+                                .map(orderingScheme::ordering)
+                                .collect(toImmutableList());
+                        ImmutableList.Builder<Integer> sortKeysArgumentsBuilder = ImmutableList.builder();
+                        sortKeys.forEach(orderingArgumentSymbol -> {
+                            argumentChannels.add(source.getLayout().get(orderingArgumentSymbol));
+                            sortKeysArgumentsBuilder.add(argumentChannels.size() - 1); // last added argument
+                        });
 
-                    List<Type> argumentTypes = argumentChannels.stream()
-                            .map(channel -> source.getTypes().get(channel))
-                            .collect(toImmutableList());
+                        List<Type> argumentTypes = argumentChannels.stream()
+                                .map(channel -> source.getTypes().get(channel))
+                                .collect(toImmutableList());
 
-                    windowFunctionSupplier = getOrderedWindowFunctionImplementation(
-                            resolvedFunction,
-                            argumentTypes,
-                            argumentChannels,
-                            sortKeysArguments.build(),
-                            sortOrders);
+                        List<Integer> sortKeysArguments = sortKeysArgumentsBuilder.build();
+                        Function<List<Supplier<Object>>, WindowAccumulator> finalAccumulatorSupplier = accumulatorSupplier;
+                        accumulatorSupplier = (lambdaProviders) ->
+                                new OrderedWindowAccumulator(
+                                        pagesIndexFactory,
+                                        finalAccumulatorSupplier.apply(lambdaProviders),
+                                        argumentTypes,
+                                        argumentChannels,
+                                        sortKeysArguments,
+                                        sortOrders);
+                    }
+
+                    if (function.isDistinct()) {
+                        List<Type> argumentTypes = argumentChannels.stream()
+                                .map(channel -> source.getTypes().get(channel))
+                                .collect(toImmutableList());
+
+                        Function<List<Supplier<Object>>, WindowAccumulator> finalAccumulatorSupplier = accumulatorSupplier;
+                        List<Integer> argumentChannelsFinal = ImmutableList.copyOf(argumentChannels);
+                        accumulatorSupplier = (lambdaProviders) -> new DistinctWindowAccumulator(
+                                finalAccumulatorSupplier.apply(lambdaProviders),
+                                argumentTypes,
+                                argumentChannelsFinal,
+                                hashStrategyCompiler,
+                                session,
+                                pagesIndexFactory);
+                    }
+
+                    windowFunctionSupplier = windowAggregationFunctionSupplier(resolvedFunction, lambdaInterfaces, accumulatorSupplier);
                 }
                 else {
-                    windowFunctionSupplier = getWindowFunctionImplementation(resolvedFunction);
+                    windowFunctionSupplier = plannerContext.getFunctionManager().getWindowFunctionSupplier(resolvedFunction);
                 }
 
                 List<Supplier<Object>> lambdaProviders = makeLambdaProviders(lambdas, windowFunctionSupplier.getLambdaInterfaces(), functionTypes);
@@ -1252,59 +1281,24 @@ public class LocalExecutionPlanner
             return new PhysicalOperation(operatorFactory, outputMappings.buildOrThrow(), source);
         }
 
-        private WindowFunctionSupplier getWindowFunctionImplementation(ResolvedFunction resolvedFunction)
+        private WindowFunctionSupplier windowAggregationFunctionSupplier(ResolvedFunction resolvedFunction, List<Class<?>> lambdaInterfaces, Function<List<Supplier<Object>>, WindowAccumulator> accumulatorSupplier)
         {
-            if (resolvedFunction.functionKind() == FunctionKind.AGGREGATE) {
-                return getAggregationWindowFunctionSupplier(resolvedFunction);
-            }
-            return plannerContext.getFunctionManager().getWindowFunctionSupplier(resolvedFunction);
-        }
-
-        private AggregationWindowFunctionSupplier getAggregationWindowFunctionSupplier(ResolvedFunction resolvedFunction)
-        {
-            checkArgument(
-                    resolvedFunction.functionKind() == FunctionKind.AGGREGATE,
-                    "Expected %s to be AGGREGATE function, but got %s",
-                    resolvedFunction.functionId(),
-                    resolvedFunction.functionKind());
-            return uncheckedCacheGet(aggregationWindowFunctionSupplierCache, new FunctionKey(resolvedFunction.functionId(), resolvedFunction.signature()), () -> {
-                AggregationImplementation aggregationImplementation = plannerContext.getFunctionManager().getAggregationImplementation(resolvedFunction);
-                return new AggregationWindowFunctionSupplier(
-                        resolvedFunction.signature(),
-                        aggregationImplementation,
-                        resolvedFunction.functionNullability());
-            });
-        }
-
-        private WindowFunctionSupplier getOrderedWindowFunctionImplementation(
-                ResolvedFunction resolvedFunction,
-                List<Type> argumentTypes,
-                List<Integer> argumentChannels,
-                List<Integer> sortKeysArguments,
-                List<SortOrder> sortOrders)
-        {
-            AggregationWindowFunctionSupplier aggregationWindowFunctionSupplier = getAggregationWindowFunctionSupplier(resolvedFunction);
-            return new WindowFunctionSupplier() {
+            return new WindowFunctionSupplier()
+            {
                 @Override
                 public WindowFunction createWindowFunction(boolean ignoreNulls, List<Supplier<Object>> lambdaProviders)
                 {
                     AggregationImplementation aggregationImplementation = plannerContext.getFunctionManager().getAggregationImplementation(resolvedFunction);
                     boolean hasRemoveInput = aggregationImplementation.getWindowAccumulator().isPresent();
                     return new AggregateWindowFunction(
-                            () -> new OrderedWindowAccumulator(
-                                    pagesIndexFactory,
-                                    aggregationWindowFunctionSupplier.createWindowAccumulator(lambdaProviders),
-                                    argumentTypes,
-                                    argumentChannels,
-                                    sortKeysArguments,
-                                    sortOrders),
+                            () -> accumulatorSupplier.apply(lambdaProviders),
                             hasRemoveInput);
                 }
 
                 @Override
                 public List<Class<?>> getLambdaInterfaces()
                 {
-                    return aggregationWindowFunctionSupplier.getLambdaInterfaces();
+                    return lambdaInterfaces;
                 }
             };
         }
@@ -1550,6 +1544,30 @@ public class LocalExecutionPlanner
                     partitionerSupplier);
 
             return new PhysicalOperation(operatorFactory, outputMappings.buildOrThrow(), source);
+        }
+
+        private WindowFunctionSupplier getWindowFunctionImplementation(ResolvedFunction resolvedFunction)
+        {
+            if (resolvedFunction.functionKind() == FunctionKind.AGGREGATE) {
+                return getAggregationWindowFunctionSupplier(resolvedFunction);
+            }
+            return plannerContext.getFunctionManager().getWindowFunctionSupplier(resolvedFunction);
+        }
+
+        private AggregationWindowFunctionSupplier getAggregationWindowFunctionSupplier(ResolvedFunction resolvedFunction)
+        {
+            checkArgument(
+                    resolvedFunction.functionKind() == FunctionKind.AGGREGATE,
+                    "Expected %s to be AGGREGATE function, but got %s",
+                    resolvedFunction.functionId(),
+                    resolvedFunction.functionKind());
+            return uncheckedCacheGet(aggregationWindowFunctionSupplierCache, new FunctionKey(resolvedFunction.functionId(), resolvedFunction.signature()), () -> {
+                AggregationImplementation aggregationImplementation = plannerContext.getFunctionManager().getAggregationImplementation(resolvedFunction);
+                return new AggregationWindowFunctionSupplier(
+                        resolvedFunction.signature(),
+                        aggregationImplementation,
+                        resolvedFunction.functionNullability());
+            });
         }
 
         private Supplier<PageProjection> prepareProjection(ExpressionAndValuePointers expressionAndValuePointers)
