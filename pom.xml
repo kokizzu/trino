@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.airlift</groupId>
         <artifactId>airbase</artifactId>
-        <version>203</version>
+        <version>204</version>
     </parent>
 
     <groupId>io.trino</groupId>
@@ -184,7 +184,7 @@
         <air.test.jvm.additional-arguments>${air.test.jvm.additional-arguments.default}</air.test.jvm.additional-arguments>
 
         <!-- keep dependency properties sorted -->
-        <dep.airlift.version>291</dep.airlift.version>
+        <dep.airlift.version>292</dep.airlift.version>
         <dep.alluxio.version>2.9.6</dep.alluxio.version>
         <dep.antlr.version>4.13.2</dep.antlr.version>
         <dep.avro.version>1.12.0</dep.avro.version>
@@ -210,7 +210,7 @@
         <dep.plugin.failsafe.version>${dep.plugin.surefire.version}</dep.plugin.failsafe.version>
         <dep.protobuf.version>3.25.5</dep.protobuf.version>
         <dep.snowflake.version>3.19.1</dep.snowflake.version>
-        <dep.swagger.version>2.2.26</dep.swagger.version>
+        <dep.swagger.version>2.2.27</dep.swagger.version>
         <dep.takari.version>2.2.0</dep.takari.version>
         <dep.tcnative.version>2.0.69.Final</dep.tcnative.version>
         <dep.tempto.version>202</dep.tempto.version>
@@ -311,7 +311,7 @@
             <dependency>
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
-                <version>2.29.29</version>
+                <version>2.29.31</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -319,7 +319,7 @@
             <dependency>
                 <groupId>com.adobe.testing</groupId>
                 <artifactId>s3mock-testcontainers</artifactId>
-                <version>3.11.0</version>
+                <version>3.12.0</version>
             </dependency>
 
             <dependency>
@@ -480,7 +480,7 @@
             <dependency>
                 <groupId>com.exasol</groupId>
                 <artifactId>exasol-jdbc</artifactId>
-                <version>24.2.0</version>
+                <version>24.2.1</version>
             </dependency>
 
             <dependency>
@@ -837,7 +837,7 @@
             <dependency>
                 <groupId>io.dropwizard.metrics</groupId>
                 <artifactId>metrics-core</artifactId>
-                <version>4.2.28</version>
+                <version>4.2.29</version>
             </dependency>
 
             <dependency>
@@ -942,7 +942,7 @@
             <dependency>
                 <groupId>io.projectreactor</groupId>
                 <artifactId>reactor-core</artifactId>
-                <version>3.7.0</version>
+                <version>3.7.1</version>
             </dependency>
 
             <!-- io.confluent:kafka-avro-serializer uses multiple versions of this transitive dependency -->
