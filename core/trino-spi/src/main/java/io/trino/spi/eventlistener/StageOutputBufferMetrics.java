@@ -11,23 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.deltalake.transactionlog;
+package io.trino.spi.eventlistener;
 
-import static io.airlift.slice.SizeOf.estimatedSizeOf;
-import static io.airlift.slice.SizeOf.instanceSize;
-import static java.util.Objects.requireNonNull;
+import io.trino.spi.metrics.Metrics;
 
-public record V2Checkpoint(String path)
-{
-    private static final int INSTANCE_SIZE = instanceSize(V2Checkpoint.class);
-
-    public V2Checkpoint
-    {
-        requireNonNull(path, "path is null");
-    }
-
-    public long getRetainedSizeInBytes()
-    {
-        return INSTANCE_SIZE + estimatedSizeOf(path);
-    }
-}
+/**
+ * This class is JSON serializable for convenience and serialization compatibility is not guaranteed across versions.
+ */
+public record StageOutputBufferMetrics(int stageId, Metrics metrics) {}

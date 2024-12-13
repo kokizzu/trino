@@ -11,23 +11,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.deltalake.transactionlog;
+import { api, ApiResponse } from '../base.ts'
 
-import static io.airlift.slice.SizeOf.estimatedSizeOf;
-import static io.airlift.slice.SizeOf.instanceSize;
-import static java.util.Objects.requireNonNull;
+export interface Stats {
+    runningQueries: number;
+    blockedQueries: number;
+    queuedQueries: number;
+    activeCoordinators: number;
+    activeWorkers: number;
+    runningDrivers: number;
+    totalAvailableProcessors: number;
+    reservedMemory: number;
+    totalInputRows: number;
+    totalInputBytes: number;
+    totalCpuTimeSecs: number;
+}
 
-public record V2Checkpoint(String path)
-{
-    private static final int INSTANCE_SIZE = instanceSize(V2Checkpoint.class);
-
-    public V2Checkpoint
-    {
-        requireNonNull(path, "path is null");
-    }
-
-    public long getRetainedSizeInBytes()
-    {
-        return INSTANCE_SIZE + estimatedSizeOf(path);
-    }
+export async function statsApi(): Promise<ApiResponse<Stats>> {
+    return await api.get<Stats>('/ui/api/stats')
 }
