@@ -15,6 +15,7 @@
 package io.trino.plugin.faker;
 
 import com.google.common.collect.ImmutableList;
+import io.airlift.units.Duration;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
@@ -22,20 +23,29 @@ import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.Range;
 import io.trino.spi.predicate.ValueSet;
 import io.trino.spi.type.CharType;
+import io.trino.spi.type.TimeType;
+import io.trino.spi.type.TimeWithTimeZoneType;
+import io.trino.spi.type.TimestampType;
+import io.trino.spi.type.TimestampWithTimeZoneType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.VarbinaryType;
 import io.trino.spi.type.VarcharType;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.plugin.faker.ColumnInfo.ALLOWED_VALUES_PROPERTY;
 import static io.trino.plugin.faker.ColumnInfo.GENERATOR_PROPERTY;
 import static io.trino.plugin.faker.ColumnInfo.MAX_PROPERTY;
 import static io.trino.plugin.faker.ColumnInfo.MIN_PROPERTY;
 import static io.trino.plugin.faker.ColumnInfo.NULL_PROBABILITY_PROPERTY;
+import static io.trino.plugin.faker.ColumnInfo.STEP_PROPERTY;
 import static io.trino.spi.StandardErrorCode.INVALID_COLUMN_PROPERTY;
+import static io.trino.spi.type.BigintType.BIGINT;
+import static io.trino.spi.type.DateType.DATE;
 import static java.util.Objects.requireNonNull;
 
 public record FakerColumnHandle(
@@ -44,13 +54,17 @@ public record FakerColumnHandle(
         Type type,
         double nullProbability,
         String generator,
-        Domain domain)
+        Domain domain,
+        ValueSet step)
         implements ColumnHandle
 {
     public FakerColumnHandle
     {
         requireNonNull(name, "name is null");
         requireNonNull(type, "type is null");
+        requireNonNull(domain, "domain is null");
+        requireNonNull(step, "step is null");
+        checkState(step.isNone() || step.isSingleValue(), "step must be a single value");
     }
 
     public static FakerColumnHandle of(int columnId, ColumnMetadata column, double defaultNullProbability)
@@ -63,22 +77,8 @@ public record FakerColumnHandle(
         if (generator != null && !isCharacterColumn(column)) {
             throw new TrinoException(INVALID_COLUMN_PROPERTY, "The `%s` property can only be set for CHAR, VARCHAR or VARBINARY columns".formatted(GENERATOR_PROPERTY));
         }
-        // only parse min, max, and options to validate literals - FakerColumnHandle needs to be serializable,
-        // and some internal Trino types are not (Int128, LongTimestamp, LongTimestampWithTimeZone), so they cannot be stored in the handle as native types
-        String min = (String) column.getProperties().get(MIN_PROPERTY);
-        try {
-            Literal.parse(min, column.getType());
-        }
-        catch (IllegalArgumentException e) {
-            throw new TrinoException(INVALID_COLUMN_PROPERTY, "The `%s` property must be a valid %s literal".formatted(MIN_PROPERTY, column.getType().getDisplayName()), e);
-        }
-        String max = (String) column.getProperties().get(MAX_PROPERTY);
-        try {
-            Literal.parse(max, column.getType());
-        }
-        catch (IllegalArgumentException e) {
-            throw new TrinoException(INVALID_COLUMN_PROPERTY, "The `%s` property must be a valid %s literal".formatted(MAX_PROPERTY, column.getType().getDisplayName()), e);
-        }
+        Object min = propertyValue(column, MIN_PROPERTY);
+        Object max = propertyValue(column, MAX_PROPERTY);
         Domain domain = Domain.all(column.getType());
         if (min != null || max != null) {
             if (isCharacterColumn(column)) {
@@ -108,7 +108,8 @@ public record FakerColumnHandle(
                 column.getType(),
                 nullProbability,
                 generator,
-                domain);
+                domain,
+                stepValue(column));
     }
 
     private static boolean isCharacterColumn(ColumnMetadata column)
@@ -116,19 +117,55 @@ public record FakerColumnHandle(
         return column.getType() instanceof CharType || column.getType() instanceof VarcharType || column.getType() instanceof VarbinaryType;
     }
 
-    private static Range range(Type type, String min, String max)
+    private static Object propertyValue(ColumnMetadata column, String property)
+    {
+        try {
+            return Literal.parse((String) column.getProperties().get(property), column.getType());
+        }
+        catch (IllegalArgumentException e) {
+            throw new TrinoException(INVALID_COLUMN_PROPERTY, "The `%s` property must be a valid %s literal".formatted(property, column.getType().getDisplayName()), e);
+        }
+    }
+
+    private static ValueSet stepValue(ColumnMetadata column)
+    {
+        Type type = column.getType();
+        String rawStep = (String) column.getProperties().get(STEP_PROPERTY);
+        if (rawStep == null) {
+            return ValueSet.none(type);
+        }
+        if (isCharacterColumn(column)) {
+            throw new TrinoException(INVALID_COLUMN_PROPERTY, "The `%s` property cannot be set for CHAR, VARCHAR or VARBINARY columns".formatted(STEP_PROPERTY));
+        }
+        if (DATE.equals(column.getType()) || type instanceof TimestampType || type instanceof TimestampWithTimeZoneType || type instanceof TimeType || type instanceof TimeWithTimeZoneType) {
+            try {
+                return ValueSet.of(BIGINT, Duration.valueOf(rawStep).roundTo(TimeUnit.NANOSECONDS));
+            }
+            catch (IllegalArgumentException e) {
+                throw new TrinoException(INVALID_COLUMN_PROPERTY, "The `%s` property for a %s column must be a valid duration literal".formatted(STEP_PROPERTY, column.getType().getDisplayName()), e);
+            }
+        }
+        try {
+            return ValueSet.of(type, Literal.parse(rawStep, type));
+        }
+        catch (IllegalArgumentException e) {
+            throw new TrinoException(INVALID_COLUMN_PROPERTY, "The `%s` property for a %s column must be a valid %s literal".formatted(STEP_PROPERTY, column.getType().getDisplayName(), type.getDisplayName()), e);
+        }
+    }
+
+    private static Range range(Type type, Object min, Object max)
     {
         requireNonNull(type, "type is null");
         if (min == null && max == null) {
             return Range.all(type);
         }
         if (max == null) {
-            return Range.greaterThanOrEqual(type, Literal.parse(min, type));
+            return Range.greaterThanOrEqual(type, min);
         }
         if (min == null) {
-            return Range.lessThanOrEqual(type, Literal.parse(max, type));
+            return Range.lessThanOrEqual(type, max);
         }
-        return Range.range(type, Literal.parse(min, type), true, Literal.parse(max, type), true);
+        return Range.range(type, min, true, max, true);
     }
 
     private static List<String> strings(Collection<?> values)

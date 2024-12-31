@@ -111,6 +111,9 @@ The following table details all supported column properties.
 * - `allowed_values`
   - List of allowed values. Cannot be set together with the `min`, or `max`
     properties.
+* - `step`
+  - If set, generate sequential values with this step. For date and time columns
+    set this to a duration. Cannot be set for character-based type columns.
 :::
 
 ### Character types
@@ -175,7 +178,7 @@ Faker supports the following non-character types:
 - `UUID`
 
 You can not use generator expressions for non-character-based columns. To limit
-their data range, set the `min` and/or `max` column properties - see
+their data range, set the `min` and `max` column properties - see
 [](faker-usage).
 
 ### Unsupported types
