@@ -30,12 +30,13 @@ import io.trino.metastore.HiveType;
 import io.trino.metastore.Partition;
 import io.trino.metastore.PartitionStatistics;
 import io.trino.metastore.PartitionWithStatistics;
+import io.trino.metastore.Partitions;
 import io.trino.metastore.PrincipalPrivileges;
+import io.trino.metastore.SchemaAlreadyExistsException;
 import io.trino.metastore.StatisticsUpdateMode;
 import io.trino.metastore.Table;
+import io.trino.metastore.TableAlreadyExistsException;
 import io.trino.metastore.TableInfo;
-import io.trino.plugin.hive.SchemaAlreadyExistsException;
-import io.trino.plugin.hive.TableAlreadyExistsException;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.SchemaNotFoundException;
 import io.trino.spi.connector.SchemaTableName;
@@ -56,7 +57,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.metastore.Table.TABLE_COMMENT;
 import static io.trino.plugin.hive.HiveMetadata.TRINO_QUERY_ID_NAME;
-import static io.trino.plugin.hive.metastore.MetastoreUtil.isAvroTableWithSchemaSet;
 import static io.trino.plugin.hive.metastore.MetastoreUtil.metastoreFunctionName;
 import static io.trino.plugin.hive.metastore.MetastoreUtil.verifyCanDropColumn;
 import static io.trino.plugin.hive.metastore.thrift.ThriftMetastoreUtil.csvSchemaFields;
@@ -388,7 +388,7 @@ public class BridgingHiveMetastore
         }
 
         Map<String, List<String>> partitionNameToPartitionValuesMap = partitionNames.stream()
-                .collect(Collectors.toMap(identity(), Partition::toPartitionValues));
+                .collect(Collectors.toMap(identity(), Partitions::toPartitionValues));
         Map<List<String>, Partition> partitionValuesToPartitionMap = delegate.getPartitionsByNames(table.getDatabaseName(), table.getTableName(), partitionNames).stream()
                 .map(partition -> fromMetastoreApiPartition(table, partition))
                 .collect(Collectors.toMap(Partition::getValues, identity()));

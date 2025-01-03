@@ -11,20 +11,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package io.trino.plugin.hive.metastore.thrift;
 
-package io.trino.plugin.hive;
+import com.google.inject.BindingAnnotation;
 
-import io.trino.spi.connector.ConnectorSession;
-import io.trino.spi.connector.TableScanRedirectApplicationResult;
+import java.lang.annotation.Retention;
+import java.lang.annotation.Target;
 
-import java.util.Optional;
+import static java.lang.annotation.ElementType.FIELD;
+import static java.lang.annotation.ElementType.METHOD;
+import static java.lang.annotation.ElementType.PARAMETER;
+import static java.lang.annotation.RetentionPolicy.RUNTIME;
 
-public class NoneHiveRedirectionsProvider
-        implements HiveRedirectionsProvider
+@Retention(RUNTIME)
+@Target({FIELD, PARAMETER, METHOD})
+@BindingAnnotation
+public @interface ForHiveMetastore
 {
-    @Override
-    public Optional<TableScanRedirectApplicationResult> getTableScanRedirection(ConnectorSession session, HiveTableHandle tableHandle)
-    {
-        return Optional.empty();
-    }
 }

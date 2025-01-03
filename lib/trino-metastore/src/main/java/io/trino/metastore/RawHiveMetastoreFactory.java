@@ -11,15 +11,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.hive.metastore;
+package io.trino.metastore;
 
-import static java.util.Objects.requireNonNull;
+import com.google.inject.BindingAnnotation;
 
-public record DatabaseFunctionKey(String databaseName, String functionName)
+import java.lang.annotation.Retention;
+import java.lang.annotation.Target;
+
+import static java.lang.annotation.ElementType.FIELD;
+import static java.lang.annotation.ElementType.METHOD;
+import static java.lang.annotation.ElementType.PARAMETER;
+import static java.lang.annotation.RetentionPolicy.RUNTIME;
+
+@Retention(RUNTIME)
+@Target({FIELD, PARAMETER, METHOD})
+@BindingAnnotation
+public @interface RawHiveMetastoreFactory
 {
-    public DatabaseFunctionKey
-    {
-        requireNonNull(databaseName, "databaseName is null");
-        requireNonNull(functionName, "functionName is null");
-    }
 }

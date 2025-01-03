@@ -22,6 +22,8 @@ import com.google.inject.Scopes;
 import com.google.inject.Singleton;
 import com.google.inject.multibindings.Multibinder;
 import io.trino.filesystem.cache.CacheKeyProvider;
+import io.trino.metastore.HiveMetastoreFactory;
+import io.trino.metastore.RawHiveMetastoreFactory;
 import io.trino.plugin.base.classloader.ClassLoaderSafeConnectorPageSinkProvider;
 import io.trino.plugin.base.classloader.ClassLoaderSafeConnectorPageSourceProviderFactory;
 import io.trino.plugin.base.classloader.ClassLoaderSafeConnectorSplitManager;
@@ -30,8 +32,6 @@ import io.trino.plugin.base.classloader.ForClassLoaderSafe;
 import io.trino.plugin.base.metrics.FileFormatDataSourceStats;
 import io.trino.plugin.base.session.SessionPropertiesProvider;
 import io.trino.plugin.hive.SortingFileWriterConfig;
-import io.trino.plugin.hive.metastore.HiveMetastoreFactory;
-import io.trino.plugin.hive.metastore.RawHiveMetastoreFactory;
 import io.trino.plugin.hive.metastore.thrift.TranslateHiveViews;
 import io.trino.plugin.hive.orc.OrcReaderConfig;
 import io.trino.plugin.hive.orc.OrcWriterConfig;
@@ -95,7 +95,7 @@ public class IcebergModule
 
         binder.bind(ConnectorSplitManager.class).annotatedWith(ForClassLoaderSafe.class).to(IcebergSplitManager.class).in(Scopes.SINGLETON);
         binder.bind(ConnectorSplitManager.class).to(ClassLoaderSafeConnectorSplitManager.class).in(Scopes.SINGLETON);
-        newOptionalBinder(binder, Key.get(ConnectorPageSourceProviderFactory.class, ForClassLoaderSafe.class)).setDefault().to(IcebergPageSourceProviderFactory.class).in(Scopes.SINGLETON);
+        binder.bind(ConnectorPageSourceProviderFactory.class).annotatedWith(ForClassLoaderSafe.class).to(IcebergPageSourceProviderFactory.class).in(Scopes.SINGLETON);
         binder.bind(IcebergPageSourceProviderFactory.class).in(Scopes.SINGLETON);
         binder.bind(ConnectorPageSourceProviderFactory.class).to(ClassLoaderSafeConnectorPageSourceProviderFactory.class).in(Scopes.SINGLETON);
         binder.bind(ConnectorPageSinkProvider.class).annotatedWith(ForClassLoaderSafe.class).to(IcebergPageSinkProvider.class).in(Scopes.SINGLETON);

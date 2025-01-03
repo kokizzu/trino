@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.hive.metastore;
+package io.trino.metastore.cache;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -20,31 +20,44 @@ import com.google.errorprone.annotations.Immutable;
 import java.util.Objects;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
-import static java.util.Objects.requireNonNull;
 
 @Immutable
-public class UserDatabaseKey
+public class HiveTableName
 {
-    private final String user;
-    private final String database;
+    private final String databaseName;
+    private final String tableName;
 
     @JsonCreator
-    public UserDatabaseKey(@JsonProperty("user") String user, @JsonProperty("database") String database)
+    public HiveTableName(@JsonProperty("databaseName") String databaseName, @JsonProperty("tableName") String tableName)
     {
-        this.user = requireNonNull(user, "user is null");
-        this.database = requireNonNull(database, "database is null");
+        this.databaseName = databaseName;
+        this.tableName = tableName;
+    }
+
+    public static HiveTableName hiveTableName(String databaseName, String tableName)
+    {
+        return new HiveTableName(databaseName, tableName);
     }
 
     @JsonProperty
-    public String getUser()
+    public String getDatabaseName()
     {
-        return user;
+        return databaseName;
     }
 
     @JsonProperty
-    public String getDatabase()
+    public String getTableName()
     {
-        return database;
+        return tableName;
+    }
+
+    @Override
+    public String toString()
+    {
+        return toStringHelper(this)
+                .add("databaseName", databaseName)
+                .add("tableName", tableName)
+                .toString();
     }
 
     @Override
@@ -56,23 +69,15 @@ public class UserDatabaseKey
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        UserDatabaseKey that = (UserDatabaseKey) o;
-        return Objects.equals(user, that.user) &&
-                Objects.equals(database, that.database);
+
+        HiveTableName other = (HiveTableName) o;
+        return Objects.equals(databaseName, other.databaseName) &&
+                Objects.equals(tableName, other.tableName);
     }
 
     @Override
     public int hashCode()
     {
-        return Objects.hash(user, database);
-    }
-
-    @Override
-    public String toString()
-    {
-        return toStringHelper(this)
-                .add("principalName", user)
-                .add("database", database)
-                .toString();
+        return Objects.hash(databaseName, tableName);
     }
 }

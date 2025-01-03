@@ -144,15 +144,6 @@ public class TracingConnectorMetadata
     }
 
     @Override
-    public Optional<ConnectorTableExecuteHandle> getTableHandleForExecute(ConnectorSession session, ConnectorTableHandle tableHandle, String procedureName, Map<String, Object> executeProperties, RetryMode retryMode)
-    {
-        Span span = startSpan("getTableHandleForExecute", tableHandle);
-        try (var _ = scopedSpan(span)) {
-            return delegate.getTableHandleForExecute(session, tableHandle, procedureName, executeProperties, retryMode);
-        }
-    }
-
-    @Override
     public Optional<ConnectorTableExecuteHandle> getTableHandleForExecute(ConnectorSession session, ConnectorAccessControl accessControl, ConnectorTableHandle tableHandle, String procedureName, Map<String, Object> executeProperties, RetryMode retryMode)
     {
         Span span = startSpan("getTableHandleForExecute", tableHandle);
@@ -758,15 +749,6 @@ public class TracingConnectorMetadata
         Span span = startSpan("getUpdateLayout", tableHandle);
         try (var _ = scopedSpan(span)) {
             return delegate.getUpdateLayout(session, tableHandle);
-        }
-    }
-
-    @Override
-    public ConnectorMergeTableHandle beginMerge(ConnectorSession session, ConnectorTableHandle tableHandle, RetryMode retryMode)
-    {
-        Span span = startSpan("beginMerge", tableHandle);
-        try (var _ = scopedSpan(span)) {
-            return delegate.beginMerge(session, tableHandle, retryMode);
         }
     }
 
