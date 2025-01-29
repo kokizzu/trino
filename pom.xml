@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.airlift</groupId>
         <artifactId>airbase</artifactId>
-        <version>213</version>
+        <version>214</version>
     </parent>
 
     <groupId>io.trino</groupId>
@@ -86,6 +86,7 @@
         <module>plugin/trino-kafka</module>
         <module>plugin/trino-kafka-event-listener</module>
         <module>plugin/trino-kudu</module>
+        <module>plugin/trino-loki</module>
         <module>plugin/trino-mariadb</module>
         <module>plugin/trino-memory</module>
         <module>plugin/trino-ml</module>
@@ -180,7 +181,7 @@
         <air.test.jvm.additional-arguments>${air.test.jvm.additional-arguments.default}</air.test.jvm.additional-arguments>
 
         <!-- keep dependency properties sorted -->
-        <dep.airlift.version>298</dep.airlift.version>
+        <dep.airlift.version>299</dep.airlift.version>
         <dep.alluxio.version>2.9.6</dep.alluxio.version>
         <dep.antlr.version>4.13.2</dep.antlr.version>
         <dep.avro.version>1.12.0</dep.avro.version>
@@ -227,7 +228,7 @@
             <dependency>
                 <groupId>com.azure</groupId>
                 <artifactId>azure-sdk-bom</artifactId>
-                <version>1.2.30</version>
+                <version>1.2.31</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -307,7 +308,7 @@
             <dependency>
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
-                <version>2.30.6</version>
+                <version>2.30.7</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -2213,7 +2214,7 @@
             <dependency>
                 <groupId>org.jetbrains</groupId>
                 <artifactId>annotations</artifactId>
-                <version>26.0.1</version>
+                <version>26.0.2</version>
             </dependency>
 
             <dependency>

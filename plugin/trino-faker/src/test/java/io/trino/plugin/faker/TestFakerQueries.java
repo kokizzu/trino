@@ -50,6 +50,21 @@ final class TestFakerQueries
     }
 
     @Test
+    void testTableComment()
+    {
+        try (TestTable table = newTrinoTable("table_comment", "(id INTEGER, name VARCHAR)")) {
+            assertUpdate("COMMENT ON TABLE " + table.getName() + " IS 'test comment'");
+            assertThat(getTableComment(table.getName())).isEqualTo("test comment");
+
+            assertUpdate("COMMENT ON TABLE " + table.getName() + " IS ''");
+            assertThat(getTableComment(table.getName())).isEmpty();
+
+            assertUpdate("COMMENT ON TABLE " + table.getName() + " IS NULL");
+            assertThat(getTableComment(table.getName())).isNull();
+        }
+    }
+
+    @Test
     void testColumnComment()
     {
         try (TestTable table = newTrinoTable("comment", "(id INTEGER, name VARCHAR)")) {
@@ -446,5 +461,38 @@ final class TestFakerQueries
                     .collect(joining(", "));
             return "%s %s NOT NULL%s".formatted(name, type, propertiesSchema.isEmpty() ? "" : " WITH (%s)".formatted(propertiesSchema));
         }
+    }
+
+    @Test
+    void testSetTableProperties()
+    {
+        try (TestTable table = newTrinoTable("set_table_properties", "(id INTEGER, name VARCHAR)")) {
+            assertUpdate("ALTER TABLE " + table.getName() + " SET PROPERTIES default_limit = 100");
+            assertThat((String) computeScalar("SHOW CREATE TABLE " + table.getName()))
+                    .contains("default_limit = 100");
+        }
+    }
+
+    @Test
+    void testRenameTable()
+    {
+        assertUpdate("CREATE TABLE original_table(id INTEGER, name VARCHAR)");
+        assertUpdate("ALTER TABLE original_table RENAME TO renamed_table");
+        // original_table should not exist anymore after renaming.
+        assertQueryFails("DESC original_table", "line 1:1: Table 'faker.default.original_table' does not exist");
+        // should not allow renaming to an already existing table.
+        assertQueryFails("ALTER TABLE renamed_table RENAME TO renamed_table", "line 1:1: Target table 'faker.default.renamed_table' already exists");
+        assertUpdate("DROP TABLE renamed_table");
+    }
+
+    @Test
+    void testRenameTableAcrossSchema()
+    {
+        assertUpdate("CREATE SCHEMA new_schema");
+        assertUpdate("CREATE TABLE original_table_schema(id INTEGER, name VARCHAR)");
+        assertUpdate("ALTER TABLE original_table_schema RENAME TO new_schema.renamed_table");
+        assertQueryFails("DESC original_table_schema", "line 1:1: Table 'faker.default.original_table_schema' does not exist");
+        assertUpdate("DROP TABLE new_schema.renamed_table");
+        assertUpdate("DROP SCHEMA new_schema");
     }
 }
