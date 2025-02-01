@@ -11,30 +11,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.iceberg;
+package io.trino.plugin.loki;
 
 import com.google.common.collect.ImmutableMap;
+import io.trino.spi.Plugin;
 import io.trino.spi.connector.ConnectorFactory;
 import io.trino.testing.TestingConnectorContext;
 import org.junit.jupiter.api.Test;
 
-import java.util.Map;
+import static com.google.common.collect.Iterables.getOnlyElement;
 
-public class TestIcebergConnectorFactory
+final class TestLokiPlugin
 {
     @Test
-    public void testBasicConfig()
+    void testCreateConnector()
     {
-        Map<String, String> config = ImmutableMap.of(
-                "hive.metastore.uri", "thrift://localhost:1234",
-                "bootstrap.quiet", "true");
-        createConnector(config);
-    }
-
-    private static void createConnector(Map<String, String> config)
-    {
-        ConnectorFactory factory = new IcebergConnectorFactory();
-        factory.create("test", config, new TestingConnectorContext())
+        Plugin plugin = new LokiPlugin();
+        ConnectorFactory factory = getOnlyElement(plugin.getConnectorFactories());
+        factory.create(
+                        "test",
+                        ImmutableMap.of("loki.uri", "http://example.com"),
+                        new TestingConnectorContext())
                 .shutdown();
     }
 }
