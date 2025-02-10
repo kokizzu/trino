@@ -85,6 +85,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.collect.Iterables.getOnlyElement;
@@ -103,6 +104,8 @@ import static java.lang.String.format;
 import static java.nio.ByteOrder.LITTLE_ENDIAN;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Map.entry;
+import static org.apache.iceberg.FileContent.EQUALITY_DELETES;
+import static org.apache.iceberg.FileContent.POSITION_DELETES;
 import static org.apache.iceberg.FileFormat.ORC;
 import static org.apache.iceberg.FileFormat.PARQUET;
 import static org.apache.iceberg.TableProperties.DEFAULT_NAME_MAPPING;
@@ -260,7 +263,7 @@ public class TestIcebergV2
         assertUpdate("INSERT INTO " + tableName + " SELECT * FROM tpch.tiny.nation", 25);
         writeEqualityDeleteToNationTable(icebergTable, Optional.of(icebergTable.spec()), Optional.of(new PartitionData(new Long[] {2L})), ImmutableMap.of("regionkey", 2L));
         // the equality delete file is applied to 2 data files
-        assertQuery("SELECT count(*) FROM \"" + tableName + "$files\" WHERE content = " + FileContent.EQUALITY_DELETES.id(), "VALUES 2");
+        assertQuery("SELECT count(*) FROM \"" + tableName + "$files\" WHERE content = " + EQUALITY_DELETES.id(), "VALUES 2");
     }
 
     @Test
@@ -650,6 +653,31 @@ public class TestIcebergV2
                 .doesNotContain(initialActiveFiles.stream()
                         .filter(path -> !path.contains("regionkey=1"))
                         .toArray(String[]::new));
+    }
+
+    @Test
+    public void testOptimizingWholeTableRemovesDeleteFiles()
+            throws Exception
+    {
+        try (TestTable testTable = newTrinoTable("test_optimize_removes_obsolete_delete_files_", "AS SELECT * FROM tpch.tiny.nation")) {
+            assertUpdate("DELETE FROM " + testTable.getName() + " WHERE regionkey % 2 = 0", 15);
+            Table icebergTable = loadTable(testTable.getName());
+            writeEqualityDeleteToNationTable(icebergTable, Optional.of(icebergTable.spec()), Optional.of(new PartitionData(new Long[] {1L})));
+
+            assertThat(query("SELECT * FROM " + testTable.getName()))
+                    .matches("SELECT * FROM nation WHERE regionkey != 1 AND regionkey % 2 = 1");
+
+            assertQuery("SELECT count(*) FROM \"" + testTable.getName() + "$files\" WHERE content = " + POSITION_DELETES.id(), "VALUES 1");
+            assertQuery("SELECT count(*) FROM \"" + testTable.getName() + "$files\" WHERE content = " + EQUALITY_DELETES.id(), "VALUES 1");
+
+            assertQuerySucceeds("ALTER TABLE " + testTable.getName() + " EXECUTE OPTIMIZE");
+
+            assertQuery("SELECT count(*) FROM \"" + testTable.getName() + "$files\" WHERE content = " + POSITION_DELETES.id(), "VALUES 0");
+            assertQuery("SELECT count(*) FROM \"" + testTable.getName() + "$files\" WHERE content = " + EQUALITY_DELETES.id(), "VALUES 0");
+
+            assertThat(query("SELECT * FROM " + testTable.getName()))
+                    .matches("SELECT * FROM nation WHERE regionkey != 1 AND regionkey % 2 = 1");
+        }
     }
 
     @Test
@@ -1188,7 +1216,7 @@ public class TestIcebergV2
         assertThat(loadTable(tableName).newScan().planFiles()).hasSize(4);
 
         assertUpdate("ALTER TABLE " + tableName + " SET PROPERTIES partitioning = ARRAY['\"state.name\"', '\"district.name\"']");
-        Table icebergTable = updateTableToV2(tableName);
+        Table icebergTable = loadTable(tableName);
         assertThat(icebergTable.spec().fields().stream().map(PartitionField::name).toList())
                 .containsExactlyInAnyOrder("state.name", "district.name");
 
@@ -1246,7 +1274,7 @@ public class TestIcebergV2
         assertThat(loadTable(tableName).newScan().planFiles()).hasSize(2);
 
         assertUpdate("ALTER TABLE " + tableName + " SET PROPERTIES partitioning = ARRAY['\"country.state.district.name\"', '\"country.state.name\"']");
-        Table icebergTable = updateTableToV2(tableName);
+        Table icebergTable = loadTable(tableName);
         assertThat(icebergTable.spec().fields().stream().map(PartitionField::name).toList())
                 .containsExactlyInAnyOrder("country.state.district.name", "country.state.name");
 
@@ -1537,6 +1565,7 @@ public class TestIcebergV2
         BaseTable table = loadTable(tableName);
         TableOperations operations = table.operations();
         TableMetadata currentMetadata = operations.current();
+        checkArgument(currentMetadata.formatVersion() != 2, "Format version is already 2: '%s'", tableName);
         operations.commit(currentMetadata, currentMetadata.upgradeToFormatVersion(2));
 
         return table;
