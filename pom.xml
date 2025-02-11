@@ -211,7 +211,7 @@
         <dep.snowflake.version>3.22.0</dep.snowflake.version>
         <dep.swagger.version>2.2.28</dep.swagger.version>
         <dep.takari.version>2.2.0</dep.takari.version>
-        <dep.tcnative.version>2.0.69.Final</dep.tcnative.version>
+        <dep.tcnative.version>2.0.70.Final</dep.tcnative.version>
         <dep.tempto.version>202</dep.tempto.version>
         <dep.wire.version>4.9.11</dep.wire.version>
         <dep.zookeeper.version>3.9.3</dep.zookeeper.version>
@@ -269,7 +269,7 @@
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-bom</artifactId>
-                <version>4.1.117.Final</version>
+                <version>4.1.118.Final</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -309,7 +309,7 @@
             <dependency>
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
-                <version>2.30.16</version>
+                <version>2.30.17</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -897,13 +897,13 @@
             <dependency>
                 <groupId>io.projectreactor</groupId>
                 <artifactId>reactor-core</artifactId>
-                <version>3.7.2</version>
+                <version>3.7.3</version>
             </dependency>
 
             <dependency>
                 <groupId>io.projectreactor.netty</groupId>
                 <artifactId>reactor-netty-core</artifactId>
-                <version>1.1.26</version>
+                <version>1.1.27</version>
             </dependency>
 
             <!-- io.confluent:kafka-avro-serializer uses multiple versions of this transitive dependency -->
