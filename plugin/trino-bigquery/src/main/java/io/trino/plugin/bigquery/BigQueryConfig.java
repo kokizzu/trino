@@ -52,6 +52,7 @@ public class BigQueryConfig
     private Optional<String> viewMaterializationProject = Optional.empty();
     private Optional<String> viewMaterializationDataset = Optional.empty();
     private int maxReadRowsRetries = DEFAULT_MAX_READ_ROWS_RETRIES;
+    private int metadataPageSize = 1000;
     private boolean caseInsensitiveNameMatching;
     private Duration caseInsensitiveNameMatchingCacheTtl = new Duration(0, MILLISECONDS);
     private Duration viewsCacheTtl = new Duration(15, MINUTES);
@@ -64,7 +65,7 @@ public class BigQueryConfig
     private String queryLabelFormat;
     private boolean proxyEnabled;
     private boolean projectionPushDownEnabled = true;
-    private int metadataParallelism = 2;
+    private int metadataParallelism = Runtime.getRuntime().availableProcessors();
 
     public Optional<String> getProjectId()
     {
@@ -195,6 +196,20 @@ public class BigQueryConfig
     public BigQueryConfig setMaxReadRowsRetries(int maxReadRowsRetries)
     {
         this.maxReadRowsRetries = maxReadRowsRetries;
+        return this;
+    }
+
+    @Min(1)
+    public int getMetadataPageSize()
+    {
+        return metadataPageSize;
+    }
+
+    @Config("bigquery.metadata-page-size")
+    @ConfigDescription("The number of metadata entries retrieved per API request")
+    public BigQueryConfig setMetadataPageSize(int metadataPageSize)
+    {
+        this.metadataPageSize = metadataPageSize;
         return this;
     }
 

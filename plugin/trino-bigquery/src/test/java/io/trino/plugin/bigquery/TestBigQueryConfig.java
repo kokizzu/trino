@@ -42,6 +42,7 @@ public class TestBigQueryConfig
                 .setViewMaterializationProject(null)
                 .setViewMaterializationDataset(null)
                 .setMaxReadRowsRetries(3)
+                .setMetadataPageSize(1000)
                 .setCaseInsensitiveNameMatching(false)
                 .setCaseInsensitiveNameMatchingCacheTtl(new Duration(0, MILLISECONDS))
                 .setViewsCacheTtl(new Duration(15, MINUTES))
@@ -55,7 +56,7 @@ public class TestBigQueryConfig
                 .setQueryLabelFormat(null)
                 .setProxyEnabled(false)
                 .setProjectionPushdownEnabled(true)
-                .setMetadataParallelism(2));
+                .setMetadataParallelism(Runtime.getRuntime().availableProcessors()));
     }
 
     @Test
@@ -72,6 +73,7 @@ public class TestBigQueryConfig
                 .put("bigquery.view-materialization-project", "vmproject")
                 .put("bigquery.view-materialization-dataset", "vmdataset")
                 .put("bigquery.max-read-rows-retries", "10")
+                .put("bigquery.metadata-page-size", "100")
                 .put("bigquery.case-insensitive-name-matching", "true")
                 .put("bigquery.case-insensitive-name-matching.cache-ttl", "1h")
                 .put("bigquery.views-cache-ttl", "1m")
@@ -97,6 +99,7 @@ public class TestBigQueryConfig
                 .setViewMaterializationProject("vmproject")
                 .setViewMaterializationDataset("vmdataset")
                 .setMaxReadRowsRetries(10)
+                .setMetadataPageSize(100)
                 .setCaseInsensitiveNameMatching(true)
                 .setCaseInsensitiveNameMatchingCacheTtl(new Duration(1, HOURS))
                 .setViewsCacheTtl(new Duration(1, MINUTES))
