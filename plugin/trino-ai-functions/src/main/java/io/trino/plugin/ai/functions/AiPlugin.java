@@ -11,21 +11,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.deltalake;
+package io.trino.plugin.ai.functions;
 
-import io.trino.metastore.HiveMetastore;
-import io.trino.plugin.hive.security.AccessControlMetadata;
+import com.google.common.collect.ImmutableList;
+import io.trino.spi.Plugin;
+import io.trino.spi.connector.ConnectorFactory;
 
-public interface DeltaLakeAccessControlMetadataFactory
+public class AiPlugin
+        implements Plugin
 {
-    DeltaLakeAccessControlMetadataFactory SYSTEM = metastore -> new AccessControlMetadata() {
-        @Override
-        public boolean isUsingSystemSecurity()
-        {
-            return true;
-        }
-    };
-    DeltaLakeAccessControlMetadataFactory DEFAULT = metastore -> new AccessControlMetadata() {};
-
-    AccessControlMetadata create(HiveMetastore metastore);
+    @Override
+    public Iterable<ConnectorFactory> getConnectorFactories()
+    {
+        return ImmutableList.of(new AiConnectorFactory());
+    }
 }

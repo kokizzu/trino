@@ -11,21 +11,26 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.hive.security;
+package io.trino.plugin.ai.functions;
 
 import com.google.inject.Binder;
 import com.google.inject.Module;
 import com.google.inject.Scopes;
-import io.trino.plugin.base.security.AllowAllAccessControl;
-import io.trino.spi.connector.ConnectorAccessControl;
 
-public class AllowAllSecurityModule
+import static io.airlift.configuration.ConfigBinder.configBinder;
+import static io.airlift.http.client.HttpClientBinder.httpClientBinder;
+
+public class OpenAiModule
         implements Module
 {
     @Override
     public void configure(Binder binder)
     {
-        binder.bind(ConnectorAccessControl.class).to(AllowAllAccessControl.class).in(Scopes.SINGLETON);
-        binder.bind(AccessControlMetadataFactory.class).toInstance(metastore -> new AccessControlMetadata() {});
+        configBinder(binder).bindConfig(OpenAiConfig.class);
+
+        httpClientBinder(binder).bindHttpClient("ai", ForAiClient.class);
+
+        binder.bind(OpenAiClient.class).in(Scopes.SINGLETON);
+        binder.bind(AiClient.class).to(OpenAiClient.class).in(Scopes.SINGLETON);
     }
 }
