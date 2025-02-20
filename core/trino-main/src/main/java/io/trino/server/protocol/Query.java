@@ -93,6 +93,7 @@ import static io.trino.memory.context.AggregatedMemoryContext.newSimpleAggregate
 import static io.trino.server.protocol.ProtocolUtil.createColumn;
 import static io.trino.server.protocol.ProtocolUtil.toStatementStats;
 import static io.trino.server.protocol.QueryInfoUrlFactory.getQueryInfoUri;
+import static io.trino.server.protocol.QueryResultRows.empty;
 import static io.trino.server.protocol.QueryResultRows.queryResultRowsBuilder;
 import static io.trino.server.protocol.Slug.Context.EXECUTING_QUERY;
 import static io.trino.spi.StandardErrorCode.SERIALIZATION_ERROR;
@@ -184,7 +185,7 @@ class Query
     private Optional<Throwable> typeSerializationException = Optional.empty();
 
     @GuardedBy("this")
-    private Long updateCount;
+    private OptionalLong updateCount = OptionalLong.empty();
 
     public static Query create(
             Session session,
@@ -442,13 +443,12 @@ class Query
             resultRows = removePagesFromExchange(queryInfo, targetResultSize.toBytes());
         }
         else {
-            resultRows = queryResultRowsBuilder(session).build();
+            resultRows = empty();
         }
 
-        if ((queryInfo.updateType() != null) && (updateCount == null)) {
+        if ((queryInfo.updateType() != null) && updateCount.isEmpty()) {
             // grab the update count for non-queries
-            Optional<Long> updatedRowsCount = resultRows.getUpdateCount();
-            updateCount = updatedRowsCount.orElse(null);
+            updateCount = resultRows.getUpdateCount();
         }
 
         if (isStarted && (queryInfo.outputStage().isEmpty() || exchangeDataSource.isFinished())) {
@@ -514,7 +514,7 @@ class Query
                 getQueryInfoUri(queryInfoUrl, queryId, externalUriInfo),
                 partialCancelUri,
                 nextResultsUri,
-                resultRows.getColumns().orElse(null),
+                resultRows.getOptionalColumns(),
                 queryDataProducer.produce(externalUriInfo, session, resultRows, this::handleSerializationException),
                 toStatementStats(queryInfo),
                 toQueryError(queryInfo, typeSerializationException),
@@ -551,7 +551,7 @@ class Query
     private synchronized QueryResultRows removePagesFromExchange(ResultQueryInfo queryInfo, long targetResultBytes)
     {
         if (!resultsConsumed && queryInfo.outputStage().isEmpty()) {
-            return queryResultRowsBuilder(session)
+            return queryResultRowsBuilder()
                     .withColumnsAndTypes(ImmutableList.of(), ImmutableList.of())
                     .build();
         }
@@ -560,7 +560,7 @@ class Query
         // client while holding the lock because the query may transition to the finished state when the
         // last page is removed.  If another thread observes this state before the response is cached
         // the pages will be lost.
-        QueryResultRows.Builder resultBuilder = queryResultRowsBuilder(session)
+        QueryResultRows.Builder resultBuilder = queryResultRowsBuilder()
                 .withColumnsAndTypes(columns, types);
 
         try {

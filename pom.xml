@@ -5,12 +5,12 @@
     <parent>
         <groupId>io.airlift</groupId>
         <artifactId>airbase</artifactId>
-        <version>218</version>
+        <version>219</version>
     </parent>
 
     <groupId>io.trino</groupId>
     <artifactId>trino-root</artifactId>
-    <version>471-SNAPSHOT</version>
+    <version>472-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>${project.artifactId}</name>
@@ -36,7 +36,6 @@
         <module>core/trino-parser</module>
         <module>core/trino-server</module>
         <module>core/trino-server-main</module>
-        <module>core/trino-server-rpm</module>
         <module>core/trino-spi</module>
         <module>core/trino-web-ui</module>
         <module>docs</module>
@@ -150,7 +149,7 @@
     <properties>
         <project.build.targetJdk>23</project.build.targetJdk>
         <!-- for reproducible build support, updated by release plugin -->
-        <project.build.outputTimestamp>2025-02-06T01:52:24Z</project.build.outputTimestamp>
+        <project.build.outputTimestamp>2025-02-20T01:33:19Z</project.build.outputTimestamp>
         <!-- TODO remove this property when no module overrides it -->
         <trino.error-prone.guarded-by>ERROR</trino.error-prone.guarded-by>
 
@@ -183,16 +182,16 @@
         <air.test.jvm.additional-arguments>${air.test.jvm.additional-arguments.default}</air.test.jvm.additional-arguments>
 
         <!-- keep dependency properties sorted -->
-        <dep.airlift.version>305</dep.airlift.version>
+        <dep.airlift.version>307</dep.airlift.version>
         <dep.alluxio.version>2.9.6</dep.alluxio.version>
         <dep.antlr.version>4.13.2</dep.antlr.version>
         <dep.avro.version>1.12.0</dep.avro.version>
-        <dep.aws-sdk.version>1.12.781</dep.aws-sdk.version>
+        <dep.aws-sdk.version>1.12.782</dep.aws-sdk.version>
         <dep.cassandra.version>4.17.0</dep.cassandra.version>
         <dep.confluent.version>7.7.1</dep.confluent.version>
         <dep.docker.images.version>108</dep.docker.images.version>
         <dep.drift.version>1.22</dep.drift.version>
-        <dep.flyway.version>11.3.2</dep.flyway.version>
+        <dep.flyway.version>11.3.3</dep.flyway.version>
         <dep.frontend-maven-plugin.version>1.15.1</dep.frontend-maven-plugin.version>
         <dep.frontend-node.version>v22.13.1</dep.frontend-node.version>
         <dep.frontend-npm.version>11.1.0</dep.frontend-npm.version>
@@ -302,7 +301,7 @@
             <dependency>
                 <groupId>org.testcontainers</groupId>
                 <artifactId>testcontainers-bom</artifactId>
-                <version>1.20.4</version>
+                <version>1.20.5</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -310,7 +309,7 @@
             <dependency>
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
-                <version>2.30.22</version>
+                <version>2.30.24</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -1401,12 +1400,6 @@
             <dependency>
                 <groupId>io.trino</groupId>
                 <artifactId>trino-server</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>io.trino</groupId>
-                <artifactId>trino-server-rpm</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

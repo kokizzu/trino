@@ -8,8 +8,6 @@
 
 ## JDBC driver
 
-## Server RPM
-
 ## Docker image
 
 ## CLI
@@ -25,6 +23,8 @@
 ## Delta Lake connector
 
 ## Druid connector
+
+## DuckDB connector
 
 ## Elasticsearch connector
 
@@ -47,6 +47,8 @@
 ## Kafka connector
 
 ## Kudu connector
+
+## Loki connector
 
 ## MariaDB connector
 
