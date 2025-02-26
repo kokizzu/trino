@@ -11,14 +11,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.sql.gen;
+package io.trino.operator;
 
-import io.airlift.bytecode.ClassDefinition;
-import io.trino.sql.relational.RowExpression;
+import io.trino.spi.Page;
 
-import java.util.List;
-
-public interface BodyCompiler
+public interface SpoolingController
 {
-    void generateMethods(ClassDefinition classDefinition, CallSiteBinder callSiteBinder, RowExpression filter, List<RowExpression> projections);
+    enum Mode
+    {
+        INLINE,
+        BUFFER,
+        SPOOL
+    }
+
+    default Mode nextMode(Page page)
+    {
+        return nextMode(page.getPositionCount(), page.getSizeInBytes());
+    }
+
+    Mode nextMode(int positions, long size);
+
+    Mode execute(Mode mode, long positions, long size);
 }

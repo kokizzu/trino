@@ -20,6 +20,7 @@ import io.trino.client.spooling.DataAttributes;
 import io.trino.client.spooling.EncodedQueryData;
 import io.trino.server.ExternalUriInfo;
 import io.trino.server.protocol.OutputColumn;
+import io.trino.server.protocol.QueryDataProducer;
 import io.trino.server.protocol.QueryResultRows;
 import io.trino.spi.Page;
 import io.trino.spi.TrinoException;
@@ -39,7 +40,7 @@ import static io.trino.server.protocol.spooling.CoordinatorSegmentResource.spool
 import static io.trino.spi.StandardErrorCode.SERIALIZATION_ERROR;
 import static java.util.Objects.requireNonNull;
 
-public class SpooledQueryDataProducer
+public class SpoolingQueryDataProducer
         implements QueryDataProducer
 {
     private final QueryDataEncoder.Factory encoderFactory;
@@ -47,7 +48,7 @@ public class SpooledQueryDataProducer
 
     private long currentOffset;
 
-    public SpooledQueryDataProducer(QueryDataEncoder.Factory encoderFactory)
+    public SpoolingQueryDataProducer(QueryDataEncoder.Factory encoderFactory)
     {
         this.encoderFactory = requireNonNull(encoderFactory, "encoderFactory is null");
     }
@@ -122,6 +123,6 @@ public class SpooledQueryDataProducer
 
     public static QueryDataProducer createSpooledQueryDataProducer(QueryDataEncoder.Factory encoder)
     {
-        return new SpooledQueryDataProducer(encoder);
+        return new SpoolingQueryDataProducer(encoder);
     }
 }

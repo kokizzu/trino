@@ -20,6 +20,7 @@ import io.airlift.units.Duration;
 import io.trino.client.spooling.DataAttributes;
 import io.trino.memory.context.LocalMemoryContext;
 import io.trino.operator.OperationTimer.OperationTiming;
+import io.trino.operator.OperatorSpoolingController.MetricSnapshot;
 import io.trino.server.protocol.OutputColumn;
 import io.trino.server.protocol.spooling.QueryDataEncoder;
 import io.trino.server.protocol.spooling.SpooledBlock;
@@ -41,6 +42,7 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import java.util.function.ToLongFunction;
 
@@ -55,6 +57,7 @@ import static io.trino.operator.OutputSpoolingOperatorFactory.OutputSpoolingOper
 import static io.trino.operator.OutputSpoolingOperatorFactory.OutputSpoolingOperator.State.HAS_LAST_OUTPUT;
 import static io.trino.operator.OutputSpoolingOperatorFactory.OutputSpoolingOperator.State.HAS_OUTPUT;
 import static io.trino.operator.OutputSpoolingOperatorFactory.OutputSpoolingOperator.State.NEEDS_INPUT;
+import static io.trino.operator.SpoolingController.Mode.SPOOL;
 import static io.trino.server.protocol.spooling.SpooledBlock.SPOOLING_METADATA_SYMBOL;
 import static io.trino.server.protocol.spooling.SpooledBlock.SPOOLING_METADATA_TYPE;
 import static io.trino.server.protocol.spooling.SpooledBlock.createNonSpooledPage;
@@ -139,7 +142,7 @@ public class OutputSpoolingOperatorFactory
     static class OutputSpoolingOperator
             implements Operator
     {
-        private final OutputSpoolingController controller;
+        private final OperatorSpoolingController controller;
         private final ZoneId clientZoneId;
 
         enum State
@@ -159,6 +162,7 @@ public class OutputSpoolingOperatorFactory
         private final PageBuffer buffer;
         private final Block[] emptyBlocks;
         private final OperationTiming spoolingTiming = new OperationTiming();
+        private final AtomicLong encodedBytes = new AtomicLong();
 
         private Page outputPage;
 
@@ -166,7 +170,7 @@ public class OutputSpoolingOperatorFactory
         {
             this.operatorContext = requireNonNull(operatorContext, "operatorContext is null");
             this.clientZoneId = operatorContext.getSession().getTimeZoneKey().getZoneId();
-            this.controller = new OutputSpoolingController(
+            this.controller = new OperatorSpoolingController(
                     isInliningEnabled(operatorContext.getSession()),
                     getInliningMaxRows(operatorContext.getSession()),
                     getInliningMaxSize(operatorContext.getSession()).toBytes(),
@@ -179,7 +183,7 @@ public class OutputSpoolingOperatorFactory
             this.emptyBlocks = emptyBlocks(layout);
             this.buffer = PageBuffer.create(userMemoryContext);
 
-            operatorContext.setInfoSupplier(new OutputSpoolingInfoSupplier(spoolingTiming, controller));
+            operatorContext.setInfoSupplier(new OutputSpoolingInfoSupplier(spoolingTiming, controller, encodedBytes));
         }
 
         @Override
@@ -200,7 +204,7 @@ public class OutputSpoolingOperatorFactory
             checkState(needsInput(), "Operator is already finishing");
             requireNonNull(page, "page is null");
 
-            outputPage = switch (controller.getNextMode(page)) {
+            outputPage = switch (controller.nextMode(page)) {
                 case SPOOL -> {
                     buffer.add(page);
                     yield outputBuffer(false);
@@ -266,7 +270,7 @@ public class OutputSpoolingOperatorFactory
             long rows = reduce(pages, Page::getPositionCount);
             long size = reduce(pages, Page::getSizeInBytes);
             if (finished) {
-                controller.recordSpooled(rows, size); // final buffer
+                controller.execute(SPOOL, rows, size); // final buffer
             }
 
             SpooledSegmentHandle segmentHandle = spoolingManager.create(new SpoolingContext(
@@ -284,7 +288,7 @@ public class OutputSpoolingOperatorFactory
                         .set(EXPIRES_AT, expiresAt)
                         .build();
 
-                controller.recordEncoded(attributes.get(SEGMENT_SIZE, Integer.class));
+                encodedBytes.addAndGet(attributes.get(SEGMENT_SIZE, Integer.class));
 
                 // This page is small (hundreds of bytes) so there is no point in tracking its memory usage
                 return emptySingleRowPage(SpooledBlock.forLocation(spoolingManager.location(segmentHandle), attributes).serialize());
@@ -371,28 +375,33 @@ public class OutputSpoolingOperatorFactory
 
     private record OutputSpoolingInfoSupplier(
             OperationTiming spoolingTiming,
-            OutputSpoolingController controller)
+            OperatorSpoolingController controller,
+            AtomicLong encodedBytes)
             implements Supplier<OutputSpoolingInfo>
     {
         private OutputSpoolingInfoSupplier
         {
             requireNonNull(spoolingTiming, "spoolingTiming is null");
             requireNonNull(controller, "controller is null");
+            requireNonNull(encodedBytes, "encodedBytes is null");
         }
 
         @Override
         public OutputSpoolingInfo get()
         {
+            MetricSnapshot inlined = controller.inlinedMetrics();
+            MetricSnapshot spooled = controller.spooledMetrics();
+
             return new OutputSpoolingInfo(
                     succinctDuration(spoolingTiming.getWallNanos(), NANOSECONDS),
                     succinctDuration(spoolingTiming.getCpuNanos(), NANOSECONDS),
-                    controller.getInlinedPages(),
-                    controller.getInlinedPositions(),
-                    controller.getInlinedRawBytes(),
-                    controller.getSpooledPages(),
-                    controller.getSpooledPositions(),
-                    controller.getSpooledRawBytes(),
-                    controller.getSpooledEncodedBytes());
+                    inlined.pages(),
+                    inlined.positions(),
+                    inlined.size(),
+                    spooled.pages(),
+                    spooled.positions(),
+                    spooled.size(),
+                    encodedBytes.get());
         }
     }
 
