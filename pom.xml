@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.airlift</groupId>
         <artifactId>airbase</artifactId>
-        <version>227</version>
+        <version>229</version>
     </parent>
 
     <groupId>io.trino</groupId>
@@ -188,15 +188,15 @@
         <dep.avro.version>1.12.0</dep.avro.version>
         <dep.aws-sdk.version>1.12.782</dep.aws-sdk.version>
         <dep.cassandra.version>4.17.0</dep.cassandra.version>
-        <dep.confluent.version>7.7.1</dep.confluent.version>
-        <dep.docker.images.version>108</dep.docker.images.version>
+        <dep.confluent.version>7.8.0</dep.confluent.version>
+        <dep.docker.images.version>110</dep.docker.images.version>
         <dep.drift.version>1.22</dep.drift.version>
         <dep.flyway.version>11.3.4</dep.flyway.version>
         <dep.frontend-maven-plugin.version>1.15.1</dep.frontend-maven-plugin.version>
         <dep.frontend-node.version>v22.13.1</dep.frontend-node.version>
         <dep.frontend-npm.version>11.1.0</dep.frontend-npm.version>
         <dep.gib.version>4.5.4</dep.gib.version>
-        <dep.google.http.client.version>1.46.1</dep.google.http.client.version>
+        <dep.google.http.client.version>1.46.3</dep.google.http.client.version>
         <dep.httpcore5.version>5.3.3</dep.httpcore5.version>
         <dep.iceberg.version>1.8.1</dep.iceberg.version>
         <dep.jna.version>5.16.0</dep.jna.version>
@@ -213,7 +213,7 @@
         <dep.takari.version>2.2.0</dep.takari.version>
         <dep.tcnative.version>2.0.70.Final</dep.tcnative.version>
         <dep.tempto.version>202</dep.tempto.version>
-        <dep.wire.version>4.9.11</dep.wire.version>
+        <dep.wire.version>5.2.1</dep.wire.version>
         <dep.zookeeper.version>3.9.3</dep.zookeeper.version>
         <extraJavaVectorArgs>--add-modules=jdk.incubator.vector</extraJavaVectorArgs>
         <!--
@@ -237,7 +237,7 @@
             <dependency>
                 <groupId>com.google.cloud</groupId>
                 <artifactId>libraries-bom</artifactId>
-                <version>26.55.0</version>
+                <version>26.56.0</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -301,7 +301,7 @@
             <dependency>
                 <groupId>org.testcontainers</groupId>
                 <artifactId>testcontainers-bom</artifactId>
-                <version>1.20.5</version>
+                <version>1.20.6</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -309,7 +309,7 @@
             <dependency>
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
-                <version>2.30.31</version>
+                <version>2.30.33</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -472,7 +472,7 @@
             <dependency>
                 <groupId>com.google.cloud.bigdataoss</groupId>
                 <artifactId>gcs-connector</artifactId>
-                <version>3.0.4</version>
+                <version>3.0.5</version>
                 <classifier>shaded</classifier>
                 <exclusions>
                     <exclusion>
@@ -2166,7 +2166,7 @@
             <dependency>
                 <groupId>org.checkerframework</groupId>
                 <artifactId>checker-qual</artifactId>
-                <version>3.49.0</version>
+                <version>3.49.1</version>
             </dependency>
 
             <dependency>
