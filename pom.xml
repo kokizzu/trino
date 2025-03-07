@@ -10,7 +10,7 @@
 
     <groupId>io.trino</groupId>
     <artifactId>trino-root</artifactId>
-    <version>472-SNAPSHOT</version>
+    <version>473-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>${project.artifactId}</name>
@@ -35,6 +35,7 @@
         <module>core/trino-main</module>
         <module>core/trino-parser</module>
         <module>core/trino-server</module>
+        <module>core/trino-server-core</module>
         <module>core/trino-server-main</module>
         <module>core/trino-spi</module>
         <module>core/trino-web-ui</module>
@@ -86,7 +87,6 @@
         <module>plugin/trino-jmx</module>
         <module>plugin/trino-kafka</module>
         <module>plugin/trino-kafka-event-listener</module>
-        <module>plugin/trino-kudu</module>
         <module>plugin/trino-loki</module>
         <module>plugin/trino-mariadb</module>
         <module>plugin/trino-memory</module>
@@ -99,7 +99,6 @@
         <module>plugin/trino-opensearch</module>
         <module>plugin/trino-oracle</module>
         <module>plugin/trino-password-authenticators</module>
-        <module>plugin/trino-phoenix5</module>
         <module>plugin/trino-pinot</module>
         <module>plugin/trino-postgresql</module>
         <module>plugin/trino-prometheus</module>
@@ -149,7 +148,7 @@
     <properties>
         <project.build.targetJdk>23</project.build.targetJdk>
         <!-- for reproducible build support, updated by release plugin -->
-        <project.build.outputTimestamp>2025-02-20T01:33:19Z</project.build.outputTimestamp>
+        <project.build.outputTimestamp>2025-03-06T01:05:29Z</project.build.outputTimestamp>
         <!-- TODO remove this property when no module overrides it -->
         <trino.error-prone.guarded-by>ERROR</trino.error-prone.guarded-by>
 
@@ -1400,6 +1399,12 @@
             <dependency>
                 <groupId>io.trino</groupId>
                 <artifactId>trino-server</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>io.trino</groupId>
+                <artifactId>trino-server-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
