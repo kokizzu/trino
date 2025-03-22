@@ -80,7 +80,7 @@ public final class FlatHash
     private int nextGroupId;
     private int maxFill;
 
-    public FlatHash(FlatHashStrategy flatHashStrategy, FlatGroupByHash.HashMode hashMode, int expectedSize, UpdateMemory checkMemoryReservation)
+    public FlatHash(FlatHashStrategy flatHashStrategy, GroupByHashMode hashMode, int expectedSize, UpdateMemory checkMemoryReservation)
     {
         this.flatHashStrategy = requireNonNull(flatHashStrategy, "flatHashStrategy is null");
         this.checkMemoryReservation = requireNonNull(checkMemoryReservation, "checkMemoryReservation is null");
@@ -204,24 +204,30 @@ public final class FlatHash
         }
     }
 
-    public boolean contains(Block[] blocks, int position)
-    {
-        return contains(blocks, position, flatHashStrategy.hash(blocks, position));
-    }
-
-    public boolean contains(Block[] blocks, int position, long hash)
-    {
-        return getIndex(blocks, position, hash) >= 0;
-    }
-
     public void computeHashes(Block[] blocks, long[] hashes, int offset, int length)
     {
-        flatHashStrategy.hashBlocksBatched(blocks, hashes, offset, length);
+        if (hasPrecomputedHash) {
+            Block hashBlock = blocks[blocks.length - 1];
+            for (int i = 0; i < length; i++) {
+                hashes[i] = BIGINT.getLong(hashBlock, offset + i);
+            }
+        }
+        else {
+            flatHashStrategy.hashBlocksBatched(blocks, hashes, offset, length);
+        }
     }
 
     public int putIfAbsent(Block[] blocks, int position)
     {
-        return putIfAbsent(blocks, position, flatHashStrategy.hash(blocks, position));
+        long hash;
+        if (hasPrecomputedHash) {
+            hash = BIGINT.getLong(blocks[blocks.length - 1], position);
+        }
+        else {
+            hash = flatHashStrategy.hash(blocks, position);
+        }
+
+        return putIfAbsent(blocks, position, hash);
     }
 
     public int putIfAbsent(Block[] blocks, int position, long hash)
@@ -246,7 +252,7 @@ public final class FlatHash
     private int getIndex(Block[] blocks, int position, long hash)
     {
         byte hashPrefix = (byte) (hash & 0x7F | 0x80);
-        int bucket = bucket((int) hash >> 7);
+        int bucket = bucket((int) (hash >> 7));
 
         int step = 1;
         long repeated = repeat(hashPrefix);
